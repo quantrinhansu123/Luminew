@@ -222,9 +222,9 @@ function mapMktReportRowToVirtual(row, source) {
   // PostgREST trả key theo đúng tên cột (không có dấu quote trong key).
   const ngay = String(getFirstDefined(row, ['Ngày']) ?? '').slice(0, 10);
   const ca = normalizePickValue(getFirstDefined(row, ['ca']) ?? '');
-  const team = String(getFirstDefined(row, ['Team']) ?? '').trim();
-  const sanPham = String(getFirstDefined(row, ['Sản_phẩm']) ?? '').trim();
-  const thiTruong = String(getFirstDefined(row, ['Thị_trường']) ?? '').trim();
+  const team = normalizePickValue(getFirstDefined(row, ['Team']) ?? '');
+  const sanPham = normalizePickValue(getFirstDefined(row, ['Sản_phẩm']) ?? '');
+  const thiTruong = normalizePickValue(getFirstDefined(row, ['Thị_trường']) ?? '');
   const soMessCmt = parseNumberLoose(getFirstDefined(row, ['Số_Mess_Cmt', 'Số Mess', 'So_Mess_Cmt']) ?? 0);
   const cpqc = parseNumberLoose(getFirstDefined(row, ['CPQC', 'Cpqc', 'cpqc']) ?? 0);
   const soDonTay = parseNumberLoose(getFirstDefined(row, ['Số đơn', 'Số_đơn', 'So don', 'So_don']) ?? 0);
@@ -927,6 +927,7 @@ function FilterHeader({ title }) {
 }
 
 function CheckboxList({ values, selected, allChecked, onToggleAll, onToggle, emptyLabel }) {
+  const selectedSet = new Set((selected || []).map((x) => normalizePickValue(x)).filter(Boolean));
   return (
     <div style={{ marginTop: 8 }}>
       <label style={{ display: 'block', marginBottom: 8, fontSize: 12, cursor: 'pointer' }}>
@@ -939,7 +940,12 @@ function CheckboxList({ values, selected, allChecked, onToggleAll, onToggle, emp
         ) : (
           values.map((v) => (
             <label key={v} style={{ display: 'block', marginBottom: 6, fontSize: 12, cursor: 'pointer' }}>
-              <input type="checkbox" style={{ marginRight: 6 }} checked={(selected || []).includes(v)} onChange={() => onToggle(v)} />
+              <input
+                type="checkbox"
+                style={{ marginRight: 6 }}
+                checked={selectedSet.has(normalizePickValue(v))}
+                onChange={() => onToggle(v)}
+              />
               {v}
             </label>
           ))
