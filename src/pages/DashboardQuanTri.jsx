@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import usePermissions from '../hooks/usePermissions';
 import { useUserDepartment } from '../hooks/useUserDepartment';
+import { supabase } from '../supabase/config';
 import {
   DASHBOARD_GLOBAL_DATE_MESSAGE_TYPE,
   readDashboardGlobalDateRange,
@@ -51,15 +52,60 @@ export default function DashboardQuanTri() {
   const storedGlobal = useMemo(() => readDashboardGlobalDateRange(), []);
   const [globalFrom, setGlobalFrom] = useState(() => storedGlobal?.from ?? fallbackRange.startDateStr);
   const [globalTo, setGlobalTo] = useState(() => storedGlobal?.to ?? fallbackRange.endDateStr);
-  const [activeTab, setActiveTab] = useState('sale');
+  // Ưu tiên hiện tab "Báo cáo tổng" trước để tránh cảm giác "trắng" khi iframe bị chặn/redirect.
+  const [activeTab, setActiveTab] = useState('tong-hop');
   const iframeSaleRef = useRef(null);
   const iframeMktRef = useRef(null);
   const iframeCskhRef = useRef(null);
   const iframeVhRef = useRef(null);
+  const didAutoPickRangeRef = useRef(false);
 
   useLayoutEffect(() => {
     writeDashboardGlobalDateRange(globalFrom, globalTo);
   }, [globalFrom, globalTo]);
+
+  /**
+   * Nếu chưa có stored range: tự pick khoảng ngày theo dữ liệu mới nhất trong DB.
+   * Tránh tình trạng mặc định 3 ngày gần nhất theo máy nhưng DB chưa có data → dashboard trống.
+   */
+  useEffect(() => {
+    if (didAutoPickRangeRef.current) return;
+    if (storedGlobal?.from && storedGlobal?.to) return;
+    didAutoPickRangeRef.current = true;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [saleMax, vanDonMax] = await Promise.all([
+          supabase.from('sales_reports').select('date').order('date', { ascending: false }).limit(1),
+          supabase.from('bao_cao_van_don').select('ngay').order('ngay', { ascending: false }).limit(1),
+        ]);
+        if (cancelled) return;
+
+        const saleYmd = (Array.isArray(saleMax?.data) ? saleMax.data[0]?.date : saleMax?.data?.date) || null;
+        const vdYmd = (Array.isArray(vanDonMax?.data) ? vanDonMax.data[0]?.ngay : vanDonMax?.data?.ngay) || null;
+
+        const toYmd = String(saleYmd || vdYmd || '').slice(0, 10);
+        if (!toYmd || toYmd.length < 10) return;
+
+        const d = new Date(Number(toYmd.slice(0, 4)), Number(toYmd.slice(5, 7)) - 1, Number(toYmd.slice(8, 10)));
+        if (Number.isNaN(d.getTime())) return;
+        const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        start.setDate(start.getDate() - 2); // 3 days window
+        const pad2 = (n) => String(n).padStart(2, '0');
+        const fromYmd = `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`;
+
+        setGlobalFrom(fromYmd);
+        setGlobalTo(toYmd);
+      } catch {
+        // ignore: fallbackRange đã set sẵn
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storedGlobal?.from, storedGlobal?.to]);
 
   useEffect(() => {
     const payload = { type: DASHBOARD_GLOBAL_DATE_MESSAGE_TYPE, from: globalFrom, to: globalTo };

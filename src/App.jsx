@@ -87,6 +87,7 @@ function AppShell() {
   const inIframe =
     typeof window !== 'undefined' && window.self !== window.top;
   const hideHeader = location.pathname.startsWith('/embed/') || inIframe;
+  const isAuthenticated = typeof window !== 'undefined' && localStorage.getItem('isAuthenticated') === 'true';
 
   return (
     <>
@@ -94,6 +95,14 @@ function AppShell() {
       <div className="min-h-screen bg-gray-50">
         <ErrorBoundary>
           {!hideHeader && <Header />}
+          {import.meta.env.DEV && (
+            <div className="fixed bottom-2 left-2 z-[9999] rounded-md border border-slate-200 bg-white/95 px-2 py-1 text-[11px] text-slate-700 shadow-sm">
+              <div className="font-semibold">debug</div>
+              <div>path: {location.pathname}</div>
+              <div>auth: {String(isAuthenticated)}</div>
+              <div>inIframe: {String(inIframe)}</div>
+            </div>
+          )}
 
           {/* Routes */}
           <Routes>

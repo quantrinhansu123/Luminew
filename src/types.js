@@ -84,7 +84,7 @@ export const DROPDOWN_OPTIONS = {
  * Giá trị chọn khi sửa ô «Kết quả Check» trên lưới (FFM / FFM HCM / Vận đơn).
  * Bộ lọc cột vẫn lấy theo distinct trên dữ liệu (không dùng danh sách này).
  */
-export const KET_QUA_CHECK_GRID_SELECT_OPTIONS = ['OK', 'Treo', 'Đợi hàng', 'Huỷ', 'Vận đơn XL', 'Trống'];
+export const KET_QUA_CHECK_GRID_SELECT_OPTIONS = ['OK', 'Treo', 'Đợi hàng', 'Khách hẹn', 'Huỷ', 'Vận đơn XL', 'Trống'];
 
 /** `''` đầu danh sách = để trống ô; thêm giá trị hiện có nếu không nằm trong preset (dữ liệu cũ). */
 export function buildKetQuaCheckSelectOptionsWithCurrent(currentVal) {

@@ -2725,15 +2725,7 @@ export default function BaoCaoVanHanhHtml() {
                             ))}
                             {renderMetricPair(total.giaoTC, total.giaoTCAmount)}
                         </tr>
-                        <tr className="bg-[#F8CBAD] font-bold">
-                            <td className="border border-black px-2 py-1">MGT (theo key histogram)</td>
-                            {markets.map((mk) => (
-                                <React.Fragment key={`mgt-${mk}`}>
-                                    {renderMetricPair(byMarket[mk].mgt, byMarket[mk].mgtAmount)}
-                                </React.Fragment>
-                            ))}
-                            {renderMetricPair(total.mgt, total.mgtAmount)}
-                        </tr>
+                        {/* Bỏ dòng MGT (theo key histogram) theo yêu cầu */}
                         <tr className="bg-cyan-200 font-bold">
                             <td className="border border-black px-2 py-1">Đơn có mã (Mã tracking)</td>
                             {markets.map((mk) => (

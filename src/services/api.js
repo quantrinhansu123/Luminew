@@ -330,7 +330,7 @@ function vanDonRowHasBillEvidenceDb(r) {
     if (!r || typeof r !== 'object') return false;
     const img = r.payment_image;
     if (img != null && String(img).trim() !== '') return true;
-    const up = r.ngayupbill;
+    const up = r.ngayupbill ?? r.ngay_up_bill;
     if (up != null && String(up).trim() !== '') return true;
     const pb = r.payment_bill;
     if (pb != null && String(pb).trim() !== '') return true;
@@ -1796,11 +1796,11 @@ export const fetchVanDon = async (options = {}) => {
                     }
                 }
 
-                /** `payment_bill` có thể không có trên một số bản sao `order_code_hcm` → thử bộ billOr nhỏ hơn khi lỗi cột. */
-                const billOrCandidates = [
-                    'ngayupbill.not.is.null,payment_image.not.is.null,payment_bill.not.is.null',
-                    'ngayupbill.not.is.null,payment_image.not.is.null',
-                ];
+                const upBillDbKeyCandidates = ['ngayupbill', 'ngay_up_bill'];
+                const buildBillOrCandidates = (upKey) => ([
+                    `${upKey}.not.is.null,payment_image.not.is.null,payment_bill.not.is.null`,
+                    `${upKey}.not.is.null,payment_image.not.is.null`,
+                ]);
 
                 const runBillPaidAggregates = async (billOr, moneyOr) => {
                     const [cRes, vRes, aRes] = await Promise.all([
@@ -1824,8 +1824,22 @@ export const fetchVanDon = async (options = {}) => {
                 };
 
                 let moneyOr = 'reconciled_vnd.gt.0,reconciled_amount.gt.0';
+                let upBillDbKey = upBillDbKeyCandidates[0];
+                let billOrCandidates = buildBillOrCandidates(upBillDbKey);
                 let billOr = billOrCandidates[0];
                 let { cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr);
+
+                const upBillNeedsFallback =
+                    (cRes.error &&
+                        String(cRes.error.message || '').toLowerCase().includes('ngayupbill')) ||
+                    (vRes.error &&
+                        String(vRes.error.message || '').toLowerCase().includes('ngayupbill'));
+                if (upBillNeedsFallback) {
+                    upBillDbKey = upBillDbKeyCandidates[1];
+                    billOrCandidates = buildBillOrCandidates(upBillDbKey);
+                    billOr = billOrCandidates[0];
+                    ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
+                }
 
                 const billNeedsFallback =
                     (cRes.error &&
@@ -1879,13 +1893,30 @@ export const fetchVanDon = async (options = {}) => {
 
                 if (needBillScan) {
                     const BILL_PROBE = 3000;
-                    const probeRes = await applyVanDonFilters(
+                    const billProbeCols = `${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`;
+                    let probeRes = await applyVanDonFilters(
                         supabase
                             .from(sumFromTable)
-                            .select('ngayupbill,payment_image,payment_bill,reconciled_vnd,reconciled_amount')
+                            .select(billProbeCols)
                     )
                         .order('order_date', { ascending: false })
                         .range(0, BILL_PROBE - 1);
+                    if (
+                        probeRes.error &&
+                        upBillDbKey === upBillDbKeyCandidates[0] &&
+                        String(probeRes.error.message || '').toLowerCase().includes('ngayupbill')
+                    ) {
+                        upBillDbKey = upBillDbKeyCandidates[1];
+                        billOrCandidates = buildBillOrCandidates(upBillDbKey);
+                        billOr = billOrCandidates[0];
+                        probeRes = await applyVanDonFilters(
+                            supabase
+                                .from(sumFromTable)
+                                .select(`${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`)
+                        )
+                            .order('order_date', { ascending: false })
+                            .range(0, BILL_PROBE - 1);
+                    }
                     if (!probeRes.error && (probeRes.data || []).length > 0) {
                         let probeHits = 0;
                         for (let i = 0; i < probeRes.data.length; i++) {
@@ -1907,7 +1938,7 @@ export const fetchVanDon = async (options = {}) => {
                                     supabase
                                         .from(sumFromTable)
                                         .select(
-                                            'ngayupbill,payment_image,payment_bill,reconciled_vnd,reconciled_amount'
+                                            `${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`
                                         )
                                 )
                                     .order('order_date', { ascending: false })
