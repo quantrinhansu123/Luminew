@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../supabase/config';
 import { formatCurrency, formatNumber, filterRawData } from '../../utils/nhanSuSaleLumiMoiLogic';
+import { aggregateVanHanhSlice, formatPct, formatSlVi } from '../../utils/baoCaoVanDonMarketMatrix';
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 80;
+const CEO_DEFAULT_SHIFT = 'Hết ca';
 
 // CEO MKT: đọc trực tiếp bảng MKT (HN + HCM). Các cột tiếng Việt cần quote đúng key.
 const MKT_DATE_COL = '"Ngày"';
@@ -99,6 +101,83 @@ function parseNumberLoose(value) {
   if (!digits) return 0;
   const n = Number((negative ? '-' : '') + digits);
   return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeYmd(value) {
+  if (!value) return '';
+  const s = String(value).trim();
+  if (!s) return '';
+  if (s.includes('T')) return s.slice(0, 10);
+  return s.slice(0, 10);
+}
+
+function sqlCoalesceNumbers(...vals) {
+  for (const v of vals) {
+    if (v == null || v === '') continue;
+    const n = Number(v);
+    if (!Number.isNaN(n)) return n;
+  }
+  return 0;
+}
+
+function resolveOrderDisplayTotalVnd(row) {
+  if (row?.van_don_line_total_vnd != null && row.van_don_line_total_vnd !== '') {
+    const v = Number(row.van_don_line_total_vnd);
+    if (!Number.isNaN(v)) return v;
+  }
+  const rawTong = row?.tong_tien_vnd ?? row?.tong_tien_VND;
+  if (rawTong != null && rawTong !== '' && !Number.isNaN(Number(rawTong))) {
+    const tn = Number(rawTong);
+    if (tn !== 0) return tn;
+  }
+  return sqlCoalesceNumbers(row?.total_amount_vnd, row?.sale_price, row?.goods_amount, 0);
+}
+
+function paymentLabelForOrder(order) {
+  const d = String(order?.payment_status_detail ?? '').trim();
+  if (d) return d;
+  return String(order?.payment_status ?? '').trim();
+}
+
+function paymentLabelIsCoBillOnly(label) {
+  const s = String(label ?? '').trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes('1 phần') && s.includes('bill')) return false;
+  return s.includes('có bill');
+}
+
+function mapOrderRowToVanDonVirtual(row) {
+  if (!row || typeof row !== 'object') return null;
+  const ngay = normalizeYmd(row?.order_date) || normalizeYmd(row?.created_at);
+  const checkResult = String(row?.check_result ?? '').trim() || '(Trống)';
+  const deliveryStatus = String(row?.delivery_status_nb ?? row?.delivery_status ?? '').trim() || '(Trống)';
+  const paymentLabel = paymentLabelForOrder(row) || '(Trống)';
+  const tracking = String(row?.tracking_code ?? '').trim();
+  const shippingUnit = String(row?.shipping_unit ?? '').trim();
+  const lenVh = shippingUnit ? 1 : 0;
+  const amt = resolveOrderDisplayTotalVnd(row);
+
+  const giaoHang = {
+    [deliveryStatus]: 1,
+    'Mã Tracking': tracking ? 1 : 0,
+    'Lên vận hành': lenVh,
+  };
+  if (/mgt/i.test(shippingUnit)) {
+    giaoHang.MGT = 1;
+  }
+
+  return {
+    _source: 'orders',
+    id: row?.id || row?.order_code || `${ngay}-${Math.random().toString(36).slice(2, 8)}`,
+    _ket_qua_check: { [checkResult]: 1 },
+    _trang_thai_giao_hang: giaoHang,
+    _trang_thai_thanh_toan: { [paymentLabel]: 1 },
+    _tien_trang_thai_thanh_toan: { [paymentLabel]: paymentLabelIsCoBillOnly(paymentLabel) ? Number(row?.total_amount_vnd) || 0 : 0 },
+    _tong_tien_vnd: amt,
+    _len_vh_don_vi: lenVh,
+    'khu vực': String(row?.country ?? '').trim() || 'Không xác định',
+    'Ngày lên đơn': ngay,
+  };
 }
 
 function mapMktReportRowToVirtual(row, source) {
@@ -228,9 +307,10 @@ function chotKind(soDon, mess) {
   return 'good';
 }
 
-export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo }) {
+export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, onChangeFrom, onChangeTo }) {
   const [rowsHn, setRowsHn] = useState([]);
   const [rowsHcm, setRowsHcm] = useState([]);
+  const [rowsOrders, setRowsOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -315,17 +395,42 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
         return all;
       };
 
-      const [hn, hcm] = await Promise.all([
+      const loadOrders = async () => {
+        const all = [];
+        for (let page = 0; page < MAX_PAGES; page += 1) {
+          const from = page * PAGE_SIZE;
+          const to = from + PAGE_SIZE - 1;
+          const { data, error: qErr } = await supabase
+            .from('orders')
+            .select(
+              'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, tong_tien_VND, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit'
+            )
+            .gte('order_date', globalFrom)
+            .lte('order_date', globalTo)
+            .order('order_date', { ascending: true })
+            .range(from, to);
+          if (qErr) throw qErr;
+          const batch = data || [];
+          all.push(...batch);
+          if (batch.length < PAGE_SIZE) break;
+        }
+        return all;
+      };
+
+      const [hn, hcm, orders] = await Promise.all([
         loadTable('detail_reports'),
         loadTable('marketing_report_hcm'),
+        loadOrders(),
       ]);
       setRowsHn(hn);
       setRowsHcm(hcm);
+      setRowsOrders(orders);
     } catch (e) {
       console.error(e);
       setError(e?.message || 'Không tải được detail_reports / marketing_report_hcm');
       setRowsHn([]);
       setRowsHcm([]);
+      setRowsOrders([]);
     } finally {
       setLoading(false);
     }
@@ -376,7 +481,8 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
       return;
     }
     setFilters({
-      shifts: [...filterOptions.shifts],
+      // CEO: ẩn bộ lọc ca, mặc định chỉ xem "Hết ca"
+      shifts: filterOptions.shifts.includes(CEO_DEFAULT_SHIFT) ? [CEO_DEFAULT_SHIFT] : [],
       teams: [...filterOptions.teams],
       products: [...filterOptions.products],
       markets: [...filterOptions.markets],
@@ -389,7 +495,12 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
     if (!didInitFiltersRef[0]) return;
     setFilters((prev) => {
       const next = {
-        shifts: mergeKeepAndAddNew(prev.shifts, filterOptions.shifts),
+        // CEO: luôn giữ logic mặc định "Hết ca" (không auto-add ca mới)
+        shifts: filterOptions.shifts.includes(CEO_DEFAULT_SHIFT)
+          ? prev.shifts?.includes(CEO_DEFAULT_SHIFT)
+            ? [CEO_DEFAULT_SHIFT]
+            : [CEO_DEFAULT_SHIFT]
+          : [],
         teams: mergeKeepAndAddNew(prev.teams, filterOptions.teams),
         products: mergeKeepAndAddNew(prev.products, filterOptions.products),
         markets: mergeKeepAndAddNew(prev.markets, filterOptions.markets),
@@ -420,7 +531,8 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
   const mappedFiltered = useMemo(() => {
     const productAll = allSelected.products;
     const marketAll = allSelected.markets;
-    const caAll = allSelected.shifts;
+    // CEO: luôn lọc "Hết ca" và ẩn filter ca khỏi UI
+    const caAll = false;
     const teamAll = allSelected.teams;
     let base = filterRawData({
       rawData: mappedAll,
@@ -435,7 +547,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
       productAll,
       selectedProducts: productAll ? null : filters.products,
       caAll,
-      selectedShifts: caAll ? null : filters.shifts,
+      selectedShifts: [CEO_DEFAULT_SHIFT],
       teamAll,
       selectedTeams: teamAll ? null : filters.teams,
       marketAll,
@@ -483,6 +595,11 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
     return [finalize(total), finalize(hcm), finalize(hn)];
   }, [mappedFiltered, bucketFromRow]);
 
+  const vanDonGrand = useMemo(() => {
+    const mapped = (rowsOrders || []).map(mapOrderRowToVanDonVirtual).filter(Boolean);
+    return aggregateVanHanhSlice(mapped);
+  }, [rowsOrders]);
+
   // Đã bỏ phần bảng theo ngày theo yêu cầu.
 
   return (
@@ -520,11 +637,23 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
 
           <label style={labelStyle}>
             Từ ngày:
-            <input type="date" value={globalFrom || ''} disabled style={inputStyle} />
+            <input
+              type="date"
+              value={globalFrom || ''}
+              disabled={typeof onChangeFrom !== 'function'}
+              onChange={(e) => onChangeFrom?.(e.target.value)}
+              style={inputStyle}
+            />
           </label>
           <label style={labelStyle}>
             Đến ngày:
-            <input type="date" value={globalTo || ''} disabled style={inputStyle} />
+            <input
+              type="date"
+              value={globalTo || ''}
+              disabled={typeof onChangeTo !== 'function'}
+              onChange={(e) => onChangeTo?.(e.target.value)}
+              style={inputStyle}
+            />
           </label>
 
           {error && (
@@ -564,16 +693,6 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
             onToggleAll={(checked) => setFilters((prev) => ({ ...prev, markets: checked ? [...filterOptions.markets] : [] }))}
             onToggle={(v) => setFilters((prev) => ({ ...prev, markets: toggleInList(prev.markets, v) }))}
             emptyLabel="Chưa có giá trị Thị trường trong dữ liệu đã tải"
-          />
-
-          <FilterHeader title="Ca" />
-          <CheckboxList
-            values={filterOptions.shifts}
-            selected={filters.shifts}
-            allChecked={allSelected.shifts}
-            onToggleAll={(checked) => setFilters((prev) => ({ ...prev, shifts: checked ? [...filterOptions.shifts] : [] }))}
-            onToggle={(v) => setFilters((prev) => ({ ...prev, shifts: toggleInList(prev.shifts, v) }))}
-            emptyLabel="Chưa có giá trị Ca trong dữ liệu đã tải"
           />
 
           <FilterHeader title="Team" />
@@ -634,6 +753,50 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div style={{ marginTop: 18 }}>
+            <h3 style={{ marginTop: 0, marginBottom: 8 }}>Vận đơn (orders)</h3>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+              Đã tải: <strong>{rowsOrders.length}</strong> đơn (theo <code>order_date</code>, {globalFrom} → {globalTo})
+            </div>
+
+            <div className="table-responsive-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th className="text-left">Chỉ số</th>
+                    <th>Giá trị</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="text-left">Tổng đơn</td>
+                    <td>{formatSlVi(vanDonGrand.tongLenDon)}</td>
+                  </tr>
+                  <tr>
+                    <td className="text-left">OK</td>
+                    <td>{formatSlVi(vanDonGrand.ok)}</td>
+                  </tr>
+                  <tr>
+                    <td className="text-left">Huỷ (kq check)</td>
+                    <td>{formatSlVi(vanDonGrand.huyCheck)}</td>
+                  </tr>
+                  <tr>
+                    <td className="text-left">Giao thành công</td>
+                    <td>{formatSlVi(vanDonGrand.giaoTC)}</td>
+                  </tr>
+                  <tr>
+                    <td className="text-left">Có bill</td>
+                    <td>{formatSlVi(vanDonGrand.donCoBill)}</td>
+                  </tr>
+                  <tr>
+                    <td className="text-left">% Thu / Giao TC</td>
+                    <td>{formatPct(vanDonGrand.donCoBill, vanDonGrand.giaoTC)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
         </div>

@@ -64,6 +64,7 @@ import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
 import DashboardQuanTri from './pages/DashboardQuanTri';
+import BaoCaoCeo from './pages/BaoCaoCeo';
 import XemBaoCaoMKTLegacy, { XEM_BAO_CAO_MKT_HCM_TEAM } from './pages/XemBaoCaoMKTLegacy';
 import XemBaoCaoMKTRnD from './pages/XemBaoCaoMKTRnD';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
@@ -202,6 +203,7 @@ function AppShell() {
             <Route path="/bao-cao-van-hanh-hcm" element={<ProtectedRoute><BaoCaoVanHanhHcm /></ProtectedRoute>} />
             <Route path="/embed/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/dashboard-quan-tri" element={<ProtectedRoute><DashboardQuanTri /></ProtectedRoute>} />
+            <Route path="/bao-cao-ceo" element={<ProtectedRoute><BaoCaoCeo /></ProtectedRoute>} />
             <Route path="/danh-sach-van-don" element={<ProtectedRoute><DanhSachVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-van-don-hcm" element={<ProtectedRoute><DanhSachVanDon dataSource="hcm" /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-van-don" element={<ProtectedRoute><DanhSachBaoCaoVanDon /></ProtectedRoute>} />
