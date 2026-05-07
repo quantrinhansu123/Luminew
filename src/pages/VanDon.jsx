@@ -1463,6 +1463,21 @@ function VanDon({ dataSource = 'default' }) {
     refetchVanDonMoney();
   }, [refetchVanDonRows, refetchVanDonMoney]);
 
+  const discardAllUnsavedChanges = useCallback(() => {
+    if (!window.confirm('Hủy bỏ tất cả thay đổi chưa lưu?')) return;
+    dbQueueRef.current = [];
+    changeHistoryRef.current = [];
+    historyIndexRef.current = -1;
+    pendingRowSnapshotsRef.current.clear();
+    setPendingChanges(new Map());
+    localStorage.removeItem(VAN_DON_PENDING_LS_KEY);
+    localStorage.removeItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY);
+    localStorage.removeItem('speegoPendingChanges');
+    localStorage.removeItem('speegoPendingRowSnapshots');
+    setSyncPopoverOpen(false);
+    refetchVanDonData();
+  }, [refetchVanDonData]);
+
   const [enableVanDonDistinctQuery, setEnableVanDonDistinctQuery] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -1985,16 +2000,18 @@ function VanDon({ dataSource = 'default' }) {
                   return !isVanDonSemanticEmpty(v) && filter.values.has(v);
                 }
                 case 'delivery_status': {
-                  const cur = getPendingCurrent(orderId, 'delivery_status', 'Trạng thái giao hàng');
-                  const v = cur !== undefined ? strNorm(cur) : strNorm(row.delivery_status ?? '');
+                  // Lọc phải dựa trên giá trị CHƯA sửa (gốc) — copy/paste mới dùng giá trị đã sửa.
+                  const o = getPendingOriginal(orderId, 'delivery_status', 'Trạng thái giao hàng');
+                  const v = o !== undefined ? strNorm(o) : strNorm(row.delivery_status ?? '');
                   if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
                   return !isVanDonSemanticEmpty(v) && filter.values.has(v);
                 }
                 case 'delivery_status_nb': {
-                  const cur = getPendingCurrent(orderId, 'Trạng thái giao hàng NB', 'delivery_status_nb');
+                  // Lọc phải dựa trên giá trị CHƯA sửa (gốc) — copy/paste mới dùng giá trị đã sửa.
+                  const o = getPendingOriginal(orderId, 'Trạng thái giao hàng NB', 'delivery_status_nb');
                   const v =
-                    cur !== undefined
-                      ? cur
+                    o !== undefined
+                      ? o
                       : (row?.['Trạng thái giao hàng NB'] ?? row?.delivery_status_nb ?? '');
                   const normV = strNorm(v);
                   if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(normV)) return true;
@@ -2432,7 +2449,16 @@ function VanDon({ dataSource = 'default' }) {
         }
         return sanitizeExcelTsvCell(out, { skipLeadingApostrophe: true });
       }
-      let val = getVanDonGridCellValue(rData, colName);
+      // Copy phải lấy GIÁ TRỊ ĐÃ SỬA (pending/newValue) giống lưới đang hiển thị.
+      // Không dựa hoàn toàn vào rData vì row có thể chưa kịp merge pending (đặc biệt với input defaultValue).
+      const oid = getVanDonRowOrderId(rData);
+      const pendingKey =
+        colName === 'Trạng thái giao hàng'
+          ? 'delivery_status'
+          : (COLUMN_MAPPING[colName] || colName);
+      const pendingInfo = oid ? pendingChanges.get(oid)?.get(pendingKey) : undefined;
+
+      let val = pendingInfo ? pendingInfo.newValue : getVanDonGridCellValue(rData, colName);
       if (!val && colName === 'Ngày up bill') {
         val = rData.ngayupbill ?? rData.ngay_up_bill ?? '';
       }
@@ -2472,7 +2498,7 @@ function VanDon({ dataSource = 'default' }) {
       }
       return sanitizeExcelTsvCell(out);
     },
-    [currentPage, effectiveRowsPerPage, formatDate]
+    [currentPage, effectiveRowsPerPage, formatDate, pendingChanges]
   );
 
   // If using backend pagination, data is already paginated
@@ -4562,6 +4588,28 @@ function VanDon({ dataSource = 'default' }) {
 
         e.preventDefault();
 
+        // Nếu đang focus trong input/textarea của ô lưới (dùng defaultValue + commit onBlur),
+        // hãy "flush" giá trị hiện tại vào pendingChanges để copy ra đúng dữ liệu đang nhìn thấy.
+        // (Tránh trường hợp đã gõ nhưng chưa blur/Enter → Ctrl+C copy vẫn ra giá trị cũ.)
+        let activeCellOverride = null;
+        try {
+          if (
+            activeEl &&
+            (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') &&
+            activeEl.getAttribute('data-van-cell-sync') === '1'
+          ) {
+            const oid = activeEl.getAttribute('data-van-order') || '';
+            const colKey = activeEl.getAttribute('data-van-col') || '';
+            if (oid && colKey) {
+              const v = activeEl.value ?? '';
+              activeCellOverride = { orderId: normalizeVanDonOrderIdKey(oid), colKey, value: v };
+              handleCellChange(oid, colKey, v);
+            }
+          }
+        } catch (err) {
+          console.warn('[VanDon] flush active cell before copy failed:', err);
+        }
+
         // Prepare data for clipboard (row index = Virtuoso / sortedData)
         const rows = [];
         for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
@@ -4570,15 +4618,52 @@ function VanDon({ dataSource = 'default' }) {
             rows.push('');
             continue;
           }
+          let effectiveRow = rData;
+          if (activeCellOverride?.orderId) {
+            const rid = getVanDonRowOrderId(rData);
+            if (rid && rid === activeCellOverride.orderId) {
+              // Override ngay tại thời điểm copy, không phụ thuộc state React update kịp hay không.
+              effectiveRow = { ...rData, [activeCellOverride.colKey]: activeCellOverride.value };
+            }
+          }
           const rowData = [];
           for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
             const colName = currentColumns[c];
-            rowData.push(getVanDonClipboardCellText(rData, r, colName));
+            rowData.push(getVanDonClipboardCellText(effectiveRow, r, colName));
           }
           rows.push(rowData.join('\t'));
         }
         const text = rows.join('\n');
-        navigator.clipboard.writeText(text);
+        // Clipboard API đôi khi bị chặn / update chậm theo môi trường + quyền.
+        // Fallback sync copy để user chỉ cần Ctrl+V 1 lần là dán đúng toàn bộ block.
+        const fallbackCopy = () => {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.top = '-1000px';
+            ta.style.left = '-1000px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            return true;
+          } catch {
+            return false;
+          }
+        };
+        try {
+          if (navigator?.clipboard?.writeText) {
+            navigator.clipboard.writeText(text).catch(() => {
+              fallbackCopy();
+            });
+          } else {
+            fallbackCopy();
+          }
+        } catch {
+          fallbackCopy();
+        }
 
         setCopiedSelection(selection);
         setCopiedData(text);
@@ -4659,6 +4744,7 @@ function VanDon({ dataSource = 'default' }) {
     currentColumns,
     handleUndo,
     handleRedo,
+    handleCellChange,
     getVanDonClipboardCellText,
     addToast,
   ]);
@@ -5747,6 +5833,16 @@ function VanDon({ dataSource = 'default' }) {
                 )}
               </button>
 
+              <button
+                type="button"
+                onClick={discardAllUnsavedChanges}
+                disabled={totalPendingCount === 0}
+                className="hidden p-0.5 px-1.5 rounded text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed bg-gray-200 hover:bg-gray-300 text-gray-800"
+                title="(Đã chuyển vào modal Xác nhận lưu) Bỏ tất cả thay đổi chưa lưu"
+              >
+                ↩️ Bỏ thay đổi
+              </button>
+
               <button onClick={() => setShowColumnSettings(true)} className="p-0.5 px-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded text-[11px] font-bold transition-all flex items-center gap-0.5">
                 ⚙️ Cài đặt cột
               </button>
@@ -6101,20 +6197,7 @@ function VanDon({ dataSource = 'default' }) {
           onApply={handleUpdateAll}
           onDiscardRow={handleDiscardRowChange}
           applyButtonLabel="Xác nhận lưu"
-          onDiscard={() => {
-            if (!window.confirm('Hủy bỏ tất cả thay đổi chưa lưu?')) return;
-            dbQueueRef.current = [];
-            changeHistoryRef.current = [];
-            historyIndexRef.current = -1;
-            pendingRowSnapshotsRef.current.clear();
-            setPendingChanges(new Map());
-            localStorage.removeItem(VAN_DON_PENDING_LS_KEY);
-            localStorage.removeItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY);
-            localStorage.removeItem('speegoPendingChanges');
-            localStorage.removeItem('speegoPendingRowSnapshots');
-            setSyncPopoverOpen(false);
-            void refreshData({ skipUnsavedCheck: true });
-          }}
+          onDiscard={discardAllUnsavedChanges}
         />
 
         {/* Quick Add Modal */}
@@ -6372,6 +6455,17 @@ function VanDon({ dataSource = 'default' }) {
                   className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all duration-200 active:scale-[0.98]"
                 >
                   Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSaveConfirmData(null);
+                    discardAllUnsavedChanges();
+                  }}
+                  className="px-6 py-2.5 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold transition-all duration-200 active:scale-[0.98]"
+                  title="Bỏ tất cả thay đổi chưa lưu"
+                >
+                  ↩️ Bỏ thay đổi
                 </button>
                 <button
                   onClick={saveConfirmData.onConfirm}
