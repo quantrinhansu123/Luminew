@@ -849,6 +849,18 @@ export default function BaoCaoVanHanhHtml() {
     }, [rawData, selectedPersonnelNames, isAdmin]);
 
     const matrix = useMemo(() => buildBaoCaoVanHanhMatrix(rawData), [rawData]);
+    /** Đồng bộ "Thống kê đơn": Huỷ vận hành theo trạng thái giao hàng NB = Hủy (không theo KQ check). */
+    const operationalByMarketMatrix = useMemo(() => {
+        const markets = matrix?.markets || [];
+        const byMarket = {};
+        for (const mk of markets) {
+            byMarket[mk] = aggregateOperationalReportSlice(
+                rawData.filter((r) => String(r?.['khu vực'] || '').trim() === String(mk))
+            );
+        }
+        const total = aggregateOperationalReportSlice(rawData);
+        return { markets, byMarket, total };
+    }, [matrix?.markets, rawData]);
     const pushMatrix = useMemo(() => {
         if (activeTab === 'tab4') {
             // Tab 4 bắt buộc lấy từ ffm_push_logs (kể cả không có dòng -> số = 0).
@@ -2672,15 +2684,21 @@ export default function BaoCaoVanHanhHtml() {
                             <td className="border border-black px-3 py-2 leading-tight">
                                 Huỷ vận hành
                                 <span className="block text-xs font-normal font-sans">
-                                    (có Đơn vị vận chuyển + kết quả check Huỷ)
+                                    (Trạng thái giao hàng NB = Hủy)
                                 </span>
                             </td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`hvh-${mk}`}>
-                                    {renderMetricPair(byMarket[mk].huyVanHanh, byMarket[mk].huyVanHanhAmount)}
+                                    {renderMetricPair(
+                                        operationalByMarketMatrix.byMarket[mk]?.huyVH || 0,
+                                        operationalByMarketMatrix.byMarket[mk]?.huyVHAmount || 0
+                                    )}
                                 </React.Fragment>
                             ))}
-                            {renderMetricPair(total.huyVanHanh, total.huyVanHanhAmount)}
+                            {renderMetricPair(
+                                operationalByMarketMatrix.total?.huyVH || 0,
+                                operationalByMarketMatrix.total?.huyVHAmount || 0
+                            )}
                         </tr>
                         <tr className="font-bold text-red-600">
                             <td className="border border-black px-3 py-2">Tổng đơn sau hủy</td>
