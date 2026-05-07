@@ -233,8 +233,22 @@ export function aggregateOperationalReportSlice(slice) {
             if (sumKeyMatch(r._ket_qua_check, (k) => checkLabelIsTreoOnly(k)) > 0) treo += 1;
             if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('doi hang')) > 0) doiHang += 1;
             if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy')) > 0) huyNoiBo += 1;
-            if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen')) > 0) khachHen += 1;
-            if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('van don xl')) > 0) vanDonXL += 1;
+            if (
+                sumKeyMatch(r._ket_qua_check, (k) => {
+                    const nk = normalizeCheckLabel(k);
+                    // Hỗ trợ biến thể: "Khách hẹn", "Hẹn khách", "Hẹn khách/...", ...
+                    return nk.includes('khach hen') || (nk.includes('hen') && nk.includes('khach'));
+                }) > 0
+            )
+                khachHen += 1;
+            if (
+                sumKeyMatch(r._ket_qua_check, (k) => {
+                    const nk = normalizeCheckLabel(k);
+                    // Hỗ trợ biến thể: "Vận đơn XL", "VĐ XL", "XL", ...
+                    return nk.includes('van don xl') || /\bxl\b/.test(nk);
+                }) > 0
+            )
+                vanDonXL += 1;
             if (
                 sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0 &&
                 !hasMaTracking
@@ -589,7 +603,10 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
             return slice.filter(
                 (r) =>
                     rowChuaLenVhForDrill(r) &&
-                    sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen')) > 0
+                    sumKeyMatch(r._ket_qua_check, (k) => {
+                        const nk = normalizeCheckLabel(k);
+                        return nk.includes('khach hen') || (nk.includes('hen') && nk.includes('khach'));
+                    }) > 0
             );
         case 'treo':
             return slice.filter(
@@ -601,7 +618,10 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
             return slice.filter(
                 (r) =>
                     rowChuaLenVhForDrill(r) &&
-                    sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('van don xl')) > 0
+                    sumKeyMatch(r._ket_qua_check, (k) => {
+                        const nk = normalizeCheckLabel(k);
+                        return nk.includes('van don xl') || /\bxl\b/.test(nk);
+                    }) > 0
             );
         case 'daCkChuaDay':
             return slice.filter(
