@@ -126,6 +126,14 @@ function rowPassesChuaCoMaLenVhGate(r) {
     return true;
 }
 
+/** "Huỷ vận hành" (đồng bộ tab Thống kê đơn): kết quả check có Huỷ/Cancel + đã lên vận hành (có ĐVVC). */
+function sumHuyCheckHistogram(histogram) {
+    return sumKeyMatch(histogram, (k) => {
+        const nk = normalizeCheckLabel(k);
+        return nk.includes('huy') || nk.includes('cancel');
+    });
+}
+
 /** Cột trạng thái thu tiền (mẫu báo cáo vận hành) — gán key histogram vào đúng cột (ưu tiên thứ tự). */
 export const BC_VH_PAYMENT_COLUMNS = [
     { id: 'bom', label: 'Bom_bùng_chặn', test: (k) => /bom|bùng|chặn/i.test(String(k)) },
@@ -213,6 +221,7 @@ export function aggregateOperationalReportSlice(slice) {
         const lenVhDonVi =
             r._source === 'orders' ? Number(r._len_vh_don_vi) || 0 : sumLenVanHanh(r._trang_thai_giao_hang);
         const chuaLenVh = lenVhDonVi <= 0;
+        const huyCheckCount = sumHuyCheckHistogram(r._ket_qua_check);
 
         // Khối «TỔNG ĐƠN CHƯA LÊN VẬN HÀNH»: chỉ đơn chưa có ĐVVC (chưa lên VH) — tránh cộng thừa đơn đã có shipping_unit.
         if (chuaLenVh) {
@@ -240,6 +249,11 @@ export function aggregateOperationalReportSlice(slice) {
             tongDonLenVanHanh += 1;
         }
 
+        // «Hủy vận hành» (đồng bộ tab Thống kê đơn): đơn đã lên VH + check_result có Huỷ/Cancel.
+        if (lenVhDonVi > 0 && huyCheckCount > 0) {
+            huyVH += huyCheckCount;
+        }
+
         // «Đơn có mã»: có mã tracking (orders.tracking_code / histogram «Mã Tracking»).
         if (hasMaTracking) {
             coMa += 1;
@@ -253,7 +267,6 @@ export function aggregateOperationalReportSlice(slice) {
         dangGiao += sumDeliveryBucket(r._trang_thai_giao_hang, 'Đang Giao');
         chuaGiao += sumDeliveryBucket(r._trang_thai_giao_hang, 'Chưa Giao');
         hoan += sumDeliveryBucket(r._trang_thai_giao_hang, 'Hoàn');
-        huyVH += sumDeliveryBucket(r._trang_thai_giao_hang, 'Hủy');
         choCheck += sumDeliveryBucket(r._trang_thai_giao_hang, 'chờ check');
         tongThanhToanGiaoHangNb += sumBaoCaoVanDonHistogramValues(r._tien_trang_thai_thanh_toan);
     }
@@ -553,7 +566,7 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
         case 'hoan':
             return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Hoàn') > 0);
         case 'huyVH':
-            return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Hủy') > 0);
+            return slice.filter((r) => rowLenVhDonViForDrill(r) > 0 && sumHuyCheckHistogram(r._ket_qua_check) > 0);
         case 'choCheck':
             return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'chờ check') > 0);
         case 'tongThanhToanGiaoHangNb':
