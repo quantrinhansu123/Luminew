@@ -57,6 +57,7 @@ const VAN_DON_POSTGREST_MAX_ROWS = 1000;
 /** Không dùng chung `speegoPendingChanges` với FFM — tránh nạp hàng đợi / OCC sai trang. */
 const VAN_DON_PENDING_LS_KEY = 'speegoPendingChanges_van_don';
 const VAN_DON_PENDING_SNAPSHOTS_LS_KEY = 'speegoPendingRowSnapshots_van_don';
+const VAN_DON_ALLOW_TEXT_SELECTION_LS_KEY = 'vanDon_allowTextSelection';
 
 // Columns to always hide (both in table and column settings)
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng", "Ngày Kế toán đối soát với FFM lần 2"];
@@ -800,6 +801,15 @@ function VanDon({ dataSource = 'default' }) {
   const [appliedBolDateType, setAppliedBolDateType] = useState('Ngày lên đơn');
   const [isLongTextExpanded, setIsLongTextExpanded] = useState(false);
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Đẩy đơn Hà Nội không
+  const [allowTextSelection, setAllowTextSelection] = useState(() => {
+    try {
+      const raw = localStorage.getItem(VAN_DON_ALLOW_TEXT_SELECTION_LS_KEY);
+      if (raw === null) return false;
+      return raw === '1' || raw === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   // --- Pagination ---
   /** Tab readonly_all: cho phép tới 1000 dòng/trang; các tab khác tối đa 500. */
@@ -948,6 +958,14 @@ function VanDon({ dataSource = 'default' }) {
     // Mỗi phiên làm việc bắt đầu từ đầu, không có dữ liệu cũ
     console.log('🚀 [VanDon] Khởi tạo - Không load localStorage (đã bỏ)');
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VAN_DON_ALLOW_TEXT_SELECTION_LS_KEY, allowTextSelection ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [allowTextSelection]);
 
   // --- Global Keyboard Shortcuts (Ctrl+Enter) for Bill of Lading ---
   useEffect(() => {
@@ -5365,7 +5383,10 @@ function VanDon({ dataSource = 'default' }) {
 
   /* End Component Logic */
   return (
-    <div className="bg-gray-50 flex flex-col h-[calc(100vh-64px)] min-h-0 w-full max-w-none overflow-hidden">
+    <div
+      className={`bg-gray-50 flex flex-col h-[calc(100vh-64px)] min-h-0 w-full max-w-none overflow-hidden ${allowTextSelection ? 'van-don-text-select-enabled' : ''}`}
+      data-van-don-root="1"
+    >
       {/* Hai hàng: (1) tiêu đề + tab + tìm + ngày — (2) bộ lọc MultiSelect + trạng thái + TẢI LẠI */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0 w-full">
         <div ref={filterToolbarRef} className="w-full max-w-none mx-auto px-2 sm:px-3 py-1.5 min-w-0 flex flex-col gap-1.5">
@@ -5472,6 +5493,22 @@ function VanDon({ dataSource = 'default' }) {
                 </label>
               </div>
             </div>
+
+            <div className="shrink-0 w-px h-4 bg-gray-200 self-center" aria-hidden />
+            <label
+              className="flex items-center gap-1 bg-gray-50 px-1.5 py-0.5 rounded-md border border-gray-200 shrink-0 cursor-pointer select-none"
+              title="Bật để kéo chuột bôi đen/copy chữ trong bảng (có thể làm giảm mượt khi kéo chọn vùng ô)."
+            >
+              <input
+                type="checkbox"
+                className="w-3 h-3 text-gray-700 border-gray-300 rounded focus:ring-gray-500"
+                checked={allowTextSelection}
+                onChange={(e) => setAllowTextSelection(e.target.checked)}
+              />
+              <span className="text-[10px] sm:text-[11px] font-semibold text-gray-700 whitespace-nowrap">
+                Bôi đen chữ
+              </span>
+            </label>
           </div>
 
           {/* Hàng 2 — bộ lọc MultiSelect + trạng thái / Tải lại (mọi tab) */}

@@ -29,6 +29,16 @@ table {
   /* will-change: auto; */
 }
 
+/* Vận đơn: tùy chọn cho phép bôi đen/copy chữ bằng chuột */
+.van-don-text-select-enabled table,
+.van-don-text-select-enabled td,
+.van-don-text-select-enabled th {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
 /* Allow text selection in input fields */
 table input,
 table select,
