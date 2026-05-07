@@ -76,7 +76,8 @@ const normalizeCheckLabel = (value) =>
 const checkLabelIsTreoOnly = (key) => {
     const nk = normalizeCheckLabel(key);
     if (nk === 'treo') return true;
-    if (/^treo(\s|[\/\-]|$)/.test(nk)) return true;
+    // Cho phép dấu câu sau "treo" (vd "Treo,", "Treo.", "Treo - ..." hoặc "Treo/...")
+    if (/^treo(\s|[\/\-,.;:]|$)/.test(nk)) return true;
     return false;
 };
 
@@ -228,7 +229,8 @@ export function aggregateOperationalReportSlice(slice) {
         // Khối «TỔNG ĐƠN CHƯA LÊN VẬN HÀNH»: chỉ đơn chưa có ĐVVC (chưa lên VH) — tránh cộng thừa đơn đã có shipping_unit.
         if (chuaLenVh) {
             // Các cột trong khối này là "tổng đơn" => mỗi đơn chỉ tính 1 lần nếu match (không cộng dồn giá trị histogram).
-            if (sumKeyMatchTrangThaiNb(r._trang_thai_giao_hang, (k) => checkLabelIsTreoOnly(k)) > 0) treo += 1;
+            // "Treo" ở tab vận hành bám theo "Kết quả check" (đối chiếu theo lọc trang Vận đơn).
+            if (sumKeyMatch(r._ket_qua_check, (k) => checkLabelIsTreoOnly(k)) > 0) treo += 1;
             if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('doi hang')) > 0) doiHang += 1;
             if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy')) > 0) huyNoiBo += 1;
             if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen')) > 0) khachHen += 1;
@@ -593,7 +595,7 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
             return slice.filter(
                 (r) =>
                     rowChuaLenVhForDrill(r) &&
-                    sumKeyMatchTrangThaiNb(r._trang_thai_giao_hang, (k) => checkLabelIsTreoOnly(k)) > 0
+                    sumKeyMatch(r._ket_qua_check, (k) => checkLabelIsTreoOnly(k)) > 0
             );
         case 'vanDonXL':
             return slice.filter(
