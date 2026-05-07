@@ -67,6 +67,7 @@ const normalizeCheckLabel = (value) =>
     String(value ?? '')
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[đĐ]/g, 'd')
         .toLowerCase()
         .trim()
         .replace(/\s+/g, ' ');
@@ -226,14 +227,12 @@ export function aggregateOperationalReportSlice(slice) {
 
         // Khối «TỔNG ĐƠN CHƯA LÊN VẬN HÀNH»: chỉ đơn chưa có ĐVVC (chưa lên VH) — tránh cộng thừa đơn đã có shipping_unit.
         if (chuaLenVh) {
-            treo += sumKeyMatchTrangThaiNb(r._trang_thai_giao_hang, (k) => checkLabelIsTreoOnly(k));
-            doiHang += sumKeyMatch(
-                r._ket_qua_check,
-                (k) => normalizeCheckLabel(k).includes('doi hang')
-            );
-            huyNoiBo += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy'));
-            khachHen += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen'));
-            vanDonXL += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('van don xl'));
+            // Các cột trong khối này là "tổng đơn" => mỗi đơn chỉ tính 1 lần nếu match (không cộng dồn giá trị histogram).
+            if (sumKeyMatchTrangThaiNb(r._trang_thai_giao_hang, (k) => checkLabelIsTreoOnly(k)) > 0) treo += 1;
+            if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('doi hang')) > 0) doiHang += 1;
+            if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy')) > 0) huyNoiBo += 1;
+            if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen')) > 0) khachHen += 1;
+            if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('van don xl')) > 0) vanDonXL += 1;
             if (
                 sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0 &&
                 !hasMaTracking
