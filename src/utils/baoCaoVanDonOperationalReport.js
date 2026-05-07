@@ -226,35 +226,27 @@ export function aggregateOperationalReportSlice(slice) {
         const chuaLenVh = lenVhDonVi <= 0;
         const huyCheckCount = sumHuyCheckHistogram(r._ket_qua_check);
 
-        // Khối «TỔNG ĐƠN CHƯA LÊN VẬN HÀNH»: chỉ đơn chưa có ĐVVC (chưa lên VH) — tránh cộng thừa đơn đã có shipping_unit.
-        if (chuaLenVh) {
-            // Các cột trong khối này là "tổng đơn" => mỗi đơn chỉ tính 1 lần nếu match (không cộng dồn giá trị histogram).
-            // "Treo" ở tab vận hành bám theo "Kết quả check" (đối chiếu theo lọc trang Vận đơn).
-            if (sumKeyMatch(r._ket_qua_check, (k) => checkLabelIsTreoOnly(k)) > 0) treo += 1;
-            if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('doi hang')) > 0) doiHang += 1;
-            if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy')) > 0) huyNoiBo += 1;
-            if (
-                sumKeyMatch(r._ket_qua_check, (k) => {
-                    const nk = normalizeCheckLabel(k);
-                    // Hỗ trợ biến thể: "Khách hẹn", "Hẹn khách", "Hẹn khách/...", ...
-                    return nk.includes('khach hen') || (nk.includes('hen') && nk.includes('khach'));
-                }) > 0
-            )
-                khachHen += 1;
-            if (
-                sumKeyMatch(r._ket_qua_check, (k) => {
-                    const nk = normalizeCheckLabel(k);
-                    // Hỗ trợ biến thể: "Vận đơn XL", "VĐ XL", "XL", ...
-                    return nk.includes('van don xl') || /\bxl\b/.test(nk);
-                }) > 0
-            )
-                vanDonXL += 1;
-            if (
-                sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0 &&
-                !hasMaTracking
-            ) {
-                daCkChuaDay += 1;
-            }
+        // Nhóm "Kết quả check": không ràng buộc theo ĐVVC (không xét đã/chưa lên vận hành).
+        // Các cột trong nhóm này là "tổng đơn" => mỗi đơn chỉ tính 1 lần nếu match.
+        if (sumKeyMatch(r._ket_qua_check, (k) => checkLabelIsTreoOnly(k)) > 0) treo += 1;
+        if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('doi hang')) > 0) doiHang += 1;
+        if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy')) > 0) huyNoiBo += 1;
+        if (
+            sumKeyMatch(r._ket_qua_check, (k) => {
+                const nk = normalizeCheckLabel(k);
+                return nk.includes('khach hen') || (nk.includes('hen') && nk.includes('khach'));
+            }) > 0
+        )
+            khachHen += 1;
+        if (
+            sumKeyMatch(r._ket_qua_check, (k) => {
+                const nk = normalizeCheckLabel(k);
+                return nk.includes('van don xl') || /\bxl\b/.test(nk);
+            }) > 0
+        )
+            vanDonXL += 1;
+        if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0 && !hasMaTracking) {
+            daCkChuaDay += 1;
         }
 
         donCoBill += sumDonCoBillFullCount(r._trang_thai_thanh_toan);
@@ -590,19 +582,16 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
         case 'huyNoiBo':
             return slice.filter(
                 (r) =>
-                    rowChuaLenVhForDrill(r) &&
                     sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy')) > 0
             );
         case 'doiHang':
             return slice.filter(
                 (r) =>
-                    rowChuaLenVhForDrill(r) &&
                     sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('doi hang')) > 0
             );
         case 'khachHen':
             return slice.filter(
                 (r) =>
-                    rowChuaLenVhForDrill(r) &&
                     sumKeyMatch(r._ket_qua_check, (k) => {
                         const nk = normalizeCheckLabel(k);
                         return nk.includes('khach hen') || (nk.includes('hen') && nk.includes('khach'));
@@ -611,13 +600,11 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
         case 'treo':
             return slice.filter(
                 (r) =>
-                    rowChuaLenVhForDrill(r) &&
                     sumKeyMatch(r._ket_qua_check, (k) => checkLabelIsTreoOnly(k)) > 0
             );
         case 'vanDonXL':
             return slice.filter(
                 (r) =>
-                    rowChuaLenVhForDrill(r) &&
                     sumKeyMatch(r._ket_qua_check, (k) => {
                         const nk = normalizeCheckLabel(k);
                         return nk.includes('van don xl') || /\bxl\b/.test(nk);
@@ -626,7 +613,6 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
         case 'daCkChuaDay':
             return slice.filter(
                 (r) =>
-                    rowChuaLenVhForDrill(r) &&
                     !rowHasMaTrackingForDrill(r) &&
                     sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0
             );

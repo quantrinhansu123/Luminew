@@ -1065,7 +1065,7 @@ export default function BaoCaoVanHanhHtml() {
                     TỔNG ĐƠN LÊN VẬN HÀNH
                 </th>
                 <th colSpan={6} className="bcvh-h-red leading-tight">
-                    TỔNG ĐƠN CHƯA LÊN VẬN HÀNH
+                    TỔNG ĐƠN THEO KẾT QUẢ CHECK
                 </th>
                 <th colSpan={8} className="bcvh-h-grey leading-tight">
                     TRẠNG THÁI THU TIỀN
