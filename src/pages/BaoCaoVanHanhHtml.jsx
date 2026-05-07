@@ -5,7 +5,11 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import MultiSelect from '../components/MultiSelect';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
-import { formatBaoCaoVanDonStatusHistogram, isGiaoHangHistogramSyntheticKey } from '../utils/baoCaoVanDonFormat';
+import {
+    formatBaoCaoVanDonStatusHistogram,
+    isGiaoHangHistogramSyntheticKey,
+    parseBaoCaoVanDonHistogram,
+} from '../utils/baoCaoVanDonFormat';
 import { buildBaoCaoVanHanhMatrix, formatPct, formatSlVi } from '../utils/baoCaoVanDonMarketMatrix';
 import {
     buildPushDonByDayMatrix,
@@ -849,18 +853,36 @@ export default function BaoCaoVanHanhHtml() {
     }, [rawData, selectedPersonnelNames, isAdmin]);
 
     const matrix = useMemo(() => buildBaoCaoVanHanhMatrix(rawData), [rawData]);
-    /** Đồng bộ "Thống kê đơn": Huỷ vận hành theo trạng thái giao hàng NB = Hủy (không theo KQ check). */
-    const operationalByMarketMatrix = useMemo(() => {
+    /**
+     * Đồng bộ với "Thống kê đơn" (tab5):
+     * - chỉ tính trên orders (không trộn nguồn bao_cao)
+     * - "Hủy (GH)" = đếm theo histogram Trạng thái giao hàng NB có nhãn hủy/cancel, bỏ key synthetic.
+     */
+    const sumHuyGiaoLikeTrangThaiDon = useCallback((slice) => {
+        let s = 0;
+        for (const r of slice || []) {
+            const o = parseBaoCaoVanDonHistogram(r?._trang_thai_giao_hang);
+            for (const [key, raw] of Object.entries(o || {})) {
+                const n = Number(raw) || 0;
+                if (n <= 0) continue;
+                if (isGiaoHangHistogramSyntheticKey(key)) continue;
+                const nk = String(key).trim().toLowerCase();
+                if (nk.includes('huỷ') || nk.includes('hủy') || nk.includes('cancel')) s += n;
+            }
+        }
+        return s;
+    }, []);
+
+    const huyGiaoByMarketMatrix = useMemo(() => {
         const markets = matrix?.markets || [];
         const byMarket = {};
         for (const mk of markets) {
-            byMarket[mk] = aggregateOperationalReportSlice(
-                rawData.filter((r) => String(r?.['khu vực'] || '').trim() === String(mk))
-            );
+            const slice = ordersRowsForTrangThai.filter((r) => String(r?.['khu vực'] || '').trim() === String(mk));
+            byMarket[mk] = sumHuyGiaoLikeTrangThaiDon(slice);
         }
-        const total = aggregateOperationalReportSlice(rawData);
+        const total = sumHuyGiaoLikeTrangThaiDon(ordersRowsForTrangThai);
         return { markets, byMarket, total };
-    }, [matrix?.markets, rawData]);
+    }, [matrix?.markets, ordersRowsForTrangThai, sumHuyGiaoLikeTrangThaiDon]);
     const pushMatrix = useMemo(() => {
         if (activeTab === 'tab4') {
             // Tab 4 bắt buộc lấy từ ffm_push_logs (kể cả không có dòng -> số = 0).
@@ -2684,20 +2706,20 @@ export default function BaoCaoVanHanhHtml() {
                             <td className="border border-black px-3 py-2 leading-tight">
                                 Huỷ vận hành
                                 <span className="block text-xs font-normal font-sans">
-                                    (Trạng thái giao hàng NB = Hủy)
+                                    (Hủy theo giao hàng NB — giống Thống kê đơn)
                                 </span>
                             </td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`hvh-${mk}`}>
                                     {renderMetricPair(
-                                        operationalByMarketMatrix.byMarket[mk]?.huyVH || 0,
-                                        operationalByMarketMatrix.byMarket[mk]?.huyVHAmount || 0
+                                        huyGiaoByMarketMatrix.byMarket[mk] || 0,
+                                        0
                                     )}
                                 </React.Fragment>
                             ))}
                             {renderMetricPair(
-                                operationalByMarketMatrix.total?.huyVH || 0,
-                                operationalByMarketMatrix.total?.huyVHAmount || 0
+                                huyGiaoByMarketMatrix.total || 0,
+                                0
                             )}
                         </tr>
                         <tr className="font-bold text-red-600">
