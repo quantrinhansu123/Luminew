@@ -123,7 +123,8 @@ function rowKetQuaCheckIsOk(r) {
  */
 function rowPassesChuaCoMaLenVhGate(r) {
     if (r?._source === 'orders') return (Number(r._len_vh_don_vi) || 0) > 0;
-    return true;
+    // Với dòng `bao_cao_van_don`: yêu cầu bucket «Lên vận hành» > 0 để đồng bộ định nghĩa “có ĐVVC”.
+    return sumLenVanHanh(r?._trang_thai_giao_hang) > 0;
 }
 
 /** "Huỷ vận hành" (đồng bộ tab Thống kê đơn): kết quả check có Huỷ/Cancel + đã lên vận hành (có ĐVVC). */
