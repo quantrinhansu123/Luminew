@@ -1062,7 +1062,7 @@ export default function BaoCaoVanHanhHtml() {
                     TỶ LỆ
                 </th>
                 <th colSpan={7} className="bcvh-h-green leading-tight">
-                    TỔNG ĐƠN LÊN VẬN HÀNH
+                    TRẠNG THÁI GIAO HÀNG NB
                 </th>
                 <th colSpan={6} className="bcvh-h-red leading-tight">
                     TỔNG ĐƠN THEO KẾT QUẢ CHECK

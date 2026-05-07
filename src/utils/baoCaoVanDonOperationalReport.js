@@ -257,10 +257,8 @@ export function aggregateOperationalReportSlice(slice) {
             tongDonLenVanHanh += 1;
         }
 
-        // «Hủy vận hành» (đồng bộ tab Thống kê đơn): đơn đã lên VH + check_result có Huỷ/Cancel.
-        if (lenVhDonVi > 0 && huyCheckCount > 0) {
-            huyVH += huyCheckCount;
-        }
+        // «Hủy vận hành»: lấy theo Trạng thái giao hàng NB = Hủy (không ràng buộc ĐVVC).
+        huyVH += sumDeliveryBucket(r._trang_thai_giao_hang, 'Hủy');
 
         // «Đơn có mã»: có mã tracking (orders.tracking_code / histogram «Mã Tracking»).
         if (hasMaTracking) {
@@ -574,7 +572,7 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
         case 'hoan':
             return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Hoàn') > 0);
         case 'huyVH':
-            return slice.filter((r) => rowLenVhDonViForDrill(r) > 0 && sumHuyCheckHistogram(r._ket_qua_check) > 0);
+            return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Hủy') > 0);
         case 'choCheck':
             return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'chờ check') > 0);
         case 'tongThanhToanGiaoHangNb':
