@@ -10,10 +10,13 @@ function isBoPhanVanDon(dept) {
   return false;
 }
 
-/** Chi nhánh Hà Nội trên chuỗi team / chi_nhanh (không HCM). */
+/** Chi nhánh Hà Nội trên chuỗi team / chi_nhanh (không HCM).
+ *  Team trống / null → true (mặc định "không phải HCM" = cho phép hiển thị trong view HN).
+ *  Trước đây trống → false → đơn bị loại khỏi danh sách đơn nhưng vẫn hiện ở báo cáo chi tiết.
+ */
 export function isHanoiBranchTeamLabel(teamRaw) {
   const raw = String(teamRaw ?? '').trim();
-  if (!raw) return false;
+  if (!raw) return true; // Team trống → coi là không phải HCM → hiển thị
   const ascii = raw
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
@@ -26,10 +29,8 @@ export function isHanoiBranchTeamLabel(teamRaw) {
   ) {
     return false;
   }
-  if (ascii.includes('ha noi') || ascii.includes('hanoi')) return true;
-  if (ascii === 'hn') return true;
-  if (/(^|[-_\s/])hn([-_\s/]|$)/i.test(raw.replace(/\s+/g, ' '))) return true;
-  return false;
+  // Team có giá trị nhưng không chứa HCM → coi là HN (cho phép hiển thị)
+  return true;
 }
 
 function isHcmBranchLabel(raw) {

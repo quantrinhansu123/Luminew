@@ -90,6 +90,20 @@ function normalizeIncomingShiftForSave(rawShift, fallbackDateTime) {
   return SHIFT_GIUA_CA_HET_CA;
 }
 
+/** Chuẩn hoá text tiếng Việt để so khớp "contains" ổn định (bỏ dấu + thường + gom khoảng trắng). */
+function normalizeViForContains(raw) {
+  return String(raw ?? '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\p{Cf}+/gu, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[đĐ]/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 /**
  * Suy ca từ datetime khi DB chưa có shift — cùng khung giờ với NhapDonMoi; chỉ khi chuỗi có giờ rõ ràng (tránh date-only → 00:00 sai).
  */
@@ -149,6 +163,11 @@ async function fetchDanhSachDonMergedRawOrders({
   userName,
   selectColumns = '*',
   skipImplicitFilters = false,
+  /**
+   * Nếu true: lọc nhân sự ngay ở query DB (ilike). Mặc định tắt để tránh lệch do dấu/format tên,
+   * và vì client đã có bước lọc `selectedPersonnelNames` rồi.
+   */
+  applyPersonnelFilterInDb = false,
 }) {
   const normalizeNameForQuery = (str) => {
     if (!str) return '';
@@ -158,7 +177,7 @@ async function fetchDanhSachDonMergedRawOrders({
   const applyTeamAndPersonnel = (q) => {
     let query = q;
     if (!skipImplicitFilters && ordersTableName === 'orders') {
-      // View mặc định /danh-sach-don: loại mọi team chứa HCM; lọc HN cụ thể ở client (isHanoiBranchTeamLabel).
+      // View mặc định /danh-sach-don: loại team chứa HCM; team trống/không rõ chi nhánh → cho phép hiển thị (khớp logic báo cáo chi tiết).
       // ?team=RD: giữ phạm vi rộng (trừ team đúng bằng HCM / null như cũ).
       if (teamFilter === 'RD') {
         query = query.or('team.is.null,team.neq.HCM');
@@ -166,7 +185,7 @@ async function fetchDanhSachDonMergedRawOrders({
         query = query.not('team', 'ilike', '%HCM%');
       }
     }
-    if (!isAdmin) {
+    if (applyPersonnelFilterInDb && !isAdmin) {
       if (selectedPersonnelNames.length > 0) {
         const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
         const orConditions = allNames.flatMap((name) => {
@@ -742,6 +761,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         userName,
         selectColumns: '*',
         skipImplicitFilters: isHcmView,
+        applyPersonnelFilterInDb: false,
       });
 
       // 2. Process Supabase Data
@@ -2638,17 +2658,20 @@ function DanhSachDon({ dataSource = 'default' }) {
       let debugCount = 0;
 
       data = data.filter((row, index) => {
-        const marketingStaff = rowDisplayMktStaff(row).toLowerCase();
-        const salesStaff = rowDisplaySaleStaff(row).toLowerCase();
-        const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
+        const marketingStaffNorm = normalizeViForContains(rowDisplayMktStaff(row));
+        const salesStaffNorm = normalizeViForContains(rowDisplaySaleStaff(row));
+        const deliveryStaffNorm = normalizeViForContains(
+          String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim()
+        );
 
         // Match theo tên (selectedPersonnelNames giờ là tên trực tiếp)
         const matchByName = selectedPersonnelNames.some(name => {
-          const nameLower = name.toLowerCase().trim();
+          const nameNorm = normalizeViForContains(String(name || '').trim());
+          if (!nameNorm) return false;
           // Match tên trong cột "Nhân viên Marketing" HOẶC "Nhân viên Sale" HOẶC "NV Vận đơn"
-          return (marketingStaff && marketingStaff.includes(nameLower)) ||
-            (salesStaff && salesStaff.includes(nameLower)) ||
-            (deliveryStaff && deliveryStaff.includes(nameLower));
+          return (marketingStaffNorm && marketingStaffNorm.includes(nameNorm)) ||
+            (salesStaffNorm && salesStaffNorm.includes(nameNorm)) ||
+            (deliveryStaffNorm && deliveryStaffNorm.includes(nameNorm));
         });
 
         // Debug log cho 3 row đầu tiên
@@ -2657,9 +2680,9 @@ function DanhSachDon({ dataSource = 'default' }) {
           console.log('🔍 Row check:', {
             index,
             orderCode: row["Mã đơn hàng"],
-            marketingStaff: marketingStaff || '(trống)',
-            salesStaff: salesStaff || '(trống)',
-            deliveryStaff: deliveryStaff || '(trống)',
+            marketingStaff: rowDisplayMktStaff(row) || '(trống)',
+            salesStaff: rowDisplaySaleStaff(row) || '(trống)',
+            deliveryStaff: String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim() || '(trống)',
             selectedNames: selectedPersonnelNames,
             matchByName,
             matched: matchByName
@@ -2722,8 +2745,17 @@ function DanhSachDon({ dataSource = 'default' }) {
           if (!marketStr) return true; // Nếu giá trị trống và đã chọn "(Trống)"
         }
 
-        // Kiểm tra các giá trị khác
-        return filterMarket.includes(marketStr);
+        // Kiểm tra các giá trị khác (match mềm để khớp báo cáo MKT: ilike '%country%')
+        const marketNorm = normalizeViForContains(marketStr);
+        return filterMarket
+          .filter((x) => x !== '(Trống)')
+          .some((selected) => {
+            const selNorm = normalizeViForContains(selected);
+            if (!selNorm) return false;
+            if (!marketNorm) return false;
+            // contains 2 chiều để bắt trường hợp "US" vs "United States"/"U.S"
+            return marketNorm.includes(selNorm) || selNorm.includes(marketNorm);
+          });
       });
     }
 
@@ -2737,7 +2769,17 @@ function DanhSachDon({ dataSource = 'default' }) {
           if (!productStr) return true;
         }
 
-        return filterProduct.includes(productStr);
+        // Match mềm để khớp báo cáo MKT: ilike '%product%'
+        const productNorm = normalizeViForContains(productStr);
+        return filterProduct
+          .filter((x) => x !== '(Trống)')
+          .some((selected) => {
+            const selNorm = normalizeViForContains(selected);
+            if (!selNorm) return false;
+            if (!productNorm) return false;
+            // contains 2 chiều để bắt "Gel dạ dày" vs "Gel dạ dày - 1 hộp"
+            return productNorm.includes(selNorm) || selNorm.includes(productNorm);
+          });
       });
     }
 
