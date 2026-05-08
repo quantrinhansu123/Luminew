@@ -36,7 +36,8 @@ const CUOC_COLUMNS = [
 const CURRENCY_OPTIONS = ['AUD', 'CAD', 'USD', 'YEN'];
 
 /** Excel cước: dòng 1 ghi chú, dòng 2 header — đọc từ dòng header tìm được; không thì fallback json_to_json */
-function sheetToJsonCuocImport(ws) {
+function sheetToJsonCuocImport(ws, options = {}) {
+  const includeEmpty = options?.includeEmpty === true;
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   if (!rows.length) return [];
 
@@ -71,6 +72,10 @@ function sheetToJsonCuocImport(ws) {
     headers.forEach((h, i) => {
       if (!h) return;
       const v = row[i];
+      if (includeEmpty) {
+        obj[h] = v;
+        return;
+      }
       if (v !== '' && v != null) obj[h] = v;
     });
     if (Object.keys(obj).length) out.push(obj);
@@ -311,6 +316,12 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [cuocUploadedSyncDateTo, setCuocUploadedSyncDateTo] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const [compareUploading, setCompareUploading] = useState(false);
+  const compareFileInputRef = useRef(null);
+  const [compareResultData, setCompareResultData] = useState(null);
+  const [compareApplying, setCompareApplying] = useState(false);
+  const [compareSyncDateFrom, setCompareSyncDateFrom] = useState('');
+  const [compareSyncDateTo, setCompareSyncDateTo] = useState('');
   /** Chuẩn hóa mã đơn — modal chi tiết trùng cước */
   const [cuocDupDetailKey, setCuocDupDetailKey] = useState(null);
   /** Mã tracking — modal các dòng bill cùng mã (theo bảng đang hiện) */
@@ -961,6 +972,46 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     const num = parseFloat(value);
     if (isNaN(num)) return value;
     return num.toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const isNumericCompareField = (key) =>
+    key.includes('tien') || key.includes('so_tien') || key.includes('ty_gia') || key.includes('cuoc') || key === 'stt';
+
+  const normalizeCompareValue = (key, value) => {
+    if (value === null || value === undefined || value === '') return '';
+    if (key.includes('ngay') || key.includes('date')) {
+      return parseExcelDateToISO(value) || String(value).trim();
+    }
+    if (isNumericCompareField(key)) {
+      const raw = String(value).replace(/,/g, '');
+      const num = parseFloat(raw);
+      return Number.isFinite(num) ? String(num) : String(value).trim();
+    }
+    return String(value).trim();
+  };
+
+  const formatCompareValue = (key, value) => {
+    if (value === null || value === undefined || value === '') return '(trống)';
+    if (key.includes('ngay') || key.includes('date')) {
+      return parseExcelDateToISO(value) || String(value);
+    }
+    if (isNumericCompareField(key)) {
+      return formatNumber(value) || String(value);
+    }
+    return String(value);
+  };
+
+  const normalizeUpdateValue = (key, value) => {
+    if (value === null || value === undefined || value === '') return null;
+    if (key.includes('ngay') || key.includes('date')) {
+      return parseExcelDateToISO(value) || String(value).trim();
+    }
+    if (isNumericCompareField(key)) {
+      const raw = String(value).replace(/,/g, '');
+      const num = parseFloat(raw);
+      return Number.isFinite(num) ? num : null;
+    }
+    return String(value).trim();
   };
 
   const getCurrentData = () => {
@@ -2294,6 +2345,406 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     }
   };
 
+  // Đối soát Excel với lịch sử đã đồng bộ
+  const handleCompareExcel = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setCompareUploading(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const wb = XLSX.read(arrayBuffer);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
+      const historyTableName = isBillTab ? 'bill_uploaded_history' : 'cuoc_uploaded_history';
+      const dataTableName = isBillTab ? 'chi_tiet_bill_tien' : 'chitiet_cuoc';
+
+      const jsonData = isBillTab
+        ? XLSX.utils.sheet_to_json(ws, { defval: '' })
+        : sheetToJsonCuocImport(ws, { includeEmpty: true });
+
+      if (jsonData.length === 0) {
+        alert('File Excel không có dữ liệu!');
+        return;
+      }
+
+      const columns = isBillTab ? BILL_TIEN_COLUMNS : CUOC_COLUMNS;
+      const normalizeLabel = (s) =>
+        String(s ?? '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+
+      const getColumnKey = (excelLabel) => {
+        const exNorm = normalizeLabel(excelLabel);
+        const importColumnAliases = {
+          'don vi tien': 'don_vi_tien',
+          'đon vi tien': 'don_vi_tien',
+          'donvitien': 'don_vi_tien',
+          'currency': 'don_vi_tien',
+          'ngay update': 'ngay_update',
+          'ngay cap nhat': 'ngay_update',
+          'updated at': 'ngay_update',
+          'update date': 'ngay_update',
+        };
+        if (importColumnAliases[exNorm]) return importColumnAliases[exNorm];
+
+        const col = columns.find((c) => !c.computed && normalizeLabel(c.label) === exNorm);
+        if (col) return col.key;
+
+        const rawLabel = String(excelLabel ?? '').trim();
+        if (!rawLabel) return null;
+        const fallback = normalizeLabel(rawLabel)
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '');
+        return fallback || null;
+      };
+
+      const normalizeCurrencyForImport = (value) => {
+        if (value == null || value === '') return null;
+        const normalized = String(value)
+          .trim()
+          .toUpperCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^A-Z]/g, '');
+
+        if (!normalized) return null;
+        if (normalized === 'CAD' || normalized === 'CANADA') return 'CAD';
+        if (normalized === 'USD') return 'USD';
+        if (normalized === 'AUD' || normalized === 'AUSTRALIA') return 'AUD';
+        if (normalized === 'JPY' || normalized === 'YEN' || normalized === 'JAPAN') return 'YEN';
+        return normalized;
+      };
+
+      const recordsToCompare = [];
+      const mappedKeys = new Set();
+      jsonData.forEach((row) => {
+        const hasAnyValue = Object.values(row || {}).some(
+          (v) => v !== '' && v != null && String(v).trim() !== ''
+        );
+        if (!hasAnyValue) return;
+
+        const record = {};
+        let hasData = false;
+        Object.keys(row).forEach((excelKey) => {
+          const dbKey = getColumnKey(excelKey);
+          if (!dbKey) return;
+          mappedKeys.add(dbKey);
+
+          const value = row[excelKey];
+          const isEmpty = value === null || value === undefined || value === '';
+
+          if (
+            dbKey === 'id' ||
+            dbKey === 'created_at' ||
+            dbKey === 'updated_at' ||
+            dbKey === 'dem_lan_thanh_toan'
+          ) {
+            return;
+          }
+
+          if (isEmpty) {
+            record[dbKey] = null;
+            hasData = true;
+            return;
+          }
+
+          if (dbKey.includes('ngay') || dbKey.includes('date')) {
+            const parsedDate = parseExcelDateToISO(value);
+            record[dbKey] = parsedDate || String(value).trim();
+            hasData = true;
+            return;
+          }
+
+          if (dbKey === 'don_vi_tien') {
+            record[dbKey] = normalizeCurrencyForImport(value);
+            hasData = true;
+            return;
+          }
+
+          if (dbKey.includes('tien') || dbKey.includes('so_tien') || dbKey.includes('ty_gia') || dbKey.includes('cuoc') || dbKey === 'stt') {
+            const num = parseFloat(String(value).replace(/,/g, ''));
+            record[dbKey] = Number.isFinite(num) ? num : value;
+            hasData = true;
+            return;
+          }
+
+          record[dbKey] = String(value).trim();
+          hasData = true;
+        });
+
+        if (!hasData) return;
+
+        if (dataTableName === 'chitiet_cuoc') {
+          delete record.chi_nhanh;
+        }
+
+        if (dataTableName === 'chi_tiet_bill_tien') {
+          if (!record.ngay_doi_soat) {
+            record.ngay_doi_soat = null;
+          }
+        }
+
+        if (dataTableName === 'chitiet_cuoc') {
+          if (!record.ngay_doi_soat_cuoc) {
+            record.ngay_doi_soat_cuoc = null;
+          }
+        }
+
+        recordsToCompare.push(record);
+      });
+
+      if (recordsToCompare.length === 0) {
+        alert('Không tìm thấy dữ liệu hợp lệ để đối soát. Vui lòng kiểm tra lại file Excel.');
+        return;
+      }
+
+      if (isBillTab) {
+        recordsToCompare.forEach((r) => {
+          const d = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
+          const t = r.ma_tracking != null ? String(r.ma_tracking).trim() : '';
+          r.ma_don_hang = d || null;
+          r.ma_tracking = t || null;
+        });
+
+        const trackingNeed = [
+          ...new Set(
+            recordsToCompare
+              .map((r) => (r.ma_tracking != null ? String(r.ma_tracking).trim() : ''))
+              .filter((tk) => tk && !isBillTrackingDropoffPlaceholder(tk))
+          ),
+        ];
+        const trackingToOrdersImport = await fetchOrderCodesByTrackingMap(supabase, trackingNeed, ordersTableName);
+
+        for (const r of recordsToCompare) {
+          const tk = r.ma_tracking != null ? String(r.ma_tracking).trim() : '';
+          const mdhRaw = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
+
+          if (!tk || isBillTrackingDropoffPlaceholder(tk)) {
+            r.ma_don_hang = mdhRaw || null;
+            continue;
+          }
+
+          const ocs = trackingToOrdersImport.get(tk);
+          if (ocs && ocs.length > 0) {
+            r.ma_don_hang = ocs[0];
+          } else {
+            r.ma_don_hang = null;
+          }
+        }
+      } else {
+        recordsToCompare.forEach((r) => {
+          const d = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
+          r.ma_don_hang = d || null;
+        });
+      }
+
+      const compareOrderCodes = [
+        ...new Set(
+          recordsToCompare
+            .map((r) => (r.ma_don_hang != null ? String(r.ma_don_hang).trim() : ''))
+            .filter(Boolean)
+        ),
+      ];
+
+      if (compareOrderCodes.length === 0) {
+        alert('Không tìm thấy Mã đơn hàng hợp lệ để đối soát.');
+        return;
+      }
+
+      const historyRows = [];
+      const historyChunks = chunkArray(compareOrderCodes, 500);
+      for (const batch of historyChunks) {
+        let query = supabase
+          .from(historyTableName)
+          .select('id, source_row, synced_at, sync_batch_label, performed_by, created_at')
+          .in('source_row->>ma_don_hang', batch);
+
+        if (compareSyncDateFrom) {
+          query = query.gte('synced_at', `${compareSyncDateFrom}T00:00:00`);
+        }
+        if (compareSyncDateTo) {
+          query = query.lte('synced_at', `${compareSyncDateTo}T23:59:59`);
+        }
+
+        const { data, error } = await query;
+
+        if (error) throw error;
+        historyRows.push(...(data || []));
+      }
+
+      const filteredHistoryRows = historyRows.filter((row) => {
+        if (!compareSyncDateFrom && !compareSyncDateTo) return true;
+        const ymd = row?.synced_at ? String(row.synced_at).slice(0, 10) : '';
+        if (compareSyncDateFrom && (!ymd || ymd < compareSyncDateFrom)) return false;
+        if (compareSyncDateTo && (!ymd || ymd > compareSyncDateTo)) return false;
+        return true;
+      });
+
+      filteredHistoryRows.sort((a, b) => {
+        const aSynced = new Date(a?.synced_at || 0).getTime();
+        const bSynced = new Date(b?.synced_at || 0).getTime();
+        if (bSynced !== aSynced) return bSynced - aSynced;
+        const aCreated = new Date(a?.created_at || 0).getTime();
+        const bCreated = new Date(b?.created_at || 0).getTime();
+        return bCreated - aCreated;
+      });
+
+      const historyMap = new Map();
+      filteredHistoryRows.forEach((row) => {
+        const sourceRow =
+          row?.source_row && typeof row.source_row === 'object' && !Array.isArray(row.source_row)
+            ? row.source_row
+            : {};
+        const oc = String(sourceRow?.ma_don_hang ?? '').trim();
+        if (!oc || historyMap.has(oc)) return;
+        historyMap.set(oc, { ...row, sourceRow });
+      });
+
+      const historyKeys = new Set();
+      filteredHistoryRows.forEach((row) => {
+        const sourceRow =
+          row?.source_row && typeof row.source_row === 'object' && !Array.isArray(row.source_row)
+            ? row.source_row
+            : {};
+        Object.keys(sourceRow).forEach((k) => historyKeys.add(k));
+      });
+
+      const compareKeys = [...new Set([...mappedKeys, ...historyKeys])].filter(
+        (k) => k !== 'ma_don_hang' && k !== 'id' && k !== 'created_at' && k !== 'updated_at'
+      );
+      const compareLabelMap = new Map(columns.map((c) => [c.key, c.label]));
+
+      let sameCount = 0;
+      let missingCount = 0;
+      const conflicts = [];
+
+      recordsToCompare.forEach((record, idx) => {
+        const oc = String(record?.ma_don_hang ?? '').trim();
+        if (!oc) return;
+        const historyItem = historyMap.get(oc);
+        if (!historyItem) {
+          missingCount += 1;
+          return;
+        }
+
+        const sourceRow = historyItem.sourceRow || {};
+        const diffs = [];
+        compareKeys.forEach((key) => {
+          if (key === 'sync_batch_label' || key === 'dem_lan_thanh_toan' || key === 'chi_nhanh') return;
+          const oldValue = sourceRow[key];
+          const newValue = record[key];
+          if (normalizeCompareValue(key, oldValue) !== normalizeCompareValue(key, newValue)) {
+            diffs.push({
+              key,
+              label: compareLabelMap.get(key) || key,
+              oldValue,
+              newValue,
+            });
+          }
+        });
+
+        if (diffs.length === 0) {
+          sameCount += 1;
+          return;
+        }
+
+        conflicts.push({
+          id: `${oc}-${idx}`,
+          orderCode: oc,
+          historyId: historyItem.id,
+          historyRow: sourceRow,
+          historyMeta: {
+            sync_batch_label: historyItem.sync_batch_label || '',
+            synced_at: historyItem.synced_at || null,
+            performed_by: historyItem.performed_by || '',
+          },
+          incomingRow: record,
+          diffs,
+          decision: 'keep',
+        });
+      });
+
+      setCompareResultData({
+        isBill: isBillTab,
+        tableName: historyTableName,
+        totalImported: recordsToCompare.length,
+        matchedCount: recordsToCompare.length - missingCount,
+        missingCount,
+        sameCount,
+        conflictCount: conflicts.length,
+        conflicts,
+        syncDateFrom: compareSyncDateFrom,
+        syncDateTo: compareSyncDateTo,
+      });
+    } catch (error) {
+      console.error('Error comparing Excel:', error);
+      alert('Lỗi khi đối soát Excel: ' + error.message);
+    } finally {
+      setCompareUploading(false);
+      if (compareFileInputRef.current) compareFileInputRef.current.value = '';
+    }
+  };
+
+  const handleApplyCompareDecisions = async () => {
+    if (!compareResultData) return;
+    const { conflicts, tableName, isBill } = compareResultData;
+    const updates = conflicts.filter((c) => c.decision && c.decision !== 'keep');
+
+    if (updates.length === 0) {
+      alert('Chưa có lựa chọn thay đổi nào cần áp dụng.');
+      return;
+    }
+
+    setCompareApplying(true);
+    try {
+      const updatePayload = updates.map((item) => {
+        const baseRow =
+          item.historyRow && typeof item.historyRow === 'object' && !Array.isArray(item.historyRow)
+            ? { ...item.historyRow }
+            : {};
+
+        item.diffs.forEach((diff) => {
+          if (item.decision === 'replace') {
+            baseRow[diff.key] = normalizeUpdateValue(diff.key, item.incomingRow?.[diff.key]);
+          } else if (item.decision === 'clear') {
+            baseRow[diff.key] = null;
+          }
+        });
+
+        return {
+          id: item.historyId,
+          source_row: baseRow,
+        };
+      });
+
+      const chunks = chunkArray(updatePayload, 100);
+      for (const chunk of chunks) {
+        const { error } = await supabase
+          .from(tableName)
+          .upsert(chunk, { onConflict: 'id' });
+        if (error) throw error;
+      }
+
+      alert(`Đã cập nhật ${updatePayload.length} dòng lịch sử.`);
+      if (isBill) {
+        setActiveTab('bill_view');
+        await loadBillUploadedHistoryData();
+      } else {
+        setActiveTab('cuoc_view');
+        await loadCuocUploadedHistoryData();
+      }
+      setCompareResultData(null);
+    } catch (error) {
+      console.error('Error applying compare decisions:', error);
+      alert('Lỗi khi cập nhật lịch sử: ' + error.message);
+    } finally {
+      setCompareApplying(false);
+    }
+  };
+
   // Upload Excel và import dữ liệu
   const handleUploadExcel = async (e) => {
     const file = e.target.files[0];
@@ -2906,6 +3357,34 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 className="hidden"
               />
             </label>
+            <label className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition cursor-pointer">
+              <Search className="w-4 h-4" />
+              {compareUploading ? 'Đang đối soát...' : 'Đối soát Excel'}
+              <input
+                ref={compareFileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleCompareExcel}
+                disabled={compareUploading}
+                className="hidden"
+              />
+            </label>
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+              <span className="font-semibold">Ngày đồng bộ</span>
+              <input
+                type="date"
+                value={compareSyncDateFrom}
+                onChange={(e) => setCompareSyncDateFrom(e.target.value || '')}
+                className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs font-medium text-gray-700"
+              />
+              <span className="text-amber-400">-</span>
+              <input
+                type="date"
+                value={compareSyncDateTo}
+                onChange={(e) => setCompareSyncDateTo(e.target.value || '')}
+                className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs font-medium text-gray-700"
+              />
+            </div>
             <button
               onClick={handleCheckDuplicates}
               disabled={checkingDuplicates || loading}
@@ -3961,6 +4440,208 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {compareResultData && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" role="presentation">
+          <div
+            className="flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg bg-white shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="compare-result-modal-title"
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+              <div>
+                <h2 id="compare-result-modal-title" className="text-lg font-semibold text-gray-800">
+                  Đối soát Excel với lịch sử
+                </h2>
+                <p className="text-xs text-gray-500">
+                  So sánh theo Mã đơn hàng, lấy dòng lịch sử mới nhất.
+                </p>
+              </div>
+              <button
+                onClick={() => setCompareResultData(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4 space-y-4">
+              {(compareResultData.syncDateFrom || compareResultData.syncDateTo) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+                  Lọc lịch sử theo ngày đồng bộ:{' '}
+                  <span className="font-semibold">{compareResultData.syncDateFrom || '...'}</span>
+                  <span className="mx-1 text-amber-400">-</span>
+                  <span className="font-semibold">{compareResultData.syncDateTo || '...'}</span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <div className="rounded-lg bg-blue-50 p-3 text-center">
+                  <div className="text-xl font-bold text-blue-600">{compareResultData.totalImported}</div>
+                  <div className="text-xs text-blue-800">Dòng trong file</div>
+                </div>
+                <div className="rounded-lg bg-emerald-50 p-3 text-center">
+                  <div className="text-xl font-bold text-emerald-600">{compareResultData.sameCount}</div>
+                  <div className="text-xs text-emerald-800">Khớp hoàn toàn</div>
+                </div>
+                <div className="rounded-lg bg-amber-50 p-3 text-center">
+                  <div className="text-xl font-bold text-amber-600">{compareResultData.conflictCount}</div>
+                  <div className="text-xs text-amber-800">Khác dữ liệu</div>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3 text-center">
+                  <div className="text-xl font-bold text-gray-600">{compareResultData.missingCount}</div>
+                  <div className="text-xs text-gray-700">Không có trong lịch sử</div>
+                </div>
+              </div>
+
+              {compareResultData.conflictCount > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-600">Đặt tất cả:</span>
+                  {[
+                    { value: 'keep', label: 'Giữ nguyên' },
+                    { value: 'replace', label: 'Thay thế' },
+                    { value: 'clear', label: 'Làm trống' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => {
+                        setCompareResultData((prev) => {
+                          if (!prev) return prev;
+                          return {
+                            ...prev,
+                            conflicts: prev.conflicts.map((c) => ({ ...c, decision: opt.value })),
+                          };
+                        });
+                      }}
+                      className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => {
+                      if (!compareResultData) return;
+                      const exportRows = compareResultData.conflicts.flatMap((item) =>
+                        item.diffs.map((diff) => ({
+                          'Mã đơn hàng': item.orderCode,
+                          'Đợt đồng bộ': item.historyMeta.sync_batch_label || '',
+                          'Ngày đồng bộ': item.historyMeta.synced_at ? formatDateTime(item.historyMeta.synced_at) : '',
+                          'Người đồng bộ': item.historyMeta.performed_by || '',
+                          'Cột': diff.label,
+                          'Giá trị lịch sử': formatCompareValue(diff.key, diff.oldValue),
+                          'Giá trị file': formatCompareValue(diff.key, diff.newValue),
+                          'Hành động': item.decision === 'replace' ? 'Thay thế' : item.decision === 'clear' ? 'Làm trống' : 'Giữ nguyên',
+                        }))
+                      );
+
+                      const wb = XLSX.utils.book_new();
+                      const ws = XLSX.utils.json_to_sheet(exportRows);
+                      XLSX.utils.book_append_sheet(wb, ws, 'Khac_biet');
+                      const fileName = `DoiSoatKhacBiet_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                      XLSX.writeFile(wb, fileName);
+                    }}
+                    className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                  >
+                    Xuất Excel khác biệt
+                  </button>
+                </div>
+              )}
+
+              {compareResultData.conflictCount > 0 ? (
+                <div className="rounded-lg border border-amber-200">
+                  <div className="bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+                    Các dòng có khác biệt
+                  </div>
+                  <div className="max-h-[52vh] overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-gray-100">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Mã đơn</th>
+                          <th className="px-3 py-2 text-left">Khác biệt</th>
+                          <th className="px-3 py-2 text-left">Lịch sử</th>
+                          <th className="px-3 py-2 text-left">Hành động</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {compareResultData.conflicts.map((item, idx) => (
+                          <tr key={item.id} className="border-t border-gray-100">
+                            <td className="px-3 py-2 font-mono text-xs text-gray-700">{item.orderCode}</td>
+                            <td className="px-3 py-2">
+                              <div className="space-y-1">
+                                {item.diffs.map((diff, dIdx) => (
+                                  <div key={`${item.id}-${diff.key}-${dIdx}`} className="text-xs text-gray-700">
+                                    <span className="font-semibold">{diff.label}:</span>{' '}
+                                    <span className="text-gray-500">{formatCompareValue(diff.key, diff.oldValue)}</span>
+                                    <span className="mx-1 text-gray-400">→</span>
+                                    <span className="text-blue-700">{formatCompareValue(diff.key, diff.newValue)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-600">
+                              <div className="font-semibold text-gray-700">{item.historyMeta.sync_batch_label || '-'}</div>
+                              <div>{item.historyMeta.synced_at ? formatDateTime(item.historyMeta.synced_at) : '-'}</div>
+                              <div className="text-gray-400">{item.historyMeta.performed_by || ''}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <select
+                                value={item.decision}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setCompareResultData((prev) => {
+                                    if (!prev) return prev;
+                                    const next = [...prev.conflicts];
+                                    next[idx] = { ...next[idx], decision: v };
+                                    return { ...prev, conflicts: next };
+                                  });
+                                }}
+                                className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700"
+                              >
+                                <option value="keep">Giữ nguyên</option>
+                                <option value="replace">Thay thế bằng file</option>
+                                <option value="clear">Làm trống ô khác biệt</option>
+                              </select>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  Không phát hiện khác biệt với lịch sử.
+                </div>
+              )}
+
+              {compareResultData.missingCount > 0 && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-700">
+                  Có {compareResultData.missingCount} mã đơn trong file không tồn tại trong lịch sử đối soát.
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">
+              <button
+                onClick={() => setCompareResultData(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Đóng
+              </button>
+              <button
+                onClick={handleApplyCompareDecisions}
+                disabled={
+                  compareApplying ||
+                  compareResultData.conflicts.every((c) => !c.decision || c.decision === 'keep')
+                }
+                className="rounded-lg bg-amber-600 px-4 py-2 text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {compareApplying ? 'Đang cập nhật...' : 'Áp dụng thay đổi'}
+              </button>
             </div>
           </div>
         </div>
