@@ -1223,6 +1223,168 @@
       return allRows;
     }
 
+    /**
+     * `marketing_report_hcm` có thể còn số TT cũ sau khi đơn đã được chuyển/xóa khỏi `order_code_hcm`.
+     * Khi xem báo cáo, phủ lại các chỉ số thực tế từ bảng đơn HCM để khớp `/danh-sach-don-hcm`.
+     */
+    const MKT_HCM_ORDERS_TABLE = 'order_code_hcm';
+    const MKT_HCM_ORDERS_PAGE_SIZE = 2000;
+    const MKT_HCM_ORDERS_MAX_PAGES = 2000;
+
+    async function fetchAllHcmOrdersForActualOverlay(dateRange) {
+      const supabase = await getSupabaseClient();
+      const allRows = [];
+      const { startYmd, endYmd } = dateRange || {};
+      let from = 0;
+
+      for (let page = 0; page < MKT_HCM_ORDERS_MAX_PAGES; page++) {
+        let q = supabase
+          .from(MKT_HCM_ORDERS_TABLE)
+          .select(
+            'order_code, order_date, marketing_staff, product, country, shift, check_result, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+          );
+        if (startYmd) q = q.gte('order_date', startYmd);
+        if (endYmd) q = q.lte('order_date', endYmd);
+        q = q
+          .order('order_date', { ascending: true })
+          .order('order_code', { ascending: true })
+          .range(from, from + MKT_HCM_ORDERS_PAGE_SIZE - 1);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        const chunk = data || [];
+        if (chunk.length === 0) break;
+
+        allRows.push(...chunk);
+        if (chunk.length < MKT_HCM_ORDERS_PAGE_SIZE) break;
+        from += chunk.length;
+      }
+
+      return allRows;
+    }
+
+    function buildMktActualBaseKey(dateVal, nameVal, productVal, marketVal) {
+      return [
+        normalizeNgayForKey(dateVal),
+        normalizeNameForKey(nameVal),
+        normalizeFieldForKey(productVal),
+        normalizeFieldForKey(marketVal),
+      ].join('|');
+    }
+
+    function caSegmentFromGroupLabel(groupLabel) {
+      const norm = normalizeShiftSegStr(groupLabel);
+      if (norm.includes('hết ca') || norm.includes('het ca')) return 'het';
+      if (norm.includes('giữa ca') || norm.includes('giua ca')) return 'gua';
+      return normalizeCaForRowKey(groupLabel);
+    }
+
+    function orderShiftGroupsForActualOverlay(shiftVal) {
+      const groups = orderShiftToGroupsForMktKey(shiftVal);
+      return groups.length > 0 ? groups : ['Hết ca'];
+    }
+
+    function orderAmountVndForActualOverlay(order) {
+      const raw =
+        order?.total_amount_vnd ??
+        order?.total_vnd ??
+        order?.reconciled_vnd ??
+        order?.goods_amount ??
+        order?.sale_price ??
+        0;
+      return parseMoneyNumber(raw);
+    }
+
+    function isOrderHuyForActualOverlay(order) {
+      const s = String(order?.check_result ?? '').trim();
+      if (!s) return false;
+      const ascii = s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      return ascii === 'huy';
+    }
+
+    function buildHcmActualsByReportKey(orders) {
+      const counts = new Map();
+      for (const order of orders || []) {
+        const baseKey = buildMktActualBaseKey(
+          order.order_date,
+          order.marketing_staff,
+          order.product,
+          order.country
+        );
+        if (!baseKey || baseKey.split('|').some((part) => !part)) continue;
+
+        const amount = orderAmountVndForActualOverlay(order);
+        const isHuy = isOrderHuyForActualOverlay(order);
+        for (const group of orderShiftGroupsForActualOverlay(order.shift)) {
+          const key = `${baseKey}|${caSegmentFromGroupLabel(group)}`;
+          const prev =
+            counts.get(key) ||
+            { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0 };
+          prev.count += 1;
+          prev.totalRevenueVnd += amount;
+          if (isHuy) {
+            prev.cancelCount += 1;
+            prev.cancelRevenueVnd += amount;
+          }
+          counts.set(key, prev);
+        }
+      }
+      return counts;
+    }
+
+    async function overlayHcmActualsFromOrders(rowsNorm, dateRange) {
+      const orders = await fetchAllHcmOrdersForActualOverlay(dateRange);
+      const actualsByKey = buildHcmActualsByReportKey(orders);
+      let changedRows = 0;
+
+      const rows = (rowsNorm || []).map((row) => {
+        const baseKey = buildMktActualBaseKey(
+          row['Ngày'],
+          row['Tên'],
+          row['Sản_phẩm'],
+          row['Thị_trường']
+        );
+        if (!baseKey || baseKey.split('|').some((part) => !part)) return row;
+
+        const caKey = normalizeCaForRowKey(row.ca ?? row['Ca'] ?? row.shift);
+        const actual = actualsByKey.get(`${baseKey}|${caKey}`);
+        const count = actual?.count || 0;
+        const cancelCount = actual?.cancelCount || 0;
+        const totalRevenueVnd = actual?.totalRevenueVnd || 0;
+        const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
+        const netCount = Math.max(0, count - cancelCount);
+        const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
+        const beforeCount = parseMktCountInt(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
+        const beforeCancel = parseMktCountInt(row['Số đơn hoàn hủy'] ?? row.so_don_hoan_huy ?? 0);
+        if (beforeCount !== netCount || beforeCancel !== cancelCount) changedRows += 1;
+
+        return {
+          ...row,
+          'Số đơn thực tế': netCount,
+          so_don_thuc_te: row.so_don_thuc_te != null ? netCount : row.so_don_thuc_te,
+          order_count_actual: row.order_count_actual != null ? netCount : row.order_count_actual,
+          'Doanh số TT': netRevenueVnd,
+          doanh_so_tt: row.doanh_so_tt != null ? netRevenueVnd : row.doanh_so_tt,
+          'Số đơn hoàn hủy': cancelCount,
+          'Số đơn hoàn hủy thực tế': cancelCount,
+          so_don_hoan_huy: row.so_don_hoan_huy != null ? cancelCount : row.so_don_hoan_huy,
+          so_don_hoan_huy_thuc_te:
+            row.so_don_hoan_huy_thuc_te != null ? cancelCount : row.so_don_hoan_huy_thuc_te,
+          'Doanh số hoàn hủy thực tế': cancelRevenueVnd,
+          doanh_so_hoan_huy_thuc_te:
+            row.doanh_so_hoan_huy_thuc_te != null ? cancelRevenueVnd : row.doanh_so_hoan_huy_thuc_te,
+        };
+      });
+
+      console.log(
+        `🔁 Phủ số TT HCM từ ${MKT_HCM_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
+      );
+      return rows;
+    }
+
     /** Bảng báo cáo không có employeeData — suy ra từ các dòng báo cáo */
     function buildEmployeesFromDetailRows(rowsNorm) {
       const map = new Map();
@@ -1560,10 +1722,19 @@
         const rowsPersonnelFiltered = rowsTeamFiltered.filter((r) =>
           rowTenMatchesPersonnelScope(r['Tên'] || r.ten || r.name)
         );
+        let rowsActualized = rowsPersonnelFiltered;
+        try {
+          rowsActualized = await overlayHcmActualsFromOrders(rowsPersonnelFiltered, dateRange);
+        } catch (actualsErr) {
+          console.warn(
+            `[MKT HCM] Không phủ được số TT từ ${MKT_HCM_ORDERS_TABLE}; dùng số đã lưu trên ${MKT_REPORTS_TABLE}:`,
+            actualsErr?.message || actualsErr
+          );
+        }
 
         // Gộp trùng key (HCM): CPQC, Số Mess, Số đơn, Doanh số (nhập tay) cộng dồn; TT/hủy/DS TT lấy max.
         // Map → masterData; footer cộng theo từng dòng sau gộp.
-        const rowsDeduped = dedupeMktDetailReportRows(rowsPersonnelFiltered);
+        const rowsDeduped = dedupeMktDetailReportRows(rowsActualized);
 
         const employeeDataMKT = Array.isArray(resultMKT.employeeData) && resultMKT.employeeData.length
           ? await fetchEmployeeData(resultMKT.employeeData)
