@@ -323,6 +323,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [compareSyncDateFrom, setCompareSyncDateFrom] = useState('');
   const [compareSyncDateTo, setCompareSyncDateTo] = useState('');
   const [compareProgress, setCompareProgress] = useState(null);
+  const [compareFilterText, setCompareFilterText] = useState('');
+  const [compareFilterDecision, setCompareFilterDecision] = useState('all');
   /** Chuẩn hóa mã đơn — modal chi tiết trùng cước */
   const [cuocDupDetailKey, setCuocDupDetailKey] = useState(null);
   /** Mã tracking — modal các dòng bill cùng mã (theo bảng đang hiện) */
@@ -1014,6 +1016,27 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     }
     return String(value).trim();
   };
+
+  const filteredCompareConflicts = compareResultData
+    ? compareResultData.conflicts.filter((item) => {
+        if (compareFilterDecision !== 'all' && item.decision !== compareFilterDecision) return false;
+        const term = compareFilterText.trim().toLowerCase();
+        if (!term) return true;
+        const diffText = (item.diffs || [])
+          .map((d) => `${d.label} ${formatCompareValue(d.key, d.oldValue)} ${formatCompareValue(d.key, d.newValue)}`)
+          .join(' ');
+        const haystack = [
+          item.orderCode,
+          item.historyMeta?.sync_batch_label,
+          item.historyMeta?.performed_by,
+          diffText,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(term);
+      })
+    : [];
 
   const getCurrentData = () => {
     const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
@@ -2692,9 +2715,33 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       return;
     }
 
+    // Cảnh báo trước khi lưu: sẽ tạo batch lịch sử mới + cập nhật orders/order_code_hcm
+    const stats = updates.reduce(
+      (acc, u) => {
+        acc.total += 1;
+        if (u.decision === 'replace') acc.replace += 1;
+        else if (u.decision === 'clear') acc.clear += 1;
+        return acc;
+      },
+      { total: 0, replace: 0, clear: 0 }
+    );
+    const confirmMsg =
+      `Bạn sắp áp dụng thay đổi đối soát cho ${stats.total} dòng (Thay thế: ${stats.replace}, Làm trống: ${stats.clear}).\n\n` +
+      `Hệ thống sẽ:\n` +
+      `- Tạo BẢN GHI LỊCH SỬ MỚI (không ghi đè)\n` +
+      `- Cập nhật trực tiếp bảng ${ordersTableName} (orders/order_code_hcm)\n\n` +
+      `Tiếp tục?`;
+    if (!window.confirm(confirmMsg)) return;
+
     setCompareApplying(true);
     try {
-      const updatePayload = updates.map((item) => {
+      const nowIso = new Date().toISOString();
+      const performedBy = getVanDonSessionDisplayName();
+      const syncBatchId = makeSyncBatchId();
+      const syncBatchLabel = `Điều chỉnh đối soát ${new Date(nowIso).toLocaleString('vi-VN')}`;
+
+      // 1) Tạo lịch sử mới (append), không ghi đè dòng cũ
+      const historyInsertRows = updates.map((item) => {
         const baseRow =
           item.historyRow && typeof item.historyRow === 'object' && !Array.isArray(item.historyRow)
             ? { ...item.historyRow }
@@ -2709,20 +2756,101 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         });
 
         return {
-          id: item.historyId,
+          sync_batch_id: syncBatchId,
+          sync_batch_label: syncBatchLabel,
+          synced_at: nowIso,
+          performed_by: performedBy,
           source_row: baseRow,
         };
       });
 
-      const chunks = chunkArray(updatePayload, 100);
-      for (const chunk of chunks) {
-        const { error } = await supabase
-          .from(tableName)
-          .upsert(chunk, { onConflict: 'id' });
+      const historyChunks = chunkArray(historyInsertRows, 200);
+      for (const hChunk of historyChunks) {
+        const { error } = await supabase.from(tableName).insert(hChunk);
         if (error) throw error;
       }
 
-      alert(`Đã cập nhật ${updatePayload.length} dòng lịch sử.`);
+      // 2) Cập nhật orders/order_code_hcm theo scope
+      // Bill: reconciled_vnd + accountant_confirm + ngay_doi_soat_bill
+      // Cước: shipping_cost (tổng) + order_count_actual (đếm dòng) + ngay_doi_soat_cuoc
+      if (isBill) {
+        const orderUpdateMap = new Map(); // order_code -> patch
+        updates.forEach((item) => {
+          const oc = syncOrderKeyForScope(item.orderCode);
+          if (!oc) return;
+          if (!orderUpdateMap.has(oc)) orderUpdateMap.set(oc, { order_code: oc });
+          const patch = orderUpdateMap.get(oc);
+
+          // chỉ tác động những field liên quan đến orders
+          const affectsTien = item.diffs.some((d) => d.key === 'tien_viet' || d.key === 'so_tien_doi_soat');
+          const affectsAcc = item.diffs.some((d) => d.key === 'accountant_confirm');
+          const affectsDate = item.diffs.some((d) => d.key === 'ngay_doi_soat');
+
+          if (item.decision === 'replace') {
+            if (affectsTien) {
+              const v = normalizeUpdateValue('tien_viet', item.incomingRow?.tien_viet ?? item.incomingRow?.so_tien_doi_soat);
+              patch.reconciled_vnd = v;
+            }
+            if (affectsAcc) {
+              patch.accountant_confirm = normalizeUpdateValue('accountant_confirm', item.incomingRow?.accountant_confirm);
+            }
+            if (affectsDate || patch.reconciled_vnd != null || patch.accountant_confirm != null) {
+              patch.ngay_doi_soat_bill = normalizeUpdateValue('ngay_doi_soat', item.incomingRow?.ngay_doi_soat) || nowIso.slice(0, 10);
+            }
+          } else if (item.decision === 'clear') {
+            if (affectsTien) patch.reconciled_vnd = null;
+            if (affectsAcc) patch.accountant_confirm = null;
+            if (affectsDate) patch.ngay_doi_soat_bill = null;
+          }
+        });
+
+        const payload = [...orderUpdateMap.values()];
+        const chunks = chunkArray(payload, 50);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from(ordersTableName).upsert(chunk, { onConflict: 'order_code' });
+          if (error) throw error;
+        }
+      } else {
+        const orderAgg = new Map(); // order_code -> {sum, count, date?}
+        updates.forEach((item) => {
+          const oc = syncOrderKeyForScope(item.orderCode);
+          if (!oc) return;
+          if (!orderAgg.has(oc)) orderAgg.set(oc, { order_code: oc, sum: 0, count: 0, date: null });
+          const agg = orderAgg.get(oc);
+          agg.count += 1;
+
+          if (item.decision === 'replace') {
+            const v = normalizeUpdateValue('tien_ship_vnd', item.incomingRow?.tien_ship_vnd);
+            if (typeof v === 'number') agg.sum += v;
+            agg.date = normalizeUpdateValue('ngay_doi_soat_cuoc', item.incomingRow?.ngay_doi_soat_cuoc) || agg.date;
+          } else if (item.decision === 'clear') {
+            // clear: set shipping/date/count to null later
+            agg.__clear = true;
+          }
+        });
+
+        const payload = [...orderAgg.values()].map((agg) => {
+          const out = { order_code: agg.order_code };
+          if (agg.__clear) {
+            out.shipping_cost = null;
+            out.order_count_actual = null;
+            out.ngay_doi_soat_cuoc = null;
+            return out;
+          }
+          out.shipping_cost = agg.sum;
+          out.order_count_actual = agg.count;
+          out.ngay_doi_soat_cuoc = agg.date || nowIso.slice(0, 10);
+          return out;
+        });
+
+        const chunks = chunkArray(payload, 50);
+        for (const chunk of chunks) {
+          const { error } = await supabase.from(ordersTableName).upsert(chunk, { onConflict: 'order_code' });
+          if (error) throw error;
+        }
+      }
+
+      alert(`Đã tạo ${historyInsertRows.length} dòng lịch sử mới và cập nhật ${ordersTableName}.`);
       if (isBill) {
         setActiveTab('bill_view');
         await loadBillUploadedHistoryData();
@@ -3321,78 +3449,59 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               <p className="text-xs text-gray-500">Quản lý tài chính - Đối soát bill và cước phí</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                fetchSyncHistory();
-                setShowHistoryModal(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg text-sm font-medium transition shadow-sm"
-            >
-              <History className="w-4 h-4 text-indigo-500" />
-              Lịch sử
-            </button>
-            <button
-              onClick={handleDownloadTemplate}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition"
-            >
-              <Download className="w-4 h-4" />
-              Tải mẫu Excel
-            </button>
-            <label className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-medium transition cursor-pointer">
-              <Upload className="w-4 h-4" />
-              {uploading ? 'Đang tải lên...' : 'Tải lên Excel'}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleUploadExcel}
-                disabled={uploading}
-                className="hidden"
-              />
-            </label>
-            <label className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition cursor-pointer">
-              <Search className="w-4 h-4" />
-              {compareUploading ? 'Đang đối soát...' : 'Đối soát Excel'}
-              <input
-                ref={compareFileInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleCompareExcel}
-                disabled={compareUploading}
-                className="hidden"
-              />
-            </label>
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
-              <span className="font-semibold">Ngày đồng bộ</span>
-              <input
-                type="date"
-                value={compareSyncDateFrom}
-                onChange={(e) => setCompareSyncDateFrom(e.target.value || '')}
-                className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs font-medium text-gray-700"
-              />
-              <span className="text-amber-400">-</span>
-              <input
-                type="date"
-                value={compareSyncDateTo}
-                onChange={(e) => setCompareSyncDateTo(e.target.value || '')}
-                className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs font-medium text-gray-700"
-              />
-            </div>
-            {compareProgress?.active && (
-              <span className="text-xs font-semibold text-amber-700">
-                Đang đối soát: {compareProgress.current}/{compareProgress.total}
-              </span>
-            )}
-            <button
-              onClick={handleCheckDuplicates}
-              disabled={checkingDuplicates || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
-              title="Kiểm tra các dòng trùng hoàn toàn trong bảng hiện tại"
-            >
+          <div className="flex flex-col items-end gap-2 lg:flex-row lg:items-center lg:gap-3">
+            {/* Row 1: file actions */}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                onClick={() => {
+                  fetchSyncHistory();
+                  setShowHistoryModal(true);
+                }}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
+              >
+                <History className="h-4 w-4 text-indigo-500" />
+                Lịch sử
+              </button>
+              <button
+                onClick={handleDownloadTemplate}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-indigo-500 px-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
+              >
+                <Download className="h-4 w-4" />
+                Tải mẫu Excel
+              </button>
+              <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-teal-500 px-3 text-sm font-semibold text-white transition hover:bg-teal-600">
+                <Upload className="h-4 w-4" />
+                {uploading ? 'Đang tải lên...' : 'Tải lên Excel'}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleUploadExcel}
+                  disabled={uploading}
+                  className="hidden"
+                />
+              </label>
+              <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-amber-500 px-3 text-sm font-semibold text-white transition hover:bg-amber-600">
+                <Search className="h-4 w-4" />
+                {compareUploading ? 'Đang đối soát...' : 'Đối soát Excel'}
+                <input
+                  ref={compareFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleCompareExcel}
+                  disabled={compareUploading}
+                  className="hidden"
+                />
+              </label>
+              <button
+                onClick={handleCheckDuplicates}
+                disabled={checkingDuplicates || loading}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-purple-500 px-3 text-sm font-semibold text-white transition hover:bg-purple-600 disabled:opacity-50"
+                title="Kiểm tra các dòng trùng hoàn toàn trong bảng hiện tại"
+              >
               {checkingDuplicates ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <RefreshCw className="h-4 w-4 animate-spin" />
                   Đang kiểm tra...
                 </>
               ) : (
@@ -3402,18 +3511,55 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 </>
               )}
             </button>
-            {isHcmScope && (
+              {isHcmScope && (
+                <button
+                  onClick={handleBackfillHcmFromOrders}
+                  disabled={backfillingHcm || syncing || loading}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-amber-500 px-3 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+                  title="Kéo dữ liệu đối soát cũ từ orders sang order_code_hcm"
+                >
+                  {backfillingHcm ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCw className="h-4 w-4" />
+                  )}
+                  {backfillingHcm ? 'Đang backfill...' : 'Backfill HCM'}
+                </button>
+              )}
+              <div className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2">
+                <span className="text-[11px] font-semibold text-amber-900">Ngày đồng bộ</span>
+                <input
+                  type="date"
+                  value={compareSyncDateFrom}
+                  onChange={(e) => setCompareSyncDateFrom(e.target.value || '')}
+                  className="h-7 rounded-md border border-amber-200 bg-white px-2 text-[11px] font-medium text-gray-700"
+                />
+                <span className="text-amber-400">-</span>
+                <input
+                  type="date"
+                  value={compareSyncDateTo}
+                  onChange={(e) => setCompareSyncDateTo(e.target.value || '')}
+                  className="h-7 rounded-md border border-amber-200 bg-white px-2 text-[11px] font-medium text-gray-700"
+                />
+                {compareProgress?.active && (
+                  <span className="ml-1 text-[11px] font-semibold text-amber-700">
+                    {compareProgress.current}/{compareProgress.total}
+                  </span>
+                )}
+              </div>
               <button
-                onClick={handleBackfillHcmFromOrders}
-                disabled={backfillingHcm || syncing || loading}
-                className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
-                title="Kéo dữ liệu đối soát cũ từ orders sang order_code_hcm"
+                onClick={handleRefresh}
+                disabled={loading}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-500 px-3 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
               >
-                {backfillingHcm ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
-                {backfillingHcm ? 'Đang backfill...' : 'Backfill HCM'}
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Đang tải...' : 'Tải lại'}
               </button>
-            )}
-            <div className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-2 py-1">
+            </div>
+
+            {/* Row 2: sync actions */}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-2">
               <div className="flex flex-col gap-0.5">
                 <span className="text-[10px] font-bold text-blue-900 px-1 uppercase tracking-wider">Đồng bộ Bill</span>
                 <select
@@ -3451,7 +3597,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50/80 px-2 py-1">
+              <div className="flex h-9 items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50/80 px-2">
               <div className="flex flex-col gap-0.5">
                 <span className="text-[10px] font-bold text-teal-900 px-1 uppercase tracking-wider">Đồng bộ Cước</span>
                 <span className="text-[10px] text-teal-700 px-1 font-medium">Theo Mã đơn hàng</span>
@@ -3480,47 +3626,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 </button>
               </div>
             </div>
-
-            {false && ( // Ẩn nút thêm mã đơn hàng
-              <>
-                <button
-                  onClick={() => setShowAddModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition"
-                >
-                  <Plus className="w-4 h-4" />
-                  Thêm mã đơn hàng
-                </button>
-                {pendingChanges.size > 0 && (
-                  <button
-                    onClick={handleSaveChanges}
-                    disabled={updating}
-                    className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50 relative"
-                  >
-                    {updating ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        Đang lưu...
-                      </>
-                    ) : (
-                      <>
-                        Lưu thay đổi
-                        <span className="ml-1 bg-white text-orange-500 text-xs font-bold px-1.5 py-0.5 rounded-full">
-                          {pendingChanges.size}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </>
-            )}
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              {loading ? 'Đang tải...' : 'Tải lại'}
-            </button>
+            </div>
           </div>
         </div>
       </div>
@@ -4499,6 +4605,29 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
               {compareResultData.conflictCount > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs">
+                    <Search className="h-3.5 w-3.5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Tìm theo mã đơn, cột, người đồng bộ..."
+                      value={compareFilterText}
+                      onChange={(e) => setCompareFilterText(e.target.value)}
+                      className="w-56 border-none bg-transparent text-xs outline-none"
+                    />
+                  </div>
+                  <select
+                    value={compareFilterDecision}
+                    onChange={(e) => setCompareFilterDecision(e.target.value)}
+                    className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700"
+                  >
+                    <option value="all">Tất cả hành động</option>
+                    <option value="keep">Giữ nguyên</option>
+                    <option value="replace">Thay thế</option>
+                    <option value="clear">Làm trống</option>
+                  </select>
+                  <span className="text-xs text-gray-500">
+                    Hiển thị {filteredCompareConflicts.length}/{compareResultData.conflictCount}
+                  </span>
                   <span className="text-xs font-semibold text-gray-600">Đặt tất cả:</span>
                   {[
                     { value: 'keep', label: 'Giữ nguyên' },
@@ -4524,7 +4653,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                   <button
                     onClick={() => {
                       if (!compareResultData) return;
-                      const exportRows = compareResultData.conflicts.flatMap((item) =>
+                      const exportRows = filteredCompareConflicts.flatMap((item) =>
                         item.diffs.map((diff) => ({
                           'Mã đơn hàng': item.orderCode,
                           'Đợt đồng bộ': item.historyMeta.sync_batch_label || '',
@@ -4566,7 +4695,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {compareResultData.conflicts.map((item, idx) => (
+                        {filteredCompareConflicts.map((item) => (
                           <tr key={item.id} className="border-t border-gray-100">
                             <td className="px-3 py-2 font-mono text-xs text-gray-700">{item.orderCode}</td>
                             <td className="px-3 py-2">
@@ -4593,9 +4722,12 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                                   const v = e.target.value;
                                   setCompareResultData((prev) => {
                                     if (!prev) return prev;
-                                    const next = [...prev.conflicts];
-                                    next[idx] = { ...next[idx], decision: v };
-                                    return { ...prev, conflicts: next };
+                                    return {
+                                      ...prev,
+                                      conflicts: prev.conflicts.map((c) =>
+                                        c.id === item.id ? { ...c, decision: v } : c
+                                      ),
+                                    };
                                   });
                                 }}
                                 className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700"
@@ -4607,6 +4739,13 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                             </td>
                           </tr>
                         ))}
+                        {filteredCompareConflicts.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-3 text-center text-xs text-gray-500">
+                              Không có dòng phù hợp với bộ lọc.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
