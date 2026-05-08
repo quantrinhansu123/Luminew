@@ -639,15 +639,26 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const loadBillUploadedHistoryData = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('bill_uploaded_history')
-        .select('*')
-        .order('synced_at', { ascending: false })
-        .order('created_at', { ascending: false });
+      const PAGE_SIZE = 1000;
+      let from = 0;
+      const allData = [];
+      while (true) {
+        const to = from + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('bill_uploaded_history')
+          .select('*')
+          .order('synced_at', { ascending: false })
+          .order('created_at', { ascending: false })
+          .range(from, to);
 
-      if (error) throw error;
+        if (error) throw error;
+        const batch = data || [];
+        allData.push(...batch);
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
 
-      const rows = (data || []).map((item) => {
+      const rows = allData.map((item) => {
         const sourceRow =
           item?.source_row && typeof item.source_row === 'object' && !Array.isArray(item.source_row)
             ? item.source_row
@@ -763,15 +774,26 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const loadCuocUploadedHistoryData = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('cuoc_uploaded_history')
-        .select('*')
-        .order('synced_at', { ascending: false })
-        .order('created_at', { ascending: false });
+      const PAGE_SIZE = 1000;
+      let from = 0;
+      const allData = [];
+      while (true) {
+        const to = from + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('cuoc_uploaded_history')
+          .select('*')
+          .order('synced_at', { ascending: false })
+          .order('created_at', { ascending: false })
+          .range(from, to);
 
-      if (error) throw error;
+        if (error) throw error;
+        const batch = data || [];
+        allData.push(...batch);
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
 
-      const rows = (data || []).map((item) => {
+      const rows = allData.map((item) => {
         const sourceRow =
           item?.source_row && typeof item.source_row === 'object' && !Array.isArray(item.source_row)
             ? item.source_row
