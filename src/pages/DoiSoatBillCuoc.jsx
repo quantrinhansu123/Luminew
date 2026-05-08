@@ -322,6 +322,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [compareApplying, setCompareApplying] = useState(false);
   const [compareSyncDateFrom, setCompareSyncDateFrom] = useState('');
   const [compareSyncDateTo, setCompareSyncDateTo] = useState('');
+  const [compareProgress, setCompareProgress] = useState(null);
   /** Chuẩn hóa mã đơn — modal chi tiết trùng cước */
   const [cuocDupDetailKey, setCuocDupDetailKey] = useState(null);
   /** Mã tracking — modal các dòng bill cùng mã (theo bảng đang hiện) */
@@ -2541,22 +2542,45 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         });
       }
 
-      const compareOrderCodes = [
-        ...new Set(
-          recordsToCompare
-            .map((r) => (r.ma_don_hang != null ? String(r.ma_don_hang).trim() : ''))
-            .filter(Boolean)
-        ),
-      ];
+      const orderCodeToRecords = new Map();
+      recordsToCompare.forEach((r) => {
+        const oc = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
+        if (!oc) return;
+        if (!orderCodeToRecords.has(oc)) orderCodeToRecords.set(oc, []);
+        orderCodeToRecords.get(oc).push(r);
+      });
+
+      const compareOrderCodes = [...orderCodeToRecords.keys()];
 
       if (compareOrderCodes.length === 0) {
         alert('Không tìm thấy Mã đơn hàng hợp lệ để đối soát.');
         return;
       }
 
-      const historyRows = [];
+      const compareKeys = [...mappedKeys].filter(
+        (k) => k !== 'ma_don_hang' && k !== 'id' && k !== 'created_at' && k !== 'updated_at'
+      );
+      const compareLabelMap = new Map(columns.map((c) => [c.key, c.label]));
+
+      let sameCount = 0;
+      let missingCount = 0;
+      const conflicts = [];
+
       const historyChunks = chunkArray(compareOrderCodes, 500);
-      for (const batch of historyChunks) {
+      setCompareProgress({ current: 0, total: historyChunks.length, active: true });
+
+      const isNewerHistory = (nextRow, prevRow) => {
+        if (!prevRow) return true;
+        const nextSynced = new Date(nextRow?.synced_at || 0).getTime();
+        const prevSynced = new Date(prevRow?.synced_at || 0).getTime();
+        if (nextSynced !== prevSynced) return nextSynced > prevSynced;
+        const nextCreated = new Date(nextRow?.created_at || 0).getTime();
+        const prevCreated = new Date(prevRow?.created_at || 0).getTime();
+        return nextCreated > prevCreated;
+      };
+
+      for (let i = 0; i < historyChunks.length; i++) {
+        const batch = historyChunks[i];
         let query = supabase
           .from(historyTableName)
           .select('id, source_row, synced_at, sync_batch_label, performed_by, created_at')
@@ -2570,102 +2594,71 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         }
 
         const { data, error } = await query;
-
         if (error) throw error;
-        historyRows.push(...(data || []));
-      }
 
-      const filteredHistoryRows = historyRows.filter((row) => {
-        if (!compareSyncDateFrom && !compareSyncDateTo) return true;
-        const ymd = row?.synced_at ? String(row.synced_at).slice(0, 10) : '';
-        if (compareSyncDateFrom && (!ymd || ymd < compareSyncDateFrom)) return false;
-        if (compareSyncDateTo && (!ymd || ymd > compareSyncDateTo)) return false;
-        return true;
-      });
-
-      filteredHistoryRows.sort((a, b) => {
-        const aSynced = new Date(a?.synced_at || 0).getTime();
-        const bSynced = new Date(b?.synced_at || 0).getTime();
-        if (bSynced !== aSynced) return bSynced - aSynced;
-        const aCreated = new Date(a?.created_at || 0).getTime();
-        const bCreated = new Date(b?.created_at || 0).getTime();
-        return bCreated - aCreated;
-      });
-
-      const historyMap = new Map();
-      filteredHistoryRows.forEach((row) => {
-        const sourceRow =
-          row?.source_row && typeof row.source_row === 'object' && !Array.isArray(row.source_row)
-            ? row.source_row
-            : {};
-        const oc = String(sourceRow?.ma_don_hang ?? '').trim();
-        if (!oc || historyMap.has(oc)) return;
-        historyMap.set(oc, { ...row, sourceRow });
-      });
-
-      const historyKeys = new Set();
-      filteredHistoryRows.forEach((row) => {
-        const sourceRow =
-          row?.source_row && typeof row.source_row === 'object' && !Array.isArray(row.source_row)
-            ? row.source_row
-            : {};
-        Object.keys(sourceRow).forEach((k) => historyKeys.add(k));
-      });
-
-      const compareKeys = [...new Set([...mappedKeys, ...historyKeys])].filter(
-        (k) => k !== 'ma_don_hang' && k !== 'id' && k !== 'created_at' && k !== 'updated_at'
-      );
-      const compareLabelMap = new Map(columns.map((c) => [c.key, c.label]));
-
-      let sameCount = 0;
-      let missingCount = 0;
-      const conflicts = [];
-
-      recordsToCompare.forEach((record, idx) => {
-        const oc = String(record?.ma_don_hang ?? '').trim();
-        if (!oc) return;
-        const historyItem = historyMap.get(oc);
-        if (!historyItem) {
-          missingCount += 1;
-          return;
-        }
-
-        const sourceRow = historyItem.sourceRow || {};
-        const diffs = [];
-        compareKeys.forEach((key) => {
-          if (key === 'sync_batch_label' || key === 'dem_lan_thanh_toan' || key === 'chi_nhanh') return;
-          const oldValue = sourceRow[key];
-          const newValue = record[key];
-          if (normalizeCompareValue(key, oldValue) !== normalizeCompareValue(key, newValue)) {
-            diffs.push({
-              key,
-              label: compareLabelMap.get(key) || key,
-              oldValue,
-              newValue,
-            });
+        const historyMap = new Map();
+        (data || []).forEach((row) => {
+          const sourceRow =
+            row?.source_row && typeof row.source_row === 'object' && !Array.isArray(row.source_row)
+              ? row.source_row
+              : {};
+          const oc = String(sourceRow?.ma_don_hang ?? '').trim();
+          if (!oc) return;
+          const current = historyMap.get(oc);
+          if (!current || isNewerHistory(row, current)) {
+            historyMap.set(oc, { ...row, sourceRow });
           }
         });
 
-        if (diffs.length === 0) {
-          sameCount += 1;
-          return;
-        }
+        batch.forEach((oc, idx) => {
+          const historyItem = historyMap.get(oc);
+          const records = orderCodeToRecords.get(oc) || [];
+          if (!historyItem) {
+            missingCount += records.length;
+            return;
+          }
 
-        conflicts.push({
-          id: `${oc}-${idx}`,
-          orderCode: oc,
-          historyId: historyItem.id,
-          historyRow: sourceRow,
-          historyMeta: {
-            sync_batch_label: historyItem.sync_batch_label || '',
-            synced_at: historyItem.synced_at || null,
-            performed_by: historyItem.performed_by || '',
-          },
-          incomingRow: record,
-          diffs,
-          decision: 'keep',
+          const sourceRow = historyItem.sourceRow || {};
+          records.forEach((record) => {
+            const diffs = [];
+            compareKeys.forEach((key) => {
+              if (key === 'sync_batch_label' || key === 'dem_lan_thanh_toan' || key === 'chi_nhanh') return;
+              const oldValue = sourceRow[key];
+              const newValue = record[key];
+              if (normalizeCompareValue(key, oldValue) !== normalizeCompareValue(key, newValue)) {
+                diffs.push({
+                  key,
+                  label: compareLabelMap.get(key) || key,
+                  oldValue,
+                  newValue,
+                });
+              }
+            });
+
+            if (diffs.length === 0) {
+              sameCount += 1;
+              return;
+            }
+
+            conflicts.push({
+              id: `${oc}-${i}-${idx}-${conflicts.length}`,
+              orderCode: oc,
+              historyId: historyItem.id,
+              historyRow: sourceRow,
+              historyMeta: {
+                sync_batch_label: historyItem.sync_batch_label || '',
+                synced_at: historyItem.synced_at || null,
+                performed_by: historyItem.performed_by || '',
+              },
+              incomingRow: record,
+              diffs,
+              decision: 'keep',
+            });
+          });
         });
-      });
+
+        setCompareProgress({ current: i + 1, total: historyChunks.length, active: true });
+      }
 
       setCompareResultData({
         isBill: isBillTab,
@@ -2683,6 +2676,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       console.error('Error comparing Excel:', error);
       alert('Lỗi khi đối soát Excel: ' + error.message);
     } finally {
+      setCompareProgress(null);
       setCompareUploading(false);
       if (compareFileInputRef.current) compareFileInputRef.current.value = '';
     }
@@ -3385,6 +3379,11 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs font-medium text-gray-700"
               />
             </div>
+            {compareProgress?.active && (
+              <span className="text-xs font-semibold text-amber-700">
+                Đang đối soát: {compareProgress.current}/{compareProgress.total}
+              </span>
+            )}
             <button
               onClick={handleCheckDuplicates}
               disabled={checkingDuplicates || loading}
