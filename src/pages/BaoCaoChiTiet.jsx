@@ -44,6 +44,43 @@ function filterByMultiTrong(selected, cellRaw) {
     return selected.includes(t);
 }
 
+/** Cộng tiền từ ô lưới / số — cùng ý với format số trong bảng. */
+function parseMoneyCell(v) {
+    if (v == null || v === '') return 0;
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    const n = parseFloat(String(v).replace(/[^\d.-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+}
+
+/** Phí ship VNĐ từ dòng DB (shipping_cost ưu tiên; shipping_fee có thể là text/ngày). */
+function shippingVndFromOrder(item) {
+    const sc = item?.shipping_cost;
+    if (sc !== undefined && sc !== null && sc !== '') {
+        const n = typeof sc === 'number' ? sc : Number(sc);
+        if (Number.isFinite(n)) return n;
+    }
+    const sf = item?.shipping_fee;
+    if (sf === undefined || sf === null || sf === '') return 0;
+    if (typeof sf === 'number' && Number.isFinite(sf)) return sf;
+    const s = String(sf).trim();
+    if (/^\d{1,2}[./-]\d{1,2}/.test(s)) return 0;
+    return parseMoneyCell(s);
+}
+
+/** Đếm đơn «kế toán thu tiền về»: có nội dung xác nhận, không phải trạng thái «chưa / không». */
+function isKeToanThuTienVe(row) {
+    const v = String(row['Kế toán xác nhận thu tiền về'] ?? '').trim().toLowerCase();
+    if (!v) return false;
+    const negatives = ['chưa', 'chua', 'không', 'khong', '-', 'n/a', 'na', 'k/c', 'k / c'];
+    for (const n of negatives) {
+        if (v === n || v.startsWith(`${n} `) || v.startsWith(`${n},`) || v.startsWith(`${n}:`)) return false;
+    }
+    return true;
+}
+
+/** PostgREST/Supabase thường trả tối đa ~1000 dòng mỗi request — lấy nhiều đợt bằng `.range()` (cùng ý DanhSachDon). */
+const ORDERS_FETCH_PAGE_SIZE = 1000;
+
 /** Dropdown đa chọn + checkbox — cùng mẫu danh-sach-don */
 function MultiCheckboxFilter({
     label,
@@ -469,6 +506,8 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
         "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
         "Kế toán xác nhận thu tiền về": item.accountant_confirm,
+        /** Dùng cho tổng phí ship; không hiện cột (Phí ship nằm REMOVED_COLUMNS). */
+        "Phí ship": shippingVndFromOrder(item),
         "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
         "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
         "Trạng thái thu tiền": item.payment_status_detail,
@@ -485,44 +524,61 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         try {
             console.log(`Loading MKT Detail data from Supabase (${ordersTableName})...`);
 
-            // 1. Fetch Supabase Data
-            let query = supabase.from(ordersTableName).select('*');
-
-            // --- USER FILTER (Re-applied) ---
-            // Admin/Director/Manager/Finance: không lọc NV (xem full). Staff: chỉ đơn MKT của mình.
             const legacyRole = localStorage.getItem('userRole') || '';
-            const roleLower = (role || '').toLowerCase();
             const isManager = isManagerRole(role, legacyRole);
 
-            // Admin/Manager luôn xem full; user thường lọc theo users.selected_personnel.
-            if (!isManager && selectedPersonnelNames.length > 0) {
-                query = query.in('marketing_staff', selectedPersonnelNames);
-            } else if (!isManager && userName) {
-                query = query.ilike('marketing_staff', `%${String(userName).trim()}%`);
-            }
-
-            query = query.order('order_date', { ascending: false });
-
-            if (isManager) {
-                // Full dữ liệu: không ép khoảng ngày khi UI để trống; có chọn ngày thì thu hẹp trên server.
-                if (startDate && endDate) {
-                    query = query
-                        .gte('order_date', startDate)
-                        .lte('order_date', `${endDate}T23:59:59`);
+            /** Mỗi lần gọi tạo query mới (tránh mutate builder khi range nhiều trang). */
+            const buildFilteredQuery = () => {
+                let q = supabase.from(ordersTableName).select('*');
+                if (!isManager && selectedPersonnelNames.length > 0) {
+                    q = q.in('marketing_staff', selectedPersonnelNames);
+                } else if (!isManager && userName) {
+                    q = q.ilike('marketing_staff', `%${String(userName).trim()}%`);
                 }
-                query = query.limit(40000);
-            } else if (startDate && endDate) {
-                query = query
-                    .gte('order_date', startDate)
-                    .lte('order_date', `${endDate}T23:59:59`)
-                    .limit(20000);
+                if (isManager) {
+                    if (startDate && endDate) {
+                        q = q.gte('order_date', startDate).lte('order_date', `${endDate}T23:59:59`);
+                    }
+                } else if (startDate && endDate) {
+                    q = q.gte('order_date', startDate).lte('order_date', `${endDate}T23:59:59`);
+                }
+                return q;
+            };
+
+            let supaData = [];
+
+            if (!isManager && (!startDate || !endDate)) {
+                const { data, error } = await buildFilteredQuery()
+                    .order('order_date', { ascending: false })
+                    .order('order_code', { ascending: false })
+                    .limit(100);
+                if (error) throw error;
+                supaData = data || [];
             } else {
-                query = query.limit(100);
+                const maxTotal = isManager ? 40000 : 20000;
+                let from = 0;
+                for (let page = 0; page < 500; page++) {
+                    const { data, error } = await buildFilteredQuery()
+                        .order('order_date', { ascending: false })
+                        .order('order_code', { ascending: false })
+                        .range(from, from + ORDERS_FETCH_PAGE_SIZE - 1);
+                    if (error) throw error;
+                    const chunk = data || [];
+                    supaData.push(...chunk);
+                    if (chunk.length < ORDERS_FETCH_PAGE_SIZE) break;
+                    from += ORDERS_FETCH_PAGE_SIZE;
+                    if (supaData.length >= maxTotal) {
+                        supaData = supaData.slice(0, maxTotal);
+                        break;
+                    }
+                }
+                if (supaData.length > maxTotal) supaData = supaData.slice(0, maxTotal);
+                if (supaData.length > 0) {
+                    console.log(
+                        `[BaoCaoChiTiet] Đã tải ${supaData.length} dòng (${ordersTableName}), tối đa ${maxTotal}, mỗi đợt ${ORDERS_FETCH_PAGE_SIZE}.`
+                    );
+                }
             }
-
-            const { data: supaData, error: supaError } = await query;
-
-            if (supaError) throw supaError;
 
             // 2. Process Supabase Data
             let supaMapped = (supaData || []).map(mapSupabaseToUI);
@@ -1063,6 +1119,28 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         sortColumn,
         sortDirection
     ]);
+
+    const filteredTotals = useMemo(() => {
+        let totalVnd = 0;
+        let totalThu = 0;
+        let totalShip = 0;
+        let ordersKeToan = 0;
+        for (const row of filteredData) {
+            totalVnd += parseMoneyCell(row['Tổng tiền VNĐ']);
+            totalThu += parseMoneyCell(row['Tiền Việt đã đối soát']);
+            totalShip += parseMoneyCell(row['Phí ship']);
+            if (isKeToanThuTienVe(row)) ordersKeToan += 1;
+        }
+        return {
+            orderCount: filteredData.length,
+            totalVnd,
+            totalThu,
+            ordersKeToan,
+            totalShip
+        };
+    }, [filteredData]);
+
+    const fmtVnd = (n) => `${Math.round(n).toLocaleString('vi-VN')} ₫`;
 
     useEffect(() => {
         setCurrentPage(1);
@@ -1680,6 +1758,50 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
                             <Settings className="w-4 h-4" />
                             Cài đặt cột
                         </button>
+                    </div>
+                </div>
+
+                {/* Tổng theo bộ lọc — dùng chung HN (/bao-cao-chi-tiet) và HCM (/bao-cao-chi-tiet-hcm) */}
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    <h2 className="text-sm font-semibold text-gray-800">Tổng hợp theo bộ lọc</h2>
+                    <span className="text-xs text-gray-500">
+                        {isHcm ? 'Nguồn: order_code_hcm' : 'Nguồn: orders'}
+                    </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng đơn</div>
+                        <div className="mt-1 text-xl font-bold text-gray-900 tabular-nums">
+                            {filteredTotals.orderCount.toLocaleString('vi-VN')}
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng tiền VNĐ</div>
+                        <div className="mt-1 text-lg font-bold text-[#F37021] tabular-nums leading-snug">
+                            {fmtVnd(filteredTotals.totalVnd)}
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng tiền đã thu</div>
+                        <div className="mt-1 text-lg font-bold text-emerald-700 tabular-nums leading-snug">
+                            {fmtVnd(filteredTotals.totalThu)}
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-1">Tiền Việt đã đối soát</div>
+                    </div>
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                            Tổng đơn kế toán thu tiền về
+                        </div>
+                        <div className="mt-1 text-xl font-bold text-gray-900 tabular-nums">
+                            {filteredTotals.ordersKeToan.toLocaleString('vi-VN')}
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-1">Có xác nhận KT (trừ Chưa/Không)</div>
+                    </div>
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 col-span-2 sm:col-span-1">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng tiền ship</div>
+                        <div className="mt-1 text-lg font-bold text-gray-900 tabular-nums leading-snug">
+                            {fmtVnd(filteredTotals.totalShip)}
+                        </div>
                     </div>
                 </div>
 

@@ -2031,10 +2031,14 @@ export default function BaoCaoVanHanhHtml() {
                                 <th rowSpan={2} className="bg-[#FFC000] px-3 py-2 font-normal">
                                     Tỉ lệ/đơn giao tc
                                 </th>
-                                <th rowSpan={2} className="bg-[#FFC000] px-3 py-2 font-normal leading-tight">
-                                    tỷ lệ đơn có bill
+                                <th
+                                    rowSpan={2}
+                                    className="bg-[#FFC000] px-3 py-2 font-normal leading-tight"
+                                    title="Công thức: (Số đơn «Đã thanh toán») ÷ (Số đơn «Đơn có mã») × 100"
+                                >
+                                    Tỉ lệ
                                     <br />
-                                    / đơn thành công
+                                    / đơn có mã
                                 </th>
                             </tr>
                             <tr>
@@ -2098,8 +2102,11 @@ export default function BaoCaoVanHanhHtml() {
                                 <td className="px-3 py-2 font-extrabold tabular-nums">
                                     {formatPct(tab1Operational.giaoTC, tab1Operational.tongNoiBo)}
                                 </td>
-                                <td className="px-3 py-2 font-extrabold tabular-nums">
-                                    {formatPct(tab1Operational.donCoBill, tab1Operational.giaoTC)}
+                                <td
+                                    className="px-3 py-2 font-extrabold tabular-nums"
+                                    title="(Số đơn cột «Đã thanh toán») ÷ (Số đơn cột «Đơn có mã») × 100 — cùng số với hai ô bên trái"
+                                >
+                                    {formatPct(tab1Operational.donCoBill, tab1Operational.coMa)}
                                 </td>
                             </tr>
                         </tbody>
