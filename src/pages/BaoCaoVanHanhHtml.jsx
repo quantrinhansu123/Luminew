@@ -2028,7 +2028,11 @@ export default function BaoCaoVanHanhHtml() {
                                     <br />
                                     chưa mã
                                 </th>
-                                <th rowSpan={2} className="bg-[#FFC000] px-3 py-2 font-normal">
+                                <th
+                                    rowSpan={2}
+                                    className="bg-[#FFC000] px-3 py-2 font-normal"
+                                    title="Công thức: (Số đơn «Đã thanh toán») ÷ (số «Đơn thành công» — cột histogram giao TC) × 100"
+                                >
                                     Tỉ lệ/đơn giao tc
                                 </th>
                                 <th
@@ -2099,8 +2103,11 @@ export default function BaoCaoVanHanhHtml() {
                                 <td className="bg-[#F4B084] px-3 py-2 font-extrabold tabular-nums">
                                     {formatNumVi(tab1Operational.doanhSoDonChuaMa)}
                                 </td>
-                                <td className="px-3 py-2 font-extrabold tabular-nums">
-                                    {formatPct(tab1Operational.giaoTC, tab1Operational.tongNoiBo)}
+                                <td
+                                    className="px-3 py-2 font-extrabold tabular-nums"
+                                    title="(Số đơn «Đã thanh toán») ÷ (cột «Đơn thành công») × 100"
+                                >
+                                    {formatPct(tab1Operational.donCoBill, tab1Operational.giaoTC)}
                                 </td>
                                 <td
                                     className="px-3 py-2 font-extrabold tabular-nums"
