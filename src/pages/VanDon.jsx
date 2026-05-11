@@ -19,6 +19,7 @@ import {
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { matchesVanDonHeaderSearch, normalizeVanDonFilterWhitespace } from '../utils/vanDonFilterNormalize';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 
 
 import {
@@ -3921,54 +3922,92 @@ function VanDon({ dataSource = 'default' }) {
 
       if (affectedOrders.length === 0) return;
 
-      // Gom nhóm unique (Ngày, Tên MKT, Sản phẩm, Thị trường) để trigger recalc
-      const exactKeys = [];
-      const seenKeys = new Set();
+      // Gom nhóm unique (Ngày, Nhân sự, Sản phẩm, Thị trường) để trigger recalc MKT + Sale.
+      const exactMktKeys = [];
+      const exactSaleKeys = [];
+      const seenMktKeys = new Set();
+      const seenSaleKeys = new Set();
 
       affectedOrders.forEach(order => {
         const date = order['Ngày lên đơn'] || order.order_date || '';
-        const name = order['Nhân viên MKT'] || order.marketing_staff || '';
+        const mktName = order['Nhân viên MKT'] || order.marketing_staff || '';
+        const saleName = order['Nhân viên Sale'] || order.sale_staff || '';
         const product = order['Mặt hàng'] || order.product || '';
         const market = order['Khu vực'] || order.country || '';
 
-        if (!date || !name) return;
+        if (date && mktName) {
+          const key = `${date}|${mktName}|${product}|${market}`;
+          if (!seenMktKeys.has(key)) {
+            seenMktKeys.add(key);
+            exactMktKeys.push({ date, name: mktName, product, market });
+          }
+        }
 
-        const key = `${date}|${name}|${product}|${market}`;
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          exactKeys.push({ date, name, product, market });
+        if (date && saleName) {
+          const key = `${date}|${saleName}|${product}|${market}`;
+          if (!seenSaleKeys.has(key)) {
+            seenSaleKeys.add(key);
+            exactSaleKeys.push({ date, name: saleName, product, market });
+          }
         }
       });
 
-      if (exactKeys.length === 0) return;
+      if (exactMktKeys.length === 0 && exactSaleKeys.length === 0) return;
 
-      console.log(`📊 Tự động cập nhật ${exactKeys.length} nhóm báo cáo MKT...`);
+      console.log(`📊 Tự động cập nhật báo cáo do đổi Kết quả Check: MKT ${exactMktKeys.length} nhóm, Sale ${exactSaleKeys.length} nhóm...`);
 
       // Xác định bảng đích dựa trên dataSource
-      const reportsTableName = dataSource === 'hcm' ? 'marketing_report_hcm' : 'detail_reports';
+      const mktReportsTableName = dataSource === 'hcm' ? 'marketing_report_hcm' : 'detail_reports';
+      const saleReportsTableName = dataSource === 'hcm' ? 'sale_report_hcm' : 'sales_reports';
       const ordersSupabaseTable = dataSource === 'hcm' ? 'order_code_hcm' : 'orders';
 
-      // Gọi service tính toán thực tế
-      const result = await recalcMktSoDonThucTeFromOrders({
-        startDate: exactKeys[0].date, // Lấy ngày đầu tiên làm base, exactKeys sẽ lo phần còn lại
-        endDate: exactKeys[exactKeys.length - 1].date,
-        createMissingRows: true, // Tạo dòng nếu chưa có (theo yêu cầu nghiệp vụ)
-        exactKeys: exactKeys,
-        reportsTableName,
-        ordersSupabaseTable
-      });
+      const tasks = [];
+      if (exactMktKeys.length > 0) {
+        tasks.push(
+          recalcMktSoDonThucTeFromOrders({
+            startDate: exactMktKeys[0].date,
+            endDate: exactMktKeys[exactMktKeys.length - 1].date,
+            createMissingRows: true,
+            exactKeys: exactMktKeys,
+            reportsTableName: mktReportsTableName,
+            ordersSupabaseTable,
+          })
+        );
+      }
+      if (exactSaleKeys.length > 0) {
+        tasks.push(
+          recalcSaleOrderCountFromOrders({
+            startDate: exactSaleKeys[0].date,
+            endDate: exactSaleKeys[exactSaleKeys.length - 1].date,
+            createMissingForHetCa: true,
+            exactKeys: exactSaleKeys,
+            reportsTable: saleReportsTableName,
+            ordersTable: ordersSupabaseTable,
+          })
+        );
+      }
 
-      console.log('✅ Kết quả cập nhật báo cáo:', result);
+      const results = await Promise.all(tasks);
+      const mktResult = exactMktKeys.length > 0 ? results.shift() : null;
+      const saleResult = exactSaleKeys.length > 0 ? results.shift() : null;
+
+      console.log('✅ Kết quả cập nhật báo cáo MKT:', mktResult);
+      console.log('✅ Kết quả cập nhật báo cáo Sale:', saleResult);
 
       // Invalidate cache báo cáo để UI cập nhật
       queryClient.invalidateQueries({ queryKey: ['baoCaoVanDon'] });
       queryClient.invalidateQueries({ queryKey: ['baoCaoTayMKT'] });
+      queryClient.invalidateQueries({ queryKey: ['baoCaoSale'] });
       queryClient.invalidateQueries({ queryKey: ['marketing_report_hcm'] });
       queryClient.invalidateQueries({ queryKey: ['detail_reports'] });
+      queryClient.invalidateQueries({ queryKey: ['sale_report_hcm'] });
+      queryClient.invalidateQueries({ queryKey: ['sales_reports'] });
 
-      const nUpd = result.updatedExisting ?? 0;
-      const nNew = result.createdMissing ?? 0;
-      addToast(`✅ Tự động cập nhật báo cáo MKT: ${nUpd} dòng updated, ${nNew} dòng mới.`, 'success', 4000);
+      const mktUpd = mktResult?.updatedExisting ?? 0;
+      const mktNew = mktResult?.createdMissing ?? 0;
+      const saleUpd = saleResult?.updatedExisting ?? 0;
+      const saleNew = saleResult?.createdMissing ?? 0;
+      addToast(`✅ Tự động cập nhật báo cáo: MKT ${mktUpd}/${mktNew}, Sale ${saleUpd}/${saleNew}.`, 'success', 4000);
 
     } catch (error) {
       console.error('❌ Lỗi khi kích hoạt công thức báo cáo:', error);
