@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { ArrowLeft, RefreshCw, Plus, X, RotateCw, Download, Upload, Trash2, History, Search, FileDown, User } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Plus, X, RotateCw, Download, Upload, Trash2, History, Search, FileDown, User, Edit3, Save } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 import * as XLSX from 'xlsx';
@@ -349,6 +349,9 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [selectedRows, setSelectedRows] = useState(new Set()); // Set of row.id
   const [bulkAccountantConfirm, setBulkAccountantConfirm] = useState('');
   const [showBulkDropdown, setShowBulkDropdown] = useState(false);
+  const [editingHistoryRows, setEditingHistoryRows] = useState(new Set());
+  const [historyActionLoading, setHistoryActionLoading] = useState(false);
+  const [historyActionRowId, setHistoryActionRowId] = useState(null);
   const accountantOptions = ["", "Đã thu tiền", "Chưa thu tiền", "Treo", "Hủy", "Khác"];
 
   /** Modal đồng bộ tùy chỉnh (Premium) */
@@ -432,6 +435,233 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       );
       return false;
     }
+  };
+
+  const saveHistoryActionLog = async ({ syncType, modeLabel, totalInputRows = 0, uniqueOrdersCount = 0, successCount = 0, missingCount = 0 }) => {
+    try {
+      const { error } = await supabase.from('sync_history_log').insert([{
+        performed_by: getVanDonSessionDisplayName(),
+        sync_type: syncType,
+        mode_label: modeLabel,
+        total_input_rows: totalInputRows,
+        unique_orders_count: uniqueOrdersCount,
+        success_count: successCount,
+        missing_count: missingCount,
+      }]);
+      if (error) throw error;
+      if (showHistoryModal) await fetchSyncHistory();
+    } catch (err) {
+      console.error('Error saving history action log:', err);
+      alert(`Thao tác đã chạy nhưng không lưu được lịch sử: ${err?.message || String(err)}`);
+    }
+  };
+
+  const getUploadedHistoryTableName = (isBill) =>
+    isBill ? 'bill_uploaded_history' : 'cuoc_uploaded_history';
+
+  const getRowHistoryId = (row) => {
+    const raw = row?.__history_id;
+    return raw ? String(raw) : '';
+  };
+
+  const makeHistorySourceRow = (row, changes = new Map()) => {
+    const source =
+      row?.__source_row && typeof row.__source_row === 'object' && !Array.isArray(row.__source_row)
+        ? { ...row.__source_row }
+        : {};
+    const columns = activeTab === 'bill_view' ? BILL_TIEN_COLUMNS : CUOC_COLUMNS;
+    columns.forEach((col) => {
+      if (col.computed) return;
+      if (Object.prototype.hasOwnProperty.call(row || {}, col.key)) {
+        source[col.key] = row[col.key];
+      }
+    });
+    changes.forEach((value, key) => {
+      if (key === 'dem_lan_thanh_toan' || key === 'chi_nhanh') return;
+      source[key] = normalizeUpdateValue(key, value);
+    });
+    return source;
+  };
+
+  const parseMoneyValue = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = parseFloat(String(value).replace(/,/g, ''));
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const fetchUploadedHistoryRowsByJsonValues = async (tableName, jsonKey, values) => {
+    const list = [...new Set((values || []).map((v) => String(v ?? '').trim()).filter(Boolean))];
+    const map = new Map();
+    if (list.length === 0) return [];
+    const BATCH = 300;
+    for (let i = 0; i < list.length; i += BATCH) {
+      const batch = list.slice(i, i + BATCH);
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('id, source_row, synced_at, sync_batch_label, performed_by, created_at')
+        .in(`source_row->>${jsonKey}`, batch);
+      if (error) throw error;
+      (data || []).forEach((r) => map.set(String(r.id), r));
+    }
+    return [...map.values()];
+  };
+
+  const getBillAffectedOrderCodesFromSourceRows = async (sourceRows) => {
+    const rows = sourceRows || [];
+    const trackingKeys = [
+      ...new Set(
+        rows
+          .map((r) => (r?.ma_tracking != null ? String(r.ma_tracking).trim() : ''))
+          .filter((tk) => tk && !isBillTrackingDropoffPlaceholder(tk))
+      ),
+    ];
+    const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, trackingKeys, ordersTableName);
+    const codes = new Set();
+    rows.forEach((r) => {
+      const tk = r?.ma_tracking != null ? String(r.ma_tracking).trim() : '';
+      if (tk && !isBillTrackingDropoffPlaceholder(tk) && trackingToOrders.has(tk)) {
+        trackingToOrders.get(tk).forEach((oc) => {
+          const k = syncOrderKeyForScope(oc);
+          if (k) codes.add(k);
+        });
+        return;
+      }
+      const oc = syncOrderKeyForScope(r?.ma_don_hang);
+      if (oc) codes.add(oc);
+    });
+    return codes;
+  };
+
+  const fetchOrdersTrackingForCodes = async (orderCodes) => {
+    const list = [...new Set((orderCodes || []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+    const map = new Map();
+    if (list.length === 0) return map;
+    const BATCH = 500;
+    for (let i = 0; i < list.length; i += BATCH) {
+      const batch = list.slice(i, i + BATCH);
+      const { data, error } = await supabase
+        .from(ordersTableName)
+        .select('order_code, tracking_code')
+        .in('order_code', batch);
+      if (error) throw error;
+      (data || []).forEach((r) => {
+        const oc = syncOrderKeyForScope(r?.order_code);
+        if (!oc) return;
+        const tk = r?.tracking_code != null ? String(r.tracking_code).trim() : '';
+        map.set(oc, tk);
+      });
+    }
+    return map;
+  };
+
+  const updateOrdersByCode = async (payload) => {
+    const rows = payload || [];
+    for (const row of rows) {
+      const { order_code: orderCode, ...patch } = row;
+      if (!orderCode) continue;
+      const { error } = await supabase
+        .from(ordersTableName)
+        .update(patch)
+        .eq('order_code', orderCode);
+      if (error) throw error;
+    }
+  };
+
+  const recalculateBillOrdersFromHistory = async (affectedOrderCodes) => {
+    const affected = [...new Set((affectedOrderCodes || []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+    if (affected.length === 0) return 0;
+
+    const orderTrackingMap = await fetchOrdersTrackingForCodes(affected);
+    const relatedTrackings = [...new Set([...orderTrackingMap.values()].filter(Boolean))];
+    const byOrder = await fetchUploadedHistoryRowsByJsonValues('bill_uploaded_history', 'ma_don_hang', affected);
+    const byTracking = await fetchUploadedHistoryRowsByJsonValues('bill_uploaded_history', 'ma_tracking', relatedTrackings);
+    const historyRowsMap = new Map();
+    [...byOrder, ...byTracking].forEach((r) => historyRowsMap.set(String(r.id), r));
+    const historyRows = [...historyRowsMap.values()];
+    const sourceRows = historyRows
+      .map((r) => (r?.source_row && typeof r.source_row === 'object' && !Array.isArray(r.source_row) ? r.source_row : null))
+      .filter(Boolean);
+
+    const trackingNeed = [
+      ...new Set(
+        sourceRows
+          .map((r) => (r?.ma_tracking != null ? String(r.ma_tracking).trim() : ''))
+          .filter((tk) => tk && !isBillTrackingDropoffPlaceholder(tk))
+      ),
+    ];
+    const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, trackingNeed, ordersTableName);
+    const aggregate = new Map(affected.map((oc) => [oc, { sum: 0, acc: null, date: null, touched: false }]));
+
+    sourceRows.forEach((r) => {
+      const amount = parseMoneyValue(r?.tien_viet);
+      if (amount === null) return;
+      const tk = r?.ma_tracking != null ? String(r.ma_tracking).trim() : '';
+      const mdh = syncOrderKeyForScope(r?.ma_don_hang);
+      let targets = [];
+      if (tk && !isBillTrackingDropoffPlaceholder(tk) && trackingToOrders.has(tk)) {
+        targets = trackingToOrders.get(tk).map(syncOrderKeyForScope).filter(Boolean);
+      } else if (mdh) {
+        targets = [mdh];
+      }
+      if (!targets.length) return;
+      const perOrder = amount / targets.length;
+      targets.forEach((oc) => {
+        if (!aggregate.has(oc)) return;
+        const agg = aggregate.get(oc);
+        agg.sum += perOrder;
+        agg.touched = true;
+        if (r.accountant_confirm !== undefined && r.accountant_confirm !== null && r.accountant_confirm !== '') {
+          agg.acc = r.accountant_confirm;
+        }
+        if (r.ngay_doi_soat) agg.date = normalizeUpdateValue('ngay_doi_soat', r.ngay_doi_soat) || agg.date;
+      });
+    });
+
+    const modifiedBy = getVanDonSessionDisplayName();
+    const today = toIsoDateString(new Date());
+    const payload = [...aggregate.entries()].map(([orderCode, agg]) => ({
+      order_code: orderCode,
+      reconciled_vnd: agg.touched ? agg.sum : null,
+      accountant_confirm: agg.touched ? agg.acc : null,
+      ngay_doi_soat_bill: agg.touched ? (agg.date || today) : null,
+      last_modified_by: modifiedBy,
+    }));
+    await updateOrdersByCode(payload);
+    return payload.length;
+  };
+
+  const recalculateCuocOrdersFromHistory = async (affectedOrderCodes) => {
+    const affected = [...new Set((affectedOrderCodes || []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+    if (affected.length === 0) return 0;
+    const historyRows = await fetchUploadedHistoryRowsByJsonValues('cuoc_uploaded_history', 'ma_don_hang', affected);
+    const aggregate = new Map(affected.map((oc) => [oc, { sum: 0, count: 0, date: null }]));
+
+    historyRows.forEach((row) => {
+      const r = row?.source_row && typeof row.source_row === 'object' && !Array.isArray(row.source_row)
+        ? row.source_row
+        : {};
+      const oc = syncOrderKeyForScope(r.ma_don_hang);
+      if (!aggregate.has(oc)) return;
+      const agg = aggregate.get(oc);
+      agg.count += 1;
+      const amount = parseMoneyValue(r.tien_ship_vnd);
+      if (amount !== null) agg.sum += amount;
+      if (r.ngay_doi_soat_cuoc) {
+        agg.date = normalizeUpdateValue('ngay_doi_soat_cuoc', r.ngay_doi_soat_cuoc) || agg.date;
+      }
+    });
+
+    const modifiedBy = getVanDonSessionDisplayName();
+    const today = toIsoDateString(new Date());
+    const payload = [...aggregate.entries()].map(([orderCode, agg]) => ({
+      order_code: orderCode,
+      shipping_cost: agg.count > 0 ? agg.sum : null,
+      order_count_actual: agg.count > 0 ? agg.count : null,
+      ngay_doi_soat_cuoc: agg.count > 0 ? (agg.date || today) : null,
+      last_modified_by: modifiedBy,
+    }));
+    await updateOrdersByCode(payload);
+    return payload.length;
   };
 
   // Helper chia mảng thành các lô nhỏ (chunks)
@@ -669,6 +899,9 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         return {
           ...sourceRow,
           id: `history-${item.id}`,
+          __history_id: item.id,
+          __history_table: 'bill_uploaded_history',
+          __source_row: sourceRow,
           sync_batch_label: item.sync_batch_label || '',
           synced_at: item.synced_at || null,
           synced_by: item.performed_by || '',
@@ -804,6 +1037,9 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         return {
           ...sourceRow,
           id: `cuoc-history-${item.id}`,
+          __history_id: item.id,
+          __history_table: 'cuoc_uploaded_history',
+          __source_row: sourceRow,
           sync_batch_label: item.sync_batch_label || '',
           synced_at: item.synced_at || null,
           synced_by: item.performed_by || '',
@@ -924,6 +1160,12 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       setActiveTab('cuoc_view');
     }
   }, [activeTab, lastBillSyncTime, lastCuocSyncTime]);
+
+  useEffect(() => {
+    setSelectedRows(new Set());
+    setEditingHistoryRows(new Set());
+    setPendingChanges(new Map());
+  }, [activeTab]);
 
   // Tự động cập nhật tỷ giá cho tab bill (tab cước không còn cột đơn vị tiền / tỷ giá trên UI)
   useEffect(() => {
@@ -1118,6 +1360,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
   // Mouse handlers for selection
   const isViewOnlyTab = activeTab === 'bill_view' || activeTab === 'cuoc_view';
+  const hasTableSelectionColumn = activeTab === 'bill' || activeTab === 'bill_view' || activeTab === 'cuoc_view';
   const handleMouseDown = useCallback((rowIndex, colIndex, e) => {
     if (e.button !== 0) return;
     const target = e.target;
@@ -1962,6 +2205,176 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     }
   };
 
+  const recalculateUploadedHistoryRows = async (isBill, sourceRows) => {
+    if (isBill) {
+      const affected = await getBillAffectedOrderCodesFromSourceRows(sourceRows);
+      const updated = await recalculateBillOrdersFromHistory(affected);
+      return { affectedCount: affected.size, updatedCount: updated };
+    }
+
+    const affected = new Set(
+      (sourceRows || [])
+        .map((r) => syncOrderKeyForScope(r?.ma_don_hang))
+        .filter(Boolean)
+    );
+    const updated = await recalculateCuocOrdersFromHistory(affected);
+    return { affectedCount: affected.size, updatedCount: updated };
+  };
+
+  const reloadUploadedHistoryForCurrentTab = async (isBill) => {
+    if (isBill) {
+      await loadBillUploadedHistoryData();
+    } else {
+      await loadCuocUploadedHistoryData();
+    }
+  };
+
+  const handleSaveUploadedHistoryRow = async (row) => {
+    const historyId = getRowHistoryId(row);
+    if (!historyId) return;
+    const isBill = activeTab === 'bill_view';
+    const tableName = getUploadedHistoryTableName(isBill);
+    const rowChanges = pendingChanges.get(row.id) || new Map();
+    if (rowChanges.size === 0) {
+      setEditingHistoryRows((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
+      return;
+    }
+
+    setHistoryActionLoading(true);
+    setHistoryActionRowId(row.id);
+    try {
+      const beforeRow = makeHistorySourceRow(row, new Map());
+      const afterRow = makeHistorySourceRow(row, rowChanges);
+      const { error } = await supabase
+        .from(tableName)
+        .update({ source_row: afterRow })
+        .eq('id', historyId);
+      if (error) throw error;
+
+      const { affectedCount, updatedCount } = await recalculateUploadedHistoryRows(isBill, [beforeRow, afterRow]);
+      await saveHistoryActionLog({
+        syncType: isBill ? 'Sửa Bill đã tải lên' : 'Sửa Cước đã tải lên',
+        modeLabel: `Sửa dòng lịch sử ${historyId} và đồng bộ lại ${ordersTableName}`,
+        totalInputRows: 1,
+        uniqueOrdersCount: affectedCount,
+        successCount: updatedCount,
+        missingCount: Math.max(affectedCount - updatedCount, 0),
+      });
+
+      setPendingChanges((prev) => {
+        const next = new Map(prev);
+        next.delete(row.id);
+        return next;
+      });
+      setEditingHistoryRows((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
+      await reloadUploadedHistoryForCurrentTab(isBill);
+      alert(`Đã sửa dòng và đồng bộ lại ${updatedCount} đơn.`);
+    } catch (err) {
+      console.error('Error saving uploaded history row:', err);
+      alert(`Lỗi khi sửa dòng đã tải lên: ${err?.message || String(err)}`);
+    } finally {
+      setHistoryActionLoading(false);
+      setHistoryActionRowId(null);
+    }
+  };
+
+  const handleDeleteUploadedHistoryRows = async (rows, options = {}) => {
+    const selected = (rows || []).filter((r) => getRowHistoryId(r));
+    if (selected.length === 0) return;
+    const isBill = activeTab === 'bill_view';
+    const tableName = getUploadedHistoryTableName(isBill);
+    const confirmMsg =
+      selected.length === 1
+        ? `Xóa dòng này khỏi ${tableName} và đồng bộ trừ lại tiền trên ${ordersTableName}?`
+        : `Xóa ${selected.length} dòng khỏi ${tableName} và đồng bộ trừ lại tiền trên ${ordersTableName}?`;
+    if (!options.skipConfirm && !window.confirm(confirmMsg)) return;
+
+    setHistoryActionLoading(true);
+    setHistoryActionRowId(selected.length === 1 ? selected[0].id : null);
+    try {
+      const sourceRows = selected.map((row) => makeHistorySourceRow(row, new Map()));
+      const historyIds = selected.map(getRowHistoryId);
+      const { error } = await supabase.from(tableName).delete().in('id', historyIds);
+      if (error) throw error;
+
+      const { affectedCount, updatedCount } = await recalculateUploadedHistoryRows(isBill, sourceRows);
+      await saveHistoryActionLog({
+        syncType: isBill ? 'Xóa Bill đã tải lên' : 'Xóa Cước đã tải lên',
+        modeLabel: `Xóa ${selected.length} dòng lịch sử và đồng bộ lại ${ordersTableName}`,
+        totalInputRows: selected.length,
+        uniqueOrdersCount: affectedCount,
+        successCount: updatedCount,
+        missingCount: Math.max(affectedCount - updatedCount, 0),
+      });
+
+      setPendingChanges((prev) => {
+        const next = new Map(prev);
+        selected.forEach((row) => next.delete(row.id));
+        return next;
+      });
+      setEditingHistoryRows((prev) => {
+        const next = new Set(prev);
+        selected.forEach((row) => next.delete(row.id));
+        return next;
+      });
+      setSelectedRows(new Set());
+      await reloadUploadedHistoryForCurrentTab(isBill);
+      alert(`Đã xóa ${selected.length} dòng và đồng bộ lại ${updatedCount} đơn.`);
+    } catch (err) {
+      console.error('Error deleting uploaded history rows:', err);
+      alert(`Lỗi khi xóa dữ liệu đã tải lên: ${err?.message || String(err)}`);
+    } finally {
+      setHistoryActionLoading(false);
+      setHistoryActionRowId(null);
+    }
+  };
+
+  const handleResyncUploadedHistoryRows = async (rows) => {
+    const selected = (rows || []).filter((r) => getRowHistoryId(r));
+    if (selected.length === 0) return;
+    const isBill = activeTab === 'bill_view';
+    const sourceRows = selected.map((row) => {
+      const changes = pendingChanges.get(row.id) || new Map();
+      return makeHistorySourceRow(row, changes);
+    });
+    if (!window.confirm(`Đồng bộ lại ${selected.length} dòng đang chọn lên ${ordersTableName}?`)) return;
+
+    setHistoryActionLoading(true);
+    setHistoryActionRowId(selected.length === 1 ? selected[0].id : null);
+    try {
+      const { affectedCount, updatedCount } = await recalculateUploadedHistoryRows(isBill, sourceRows);
+      await saveHistoryActionLog({
+        syncType: isBill ? 'Đồng bộ lại Bill đã tải lên' : 'Đồng bộ lại Cước đã tải lên',
+        modeLabel: `Đồng bộ lại từ lịch sử sang ${ordersTableName}`,
+        totalInputRows: selected.length,
+        uniqueOrdersCount: affectedCount,
+        successCount: updatedCount,
+        missingCount: Math.max(affectedCount - updatedCount, 0),
+      });
+      await reloadUploadedHistoryForCurrentTab(isBill);
+      alert(`Đã đồng bộ lại ${updatedCount} đơn.`);
+    } catch (err) {
+      console.error('Error resyncing uploaded history rows:', err);
+      alert(`Lỗi khi đồng bộ lại: ${err?.message || String(err)}`);
+    } finally {
+      setHistoryActionLoading(false);
+      setHistoryActionRowId(null);
+    }
+  };
+
+  const getSelectedCurrentRows = () => {
+    const ids = selectedRows;
+    return getCurrentData().filter((row) => ids.has(row.id));
+  };
+
   // --- Bulk Selection Handlers ---
   const toggleSelectAll = (e) => {
     if (e.target.checked) {
@@ -2084,7 +2497,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
   // Handle cell change - lưu vào pending changes
   const handleCellChange = async (rowId, columnKey, newValue) => {
-    if (activeTab === 'bill_view' || activeTab === 'cuoc_view') return;
+    if ((activeTab === 'bill_view' || activeTab === 'cuoc_view') && !editingHistoryRows.has(rowId)) return;
     setPendingChanges((prev) => {
       const next = new Map(prev);
       if (!next.has(rowId)) {
@@ -3777,72 +4190,97 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               </p>
             </div>
 
-            {/* Bulk actions - Only for Bill tabs */}
-            {(activeTab === 'bill' || activeTab === 'bill_view') && selectedRows.size > 0 && (
-              <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 px-4 py-2 rounded-xl animate-in fade-in slide-in-from-top-2">
-                <span className="text-sm font-semibold text-blue-700">Đã chọn: {selectedRows.size}</span>
-                <div className="h-6 w-px bg-blue-200 mx-1"></div>
-                
-                <div className="relative group">
-                   <div className="flex items-center bg-white border border-blue-300 rounded-lg shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
-                      <input
-                        type="text"
-                        placeholder="Tìm trạng thái..."
-                        value={bulkAccountantConfirm}
-                        onChange={(e) => {
-                          setBulkAccountantConfirm(e.target.value);
-                          setShowBulkDropdown(true);
-                        }}
-                        onFocus={() => setShowBulkDropdown(true)}
-                        className="px-3 py-1.5 text-xs outline-none w-48 font-medium"
-                      />
-                      <button 
-                        onClick={() => setShowBulkDropdown(!showBulkDropdown)}
-                        className="px-2 border-l border-blue-100 hover:bg-blue-50"
-                      >
-                        <RotateCw className={`w-3 h-3 transition-transform ${showBulkDropdown ? 'rotate-180' : ''}`} />
-                      </button>
-                   </div>
+            {selectedRows.size > 0 && (() => {
+              const isUploadedTab = activeTab === 'bill_view' || activeTab === 'cuoc_view';
+              return (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 animate-in fade-in slide-in-from-top-2">
+                  <span className="text-sm font-semibold text-blue-700">Đã chọn: {selectedRows.size}</span>
+                  <div className="h-6 w-px bg-blue-200 mx-1" />
 
-                   {showBulkDropdown && (
+                  {isUploadedTab ? (
                     <>
-                      <div className="fixed inset-0 z-[60]" onClick={() => setShowBulkDropdown(false)}></div>
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-[70] max-h-48 overflow-y-auto">
-                        {accountantOptions
-                          .filter(opt => (opt || 'Trống').toLowerCase().includes(bulkAccountantConfirm.toLowerCase()))
-                          .map((opt, i) => (
-                            <button
-                              key={i}
-                              onClick={() => {
-                                setBulkAccountantConfirm(opt);
-                                setShowBulkDropdown(false);
-                              }}
-                              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-none"
-                            >
-                              {opt || <span className="text-gray-400 italic">(Trống)</span>}
-                            </button>
-                          ))
-                        }
-                      </div>
+                      <button
+                        onClick={() => handleResyncUploadedHistoryRows(getSelectedCurrentRows())}
+                        disabled={historyActionLoading}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        <RotateCw className={`h-3.5 w-3.5 ${historyActionLoading ? 'animate-spin' : ''}`} />
+                        Đồng bộ lại
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUploadedHistoryRows(getSelectedCurrentRows())}
+                        disabled={historyActionLoading}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Xóa đã chọn
+                      </button>
                     </>
-                   )}
-                </div>
+                  ) : activeTab === 'bill' ? (
+                    <>
+                      <div className="relative group">
+                        <div className="flex items-center overflow-hidden rounded-lg border border-blue-300 bg-white shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
+                          <input
+                            type="text"
+                            placeholder="Tìm trạng thái..."
+                            value={bulkAccountantConfirm}
+                            onChange={(e) => {
+                              setBulkAccountantConfirm(e.target.value);
+                              setShowBulkDropdown(true);
+                            }}
+                            onFocus={() => setShowBulkDropdown(true)}
+                            className="w-48 px-3 py-1.5 text-xs font-medium outline-none"
+                          />
+                          <button
+                            onClick={() => setShowBulkDropdown(!showBulkDropdown)}
+                            className="border-l border-blue-100 px-2 hover:bg-blue-50"
+                          >
+                            <RotateCw className={`h-3 w-3 transition-transform ${showBulkDropdown ? 'rotate-180' : ''}`} />
+                          </button>
+                        </div>
 
-                <button
-                  onClick={handleBulkUpdate}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-md transition-all active:scale-95"
-                >
-                  Cập nhật hàng loạt
-                </button>
-                <button
-                  onClick={() => setSelectedRows(new Set())}
-                  className="text-gray-500 hover:text-red-500 p-1 transition-colors"
-                  title="Bỏ chọn tất cả"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+                        {showBulkDropdown && (
+                          <>
+                            <div className="fixed inset-0 z-[60]" onClick={() => setShowBulkDropdown(false)} />
+                            <div className="absolute left-0 right-0 top-full z-[70] mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-xl">
+                              {accountantOptions
+                                .filter((opt) => (opt || 'Trống').toLowerCase().includes(bulkAccountantConfirm.toLowerCase()))
+                                .map((opt, i) => (
+                                  <button
+                                    key={i}
+                                    onClick={() => {
+                                      setBulkAccountantConfirm(opt);
+                                      setShowBulkDropdown(false);
+                                    }}
+                                    className="w-full border-b border-gray-50 px-3 py-2 text-left text-xs transition-colors last:border-none hover:bg-blue-50"
+                                  >
+                                    {opt || <span className="text-gray-400 italic">(Trống)</span>}
+                                  </button>
+                                ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={handleBulkUpdate}
+                        className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-md transition-all hover:bg-blue-700 active:scale-95"
+                      >
+                        Cập nhật hàng loạt
+                      </button>
+                    </>
+                  ) : null}
+
+                  <button
+                    onClick={() => setSelectedRows(new Set())}
+                    className="p-1 text-gray-500 transition-colors hover:text-red-500"
+                    title="Bỏ chọn tất cả"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              );
+            })()}
           </div>
           
           {(activeTab === 'bill_view' || activeTab === 'cuoc_view') && (() => {
@@ -3952,7 +4390,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
             <table className="w-full border-collapse">
               <thead className="bg-gray-100">
                 <tr>
-                  {(activeTab === 'bill' || activeTab === 'bill_view') && (
+                  {hasTableSelectionColumn && (
                     <th className="px-4 py-3 border-b border-gray-200">
                       <input
                         type="checkbox"
@@ -3970,6 +4408,11 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                       {col.label}
                     </th>
                   ))}
+                  {isViewOnlyTab && (
+                    <th className="sticky right-0 z-10 border-b border-gray-200 bg-gray-100 px-4 py-3 text-right text-xs font-semibold uppercase text-gray-700 shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.45)]">
+                      Thao tác
+                    </th>
+                  )}
                 </tr>
               </thead>
 
@@ -3977,7 +4420,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={getCurrentColumns().length}
+                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0) + (isViewOnlyTab ? 1 : 0)}
                       className="px-4 py-8 text-center text-gray-500"
                     >
                       Đang tải dữ liệu...
@@ -3986,7 +4429,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 ) : paginatedData().length === 0 ? (
                   <tr>
                     <td
-                      colSpan={getCurrentColumns().length}
+                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0) + (isViewOnlyTab ? 1 : 0)}
                       className="px-4 py-8 text-center text-gray-500 italic"
                     >
                       Không có dữ liệu
@@ -4011,7 +4454,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                           hasPendingChanges ? 'bg-yellow-50' : isCuocDup ? 'bg-red-50' : ''
                         } ${selectedRows.has(rowId) ? 'bg-blue-50/50' : ''}`}
                       >
-                        {(activeTab === 'bill' || activeTab === 'bill_view') && (
+                        {hasTableSelectionColumn && (
                           <td className="px-4 py-3 border-b border-gray-100 text-center">
                             <input
                               type="checkbox"
@@ -4025,8 +4468,9 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
                         {columns.map((col, colIdx) => {
                           const isViewMode = activeTab === 'bill_view' || activeTab === 'cuoc_view';
+                          const isEditingHistoryRow = isViewMode && editingHistoryRows.has(rowId);
                           const isReadOnly =
-                            isViewMode ||
+                            (isViewMode && !isEditingHistoryRow) ||
                             col.computed ||
                             col.key === 'id' ||
                             col.key === 'created_at' ||
@@ -4258,6 +4702,89 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                             </td>
                           );
                         })}
+                        {isViewOnlyTab && (
+                          <td className="sticky right-0 border-b border-gray-100 bg-white px-3 py-3 text-right shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.45)]">
+                            <div className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+                              {editingHistoryRows.has(rowId) ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    title="Lưu dòng và đồng bộ lại đơn"
+                                    disabled={historyActionLoading}
+                                    onClick={() => handleSaveUploadedHistoryRow(row)}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
+                                  >
+                                    {historyActionRowId === rowId && historyActionLoading ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Save className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Hủy sửa"
+                                    disabled={historyActionLoading}
+                                    onClick={() => {
+                                      setPendingChanges((prev) => {
+                                        const next = new Map(prev);
+                                        next.delete(rowId);
+                                        return next;
+                                      });
+                                      setEditingHistoryRows((prev) => {
+                                        const next = new Set(prev);
+                                        next.delete(rowId);
+                                        return next;
+                                      });
+                                    }}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    title="Sửa dòng lịch sử"
+                                    disabled={historyActionLoading}
+                                    onClick={() => {
+                                      setEditingHistoryRows((prev) => {
+                                        const next = new Set(prev);
+                                        next.add(rowId);
+                                        return next;
+                                      });
+                                    }}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+                                  >
+                                    <Edit3 className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title={`Đồng bộ lại dòng này lên ${ordersTableName}`}
+                                    disabled={historyActionLoading}
+                                    onClick={() => handleResyncUploadedHistoryRows([row])}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
+                                  >
+                                    {historyActionRowId === rowId && historyActionLoading ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <RotateCw className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Xóa dòng lịch sử và trừ lại tiền trên đơn"
+                                    disabled={historyActionLoading}
+                                    onClick={() => handleDeleteUploadedHistoryRows([row])}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-red-600 hover:bg-red-50 disabled:opacity-40"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })
