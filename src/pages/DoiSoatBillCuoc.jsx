@@ -317,6 +317,17 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   // Lọc nhiều mã đơn hàng (paste theo dòng / dấu phẩy / khoảng trắng) cho các tab "đã tải lên"
   const [billUploadedMaDonFilter, setBillUploadedMaDonFilter] = useState('');
   const [cuocUploadedMaDonFilter, setCuocUploadedMaDonFilter] = useState('');
+  const [tableFilters, setTableFilters] = useState({
+    orderCodes: '',
+    tracking: '',
+    syncBatch: '',
+    syncedBy: '',
+    accountantConfirm: '',
+    ffmBranch: '',
+    amountMin: '',
+    amountMax: '',
+    duplicateOnly: false,
+  });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [compareUploading, setCompareUploading] = useState(false);
@@ -1314,6 +1325,69 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       .filter(Boolean);
   };
 
+  const updateTableFilter = (key, value) => {
+    setTableFilters((prev) => ({ ...prev, [key]: value }));
+    setCurrentPage(1);
+  };
+
+  const resetTableFilters = () => {
+    setTableFilters({
+      orderCodes: '',
+      tracking: '',
+      syncBatch: '',
+      syncedBy: '',
+      accountantConfirm: '',
+      ffmBranch: '',
+      amountMin: '',
+      amountMax: '',
+      duplicateOnly: false,
+    });
+    setCurrentPage(1);
+  };
+
+  const hasTableFilters = Object.values(tableFilters).some((v) => {
+    if (typeof v === 'boolean') return v;
+    return String(v ?? '').trim() !== '';
+  });
+
+  const matchesFilterText = (value, text) => {
+    const tokens = parseMaDonHangFilterTokens(text);
+    if (tokens.length === 0) return true;
+    const haystack = String(value ?? '').trim().toLowerCase();
+    if (!haystack) return false;
+    return tokens.some((t) => haystack === t || haystack.includes(t));
+  };
+
+  const getRowFilterAmount = (row, isBillTab) => {
+    const value = isBillTab ? row?.tien_viet : row?.tien_ship_vnd;
+    if (value === null || value === undefined || value === '') return null;
+    const num = parseFloat(String(value).replace(/,/g, ''));
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const applyTableFilters = (rows, isBillTab) => {
+    const minAmount =
+      tableFilters.amountMin === '' ? null : parseFloat(String(tableFilters.amountMin).replace(/,/g, ''));
+    const maxAmount =
+      tableFilters.amountMax === '' ? null : parseFloat(String(tableFilters.amountMax).replace(/,/g, ''));
+
+    return (rows || []).filter((row) => {
+      if (!matchesFilterText(row?.ma_don_hang, tableFilters.orderCodes)) return false;
+      if (isBillTab && !matchesFilterText(row?.ma_tracking, tableFilters.tracking)) return false;
+      if (!matchesFilterText(row?.sync_batch_label, tableFilters.syncBatch)) return false;
+      if (!matchesFilterText(row?.synced_by, tableFilters.syncedBy)) return false;
+      if (isBillTab && !matchesFilterText(row?.accountant_confirm, tableFilters.accountantConfirm)) return false;
+      const ffmBranchValue = isBillTab ? row?.ffm : row?.chi_nhanh;
+      if (!matchesFilterText(ffmBranchValue, tableFilters.ffmBranch)) return false;
+      if (tableFilters.duplicateOnly && Number(row?.dem_lan_thanh_toan || 0) <= 1) return false;
+
+      const amount = getRowFilterAmount(row, isBillTab);
+      if (Number.isFinite(minAmount) && (amount === null || amount < minAmount)) return false;
+      if (Number.isFinite(maxAmount) && (amount === null || amount > maxAmount)) return false;
+      return true;
+    });
+  };
+
   const getCurrentData = () => {
     const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
     const baseData = isBillTab ? billDataWithTableDemLan : cuocDataWithTableDemLan;
@@ -1323,14 +1397,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       const filterText =
         activeTab === 'bill_view' ? billUploadedMaDonFilter : cuocUploadedMaDonFilter;
       const tokens = parseMaDonHangFilterTokens(filterText);
-      if (tokens.length === 0) return baseData;
-      return baseData.filter((row) => {
+      const historyFiltered = tokens.length === 0 ? baseData : baseData.filter((row) => {
         const code = String(row?.ma_don_hang ?? '').trim().toLowerCase();
         if (!code) return false;
         return tokens.some((t) => code === t || code.includes(t));
       });
+      return applyTableFilters(historyFiltered, isBillTab);
     }
-    return baseData;
+    return applyTableFilters(baseData, isBillTab);
   };
 
   const getCurrentColumns = () => {
@@ -2373,6 +2447,91 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const getSelectedCurrentRows = () => {
     const ids = selectedRows;
     return getCurrentData().filter((row) => ids.has(row.id));
+  };
+
+  const renderHistoryActionButtons = (row) => {
+    const rowId = row.id;
+    return (
+      <div className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+        {editingHistoryRows.has(rowId) ? (
+          <>
+            <button
+              type="button"
+              title="Lưu dòng và đồng bộ lại đơn"
+              disabled={historyActionLoading}
+              onClick={() => handleSaveUploadedHistoryRow(row)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
+            >
+              {historyActionRowId === rowId && historyActionLoading ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+            </button>
+            <button
+              type="button"
+              title="Hủy sửa"
+              disabled={historyActionLoading}
+              onClick={() => {
+                setPendingChanges((prev) => {
+                  const next = new Map(prev);
+                  next.delete(rowId);
+                  return next;
+                });
+                setEditingHistoryRows((prev) => {
+                  const next = new Set(prev);
+                  next.delete(rowId);
+                  return next;
+                });
+              }}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              title="Sửa dòng lịch sử"
+              disabled={historyActionLoading}
+              onClick={() => {
+                setEditingHistoryRows((prev) => {
+                  const next = new Set(prev);
+                  next.add(rowId);
+                  return next;
+                });
+              }}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+            >
+              <Edit3 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              title={`Đồng bộ lại dòng này lên ${ordersTableName}`}
+              disabled={historyActionLoading}
+              onClick={() => handleResyncUploadedHistoryRows([row])}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
+            >
+              {historyActionRowId === rowId && historyActionLoading ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <RotateCw className="h-4 w-4" />
+              )}
+            </button>
+            <button
+              type="button"
+              title="Xóa dòng lịch sử và trừ lại tiền trên đơn"
+              disabled={historyActionLoading}
+              onClick={() => handleDeleteUploadedHistoryRows([row])}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-red-600 hover:bg-red-50 disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </>
+        )}
+      </div>
+    );
   };
 
   // --- Bulk Selection Handlers ---
@@ -4295,9 +4454,10 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               !!cuocUploadedSyncDateFrom ||
               !!cuocUploadedSyncDateTo ||
               !!billUploadedMaDonFilter ||
-              !!cuocUploadedMaDonFilter;
+              !!cuocUploadedMaDonFilter ||
+              hasTableFilters;
             return (
-              <div className="flex flex-wrap items-start gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mt-2 max-w-5xl">
+              <div className="flex flex-wrap items-start gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mt-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-gray-700">Ngày đồng bộ</span>
                   <input
@@ -4326,27 +4486,11 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                     className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none"
                   />
                 </div>
-
-                <div className="flex items-start gap-2">
-                  <span className="text-xs font-bold text-gray-700 mt-2">Mã đơn hàng</span>
-                  <div className="flex flex-col">
-                    <textarea
-                      rows={1}
-                      value={currentMaDonFilter}
-                      onChange={(e) => {
-                        setCurrentMaDonFilter(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                      placeholder="Dán nhiều mã (cách nhau dấu phẩy / xuống dòng / khoảng trắng)…"
-                      className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none w-72 min-h-[36px] max-h-32 resize-y"
-                    />
-                    {tokenCount > 0 && (
-                      <span className="text-[11px] text-blue-600 font-semibold mt-1">
-                        Đang lọc theo {tokenCount} mã
-                      </span>
-                    )}
-                  </div>
-                </div>
+                {tokenCount > 0 && (
+                  <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600">
+                    {tokenCount} mã từ bộ lọc cũ
+                  </span>
+                )}
 
                 <button
                   type="button"
@@ -4357,6 +4501,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                     setCuocUploadedSyncDateTo('');
                     setBillUploadedMaDonFilter('');
                     setCuocUploadedMaDonFilter('');
+                    resetTableFilters();
                     setCurrentPage(1);
                   }}
                   disabled={!hasAnyFilter}
@@ -4364,6 +4509,155 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 >
                   Xóa lọc
                 </button>
+              </div>
+            );
+          })()}
+
+          {(() => {
+            const isBillFilterTab = activeTab === 'bill' || activeTab === 'bill_view';
+            const isUploadedFilterTab = activeTab === 'bill_view' || activeTab === 'cuoc_view';
+            const activeFilterCount =
+              parseMaDonHangFilterTokens(tableFilters.orderCodes).length +
+              parseMaDonHangFilterTokens(tableFilters.tracking).length +
+              (tableFilters.syncBatch.trim() ? 1 : 0) +
+              (tableFilters.syncedBy.trim() ? 1 : 0) +
+              (tableFilters.accountantConfirm.trim() ? 1 : 0) +
+              (tableFilters.ffmBranch.trim() ? 1 : 0) +
+              (tableFilters.amountMin.trim() ? 1 : 0) +
+              (tableFilters.amountMax.trim() ? 1 : 0) +
+              (tableFilters.duplicateOnly ? 1 : 0);
+            return (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-bold uppercase text-slate-700">Bộ lọc dữ liệu</div>
+                    <div className="text-[11px] text-slate-500">
+                      {activeFilterCount > 0 ? `Đang bật ${activeFilterCount} điều kiện lọc` : 'Lọc nhanh theo các trường hay đối soát'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={resetTableFilters}
+                    disabled={!hasTableFilters}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Xóa bộ lọc
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-slate-600">Mã đơn hàng</span>
+                    <textarea
+                      rows={1}
+                      value={tableFilters.orderCodes}
+                      onChange={(e) => updateTableFilter('orderCodes', e.target.value)}
+                      placeholder="Dán nhiều mã, cách nhau dấu phẩy / xuống dòng"
+                      className="min-h-[36px] max-h-28 resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+
+                  {isBillFilterTab && (
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600">Mã Tracking</span>
+                      <input
+                        type="text"
+                        value={tableFilters.tracking}
+                        onChange={(e) => updateTableFilter('tracking', e.target.value)}
+                        placeholder="Tracking hoặc Dropoff"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                  )}
+
+                  {isBillFilterTab && (
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600">Kế toán xác nhận</span>
+                      <select
+                        value={tableFilters.accountantConfirm}
+                        onChange={(e) => updateTableFilter('accountantConfirm', e.target.value)}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      >
+                        <option value="">Tất cả</option>
+                        {accountantOptions.filter(Boolean).map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-slate-600">
+                      {isBillFilterTab ? 'FFM' : 'Chi nhánh'}
+                    </span>
+                    <input
+                      type="text"
+                      value={tableFilters.ffmBranch}
+                      onChange={(e) => updateTableFilter('ffmBranch', e.target.value)}
+                      placeholder={isBillFilterTab ? 'VD: T&T, MGT...' : 'VD: HN, HCM...'}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+
+                  {isUploadedFilterTab && (
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600">Đợt đồng bộ</span>
+                      <input
+                        type="text"
+                        value={tableFilters.syncBatch}
+                        onChange={(e) => updateTableFilter('syncBatch', e.target.value)}
+                        placeholder="Tên đợt đồng bộ"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                  )}
+
+                  {isUploadedFilterTab && (
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600">Người đồng bộ</span>
+                      <input
+                        type="text"
+                        value={tableFilters.syncedBy}
+                        onChange={(e) => updateTableFilter('syncedBy', e.target.value)}
+                        placeholder="Tên người thực hiện"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600">Tiền từ</span>
+                      <input
+                        type="number"
+                        value={tableFilters.amountMin}
+                        onChange={(e) => updateTableFilter('amountMin', e.target.value)}
+                        placeholder="0"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600">Tiền đến</span>
+                      <input
+                        type="number"
+                        value={tableFilters.amountMax}
+                        onChange={(e) => updateTableFilter('amountMax', e.target.value)}
+                        placeholder="..."
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="flex min-h-[58px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={tableFilters.duplicateOnly}
+                      onChange={(e) => updateTableFilter('duplicateOnly', e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-semibold text-slate-700">Chỉ dòng trùng thanh toán</span>
+                  </label>
+                </div>
               </div>
             );
           })()}
@@ -4386,8 +4680,9 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
         {/* Table */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+          <div className="flex">
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <table className="w-full min-w-max border-separate border-spacing-0">
               <thead className="bg-gray-100">
                 <tr>
                   {hasTableSelectionColumn && (
@@ -4408,11 +4703,6 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                       {col.label}
                     </th>
                   ))}
-                  {isViewOnlyTab && (
-                    <th className="sticky right-0 z-10 border-b border-gray-200 bg-gray-100 px-4 py-3 text-right text-xs font-semibold uppercase text-gray-700 shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.45)]">
-                      Thao tác
-                    </th>
-                  )}
                 </tr>
               </thead>
 
@@ -4420,7 +4710,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0) + (isViewOnlyTab ? 1 : 0)}
+                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0)}
                       className="px-4 py-8 text-center text-gray-500"
                     >
                       Đang tải dữ liệu...
@@ -4429,7 +4719,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 ) : paginatedData().length === 0 ? (
                   <tr>
                     <td
-                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0) + (isViewOnlyTab ? 1 : 0)}
+                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0)}
                       className="px-4 py-8 text-center text-gray-500 italic"
                     >
                       Không có dữ liệu
@@ -4569,7 +4859,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                       return (
                         <td
                           key={col.key}
-                          className={`px-4 py-3 text-sm border-b border-gray-100 ${
+                          className={`px-4 py-3 text-sm border-b border-gray-100 whitespace-nowrap ${
                             hasChange ? 'bg-yellow-200' : ''
                           } ${isReadOnly ? 'bg-gray-50' : 'cursor-text'} ${
                             isSelected ? 'bg-blue-200 border-2 border-blue-400' : ''
@@ -4702,95 +4992,41 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                             </td>
                           );
                         })}
-                        {isViewOnlyTab && (
-                          <td className="sticky right-0 border-b border-gray-100 bg-white px-3 py-3 text-right shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.45)]">
-                            <div className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
-                              {editingHistoryRows.has(rowId) ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    title="Lưu dòng và đồng bộ lại đơn"
-                                    disabled={historyActionLoading}
-                                    onClick={() => handleSaveUploadedHistoryRow(row)}
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
-                                  >
-                                    {historyActionRowId === rowId && historyActionLoading ? (
-                                      <RefreshCw className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Save className="h-4 w-4" />
-                                    )}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    title="Hủy sửa"
-                                    disabled={historyActionLoading}
-                                    onClick={() => {
-                                      setPendingChanges((prev) => {
-                                        const next = new Map(prev);
-                                        next.delete(rowId);
-                                        return next;
-                                      });
-                                      setEditingHistoryRows((prev) => {
-                                        const next = new Set(prev);
-                                        next.delete(rowId);
-                                        return next;
-                                      });
-                                    }}
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-40"
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    title="Sửa dòng lịch sử"
-                                    disabled={historyActionLoading}
-                                    onClick={() => {
-                                      setEditingHistoryRows((prev) => {
-                                        const next = new Set(prev);
-                                        next.add(rowId);
-                                        return next;
-                                      });
-                                    }}
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                                  >
-                                    <Edit3 className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    title={`Đồng bộ lại dòng này lên ${ordersTableName}`}
-                                    disabled={historyActionLoading}
-                                    onClick={() => handleResyncUploadedHistoryRows([row])}
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
-                                  >
-                                    {historyActionRowId === rowId && historyActionLoading ? (
-                                      <RefreshCw className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <RotateCw className="h-4 w-4" />
-                                    )}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    title="Xóa dòng lịch sử và trừ lại tiền trên đơn"
-                                    disabled={historyActionLoading}
-                                    onClick={() => handleDeleteUploadedHistoryRows([row])}
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-red-600 hover:bg-red-50 disabled:opacity-40"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        )}
                       </tr>
                     );
                   })
                 )}
               </tbody>
             </table>
+          </div>
+          {isViewOnlyTab && (
+            <div className="w-36 shrink-0 border-l border-gray-200 bg-white shadow-[-10px_0_18px_-16px_rgba(15,23,42,0.9)]">
+              <div className="flex h-[41px] items-center justify-end border-b border-gray-200 bg-gray-100 px-4 text-right text-xs font-semibold uppercase text-gray-700">
+                Thao tác
+              </div>
+              <div className="bg-white">
+                {!loading && paginatedData().length > 0 &&
+                  paginatedData().map((row, rowIdx) => {
+                    const rowId = row.id;
+                    const hasPendingChanges = pendingChanges.has(rowId);
+                    const isCuocDup =
+                      (activeTab === 'cuoc' || activeTab === 'cuoc_view') &&
+                      row.dem_lan_thanh_toan != null &&
+                      Number(row.dem_lan_thanh_toan) > 1;
+                    return (
+                      <div
+                        key={`action-${rowId || rowIdx}`}
+                        className={`flex min-h-[57px] items-center justify-end border-b border-gray-100 px-3 py-3 ${
+                          hasPendingChanges ? 'bg-yellow-50' : isCuocDup ? 'bg-red-50' : 'bg-white'
+                        } ${selectedRows.has(rowId) ? 'bg-blue-50/50' : ''}`}
+                      >
+                        {renderHistoryActionButtons(row)}
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
           </div>
 
           {/* Pagination */}
