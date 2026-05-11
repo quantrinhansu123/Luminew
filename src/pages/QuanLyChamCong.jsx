@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../supabase/config';
 import { toast } from 'react-toastify';
-import { Calendar, Search, Download, Settings, Clock, CheckCircle, AlertTriangle, Users } from 'lucide-react';
+import { Calendar, Search, Download, Settings, Clock, CheckCircle, AlertTriangle, Users, ChevronDown, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Header from '../components/Header';
 
@@ -23,7 +23,10 @@ function getTodayStr() {
 export default function QuanLyChamCong() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
+  // Users (email -> name map for displaying employee names)
+  const [usersMap, setUsersMap] = useState({}); // { email: name }
+
   // Settings
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [startTime, setStartTime] = useState("08:30:00");
@@ -32,15 +35,54 @@ export default function QuanLyChamCong() {
   // Filters
   const [startDate, setStartDate] = useState(getTodayStr());
   const [endDate, setEndDate] = useState(getTodayStr());
-  const [emailSearch, setEmailSearch] = useState("");
+  const [nameSearch, setNameSearch] = useState("");
+  const [selectedEmails, setSelectedEmails] = useState([]); // employee emails picked in dropdown
+  const [employeeDropdownOpen, setEmployeeDropdownOpen] = useState(false);
+  const [employeeDropdownSearch, setEmployeeDropdownSearch] = useState("");
+  const dropdownRef = useRef(null);
 
   useEffect(() => {
     fetchSettings();
+    fetchUsers();
   }, []);
 
   useEffect(() => {
     fetchLogs();
   }, [startDate, endDate]);
+
+  // Close employee dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setEmployeeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const fetchUsers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('email, name')
+        .order('name', { ascending: true });
+      if (error) throw error;
+      const map = {};
+      (data || []).forEach((u) => {
+        if (u.email) map[u.email.toLowerCase()] = u.name || u.email;
+      });
+      setUsersMap(map);
+    } catch (err) {
+      console.warn('Không thể tải danh sách nhân sự:', err.message);
+    }
+  };
+
+  // Helper: resolve display name from email
+  const getEmployeeName = (email) => {
+    if (!email) return '';
+    return usersMap[email.toLowerCase()] || email;
+  };
 
   const fetchSettings = async () => {
     try {
@@ -116,12 +158,56 @@ export default function QuanLyChamCong() {
     }
   };
 
-  // Filter logs locally based on email search
+  // Unique employees present in the current logs (for the dropdown options)
+  const employeesInLogs = useMemo(() => {
+    const seen = new Map(); // email -> name
+    logs.forEach((log) => {
+      const email = (log.user_email || '').toLowerCase();
+      if (!email) return;
+      if (!seen.has(email)) seen.set(email, getEmployeeName(log.user_email));
+    });
+    return Array.from(seen.entries())
+      .map(([email, name]) => ({ email, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [logs, usersMap]);
+
+  // Options to render inside the dropdown (filtered by dropdown search text)
+  const dropdownEmployees = useMemo(() => {
+    const q = employeeDropdownSearch.trim().toLowerCase();
+    if (!q) return employeesInLogs;
+    return employeesInLogs.filter(
+      (e) => e.name.toLowerCase().includes(q) || e.email.toLowerCase().includes(q)
+    );
+  }, [employeesInLogs, employeeDropdownSearch]);
+
+  // Filter logs locally based on name search + selected employees dropdown
   const filteredLogs = useMemo(() => {
-    if (!emailSearch.trim()) return logs;
-    const lowerSearch = emailSearch.toLowerCase();
-    return logs.filter(log => log.user_email?.toLowerCase().includes(lowerSearch));
-  }, [logs, emailSearch]);
+    const q = nameSearch.trim().toLowerCase();
+    const selectedSet = new Set(selectedEmails.map((e) => e.toLowerCase()));
+    return logs.filter((log) => {
+      const email = (log.user_email || '').toLowerCase();
+      if (selectedSet.size > 0 && !selectedSet.has(email)) return false;
+      if (q) {
+        const name = getEmployeeName(log.user_email).toLowerCase();
+        if (!name.includes(q) && !email.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [logs, nameSearch, selectedEmails, usersMap]);
+
+  const toggleEmployeeSelection = (email) => {
+    setSelectedEmails((prev) =>
+      prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]
+    );
+  };
+
+  const selectAllEmployees = () => {
+    setSelectedEmails(dropdownEmployees.map((e) => e.email));
+  };
+
+  const clearSelectedEmployees = () => {
+    setSelectedEmails([]);
+  };
 
   const analyzeStatus = (log) => {
     if (!log.check_in_time) return null;
@@ -165,6 +251,7 @@ export default function QuanLyChamCong() {
       const tags = analyzeStatus(log).map(t => t.label).join(", ");
       return {
         "STT": index + 1,
+        "Tên Nhân Viên": getEmployeeName(log.user_email),
         "Email Nhân Viên": log.user_email,
         "Ngày": new Date(log.check_in_time).toLocaleDateString("vi-VN"),
         "Giờ Check-in": new Date(log.check_in_time).toLocaleTimeString("vi-VN"),
@@ -181,7 +268,8 @@ export default function QuanLyChamCong() {
     // Auto-size columns slightly
     const colWidths = [
       { wch: 5 },  // STT
-      { wch: 25 }, // Email
+      { wch: 25 }, // Tên
+      { wch: 28 }, // Email
       { wch: 15 }, // Date
       { wch: 15 }, // Checkin
       { wch: 15 }, // Checkout
@@ -266,7 +354,7 @@ export default function QuanLyChamCong() {
               <Search className="w-4 h-4 text-gray-500" />
               Bộ lọc dữ liệu
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
               <div>
                 <label className="block text-xs text-gray-500 font-medium mb-1">Từ ngày</label>
                 <div className="relative">
@@ -292,14 +380,109 @@ export default function QuanLyChamCong() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 font-medium mb-1">Tìm Email</label>
-                <input 
-                  type="text" 
-                  placeholder="Nhập email nhân viên..."
-                  value={emailSearch}
-                  onChange={(e) => setEmailSearch(e.target.value)}
+                <label className="block text-xs text-gray-500 font-medium mb-1">Tìm theo tên</label>
+                <input
+                  type="text"
+                  placeholder="Nhập tên nhân viên..."
+                  value={nameSearch}
+                  onChange={(e) => setNameSearch(e.target.value)}
                   className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none"
                 />
+              </div>
+              <div ref={dropdownRef} className="relative">
+                <label className="block text-xs text-gray-500 font-medium mb-1">
+                  Chọn nhân viên
+                  {selectedEmails.length > 0 && (
+                    <span className="ml-1 text-green-600 font-semibold">({selectedEmails.length})</span>
+                  )}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setEmployeeDropdownOpen((v) => !v)}
+                  className="w-full flex items-center justify-between gap-2 border border-gray-300 rounded px-3 py-2 text-sm bg-white hover:bg-gray-50 focus:ring-2 focus:ring-green-500 outline-none"
+                >
+                  <span className="truncate text-gray-700">
+                    {selectedEmails.length === 0
+                      ? 'Tất cả nhân viên'
+                      : selectedEmails.length === 1
+                        ? getEmployeeName(selectedEmails[0])
+                        : `Đã chọn ${selectedEmails.length} nhân viên`}
+                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {selectedEmails.length > 0 && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); clearSelectedEmployees(); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); clearSelectedEmployees(); } }}
+                        className="p-0.5 rounded hover:bg-gray-200 text-gray-500"
+                        title="Bỏ chọn tất cả"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                    <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${employeeDropdownOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+
+                {employeeDropdownOpen && (
+                  <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    <div className="p-2 border-b border-gray-100">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={employeeDropdownSearch}
+                        onChange={(e) => setEmployeeDropdownSearch(e.target.value)}
+                        placeholder="Tìm trong danh sách..."
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-100 text-xs">
+                      <button
+                        type="button"
+                        onClick={selectAllEmployees}
+                        className="text-green-600 hover:text-green-700 font-medium"
+                      >
+                        Chọn tất cả ({dropdownEmployees.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearSelectedEmployees}
+                        className="text-gray-500 hover:text-gray-700 font-medium"
+                      >
+                        Bỏ chọn
+                      </button>
+                    </div>
+                    <div className="max-h-60 overflow-y-auto">
+                      {dropdownEmployees.length === 0 ? (
+                        <div className="px-3 py-4 text-center text-xs text-gray-400">
+                          Không có nhân viên phù hợp
+                        </div>
+                      ) : (
+                        dropdownEmployees.map((emp) => {
+                          const checked = selectedEmails.includes(emp.email);
+                          return (
+                            <label
+                              key={emp.email}
+                              className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 ${checked ? 'bg-green-50' : ''}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleEmployeeSelection(emp.email)}
+                                className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium text-gray-800 truncate">{emp.name}</div>
+                                <div className="text-xs text-gray-400 truncate">{emp.email}</div>
+                              </div>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -340,8 +523,9 @@ export default function QuanLyChamCong() {
                     return (
                       <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="font-medium text-gray-900">{log.user_email}</div>
-                          <div className="text-gray-500 text-xs mt-0.5">{new Date(log.check_in_time).toLocaleDateString("vi-VN")}</div>
+                          <div className="font-medium text-gray-900">{getEmployeeName(log.user_email)}</div>
+                          <div className="text-gray-500 text-xs mt-0.5">{log.user_email}</div>
+                          <div className="text-gray-400 text-xs">{new Date(log.check_in_time).toLocaleDateString("vi-VN")}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-3">

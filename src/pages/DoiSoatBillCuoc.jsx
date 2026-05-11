@@ -314,6 +314,9 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [billUploadedSyncDateTo, setBillUploadedSyncDateTo] = useState('');
   const [cuocUploadedSyncDateFrom, setCuocUploadedSyncDateFrom] = useState('');
   const [cuocUploadedSyncDateTo, setCuocUploadedSyncDateTo] = useState('');
+  // Lọc nhiều mã đơn hàng (paste theo dòng / dấu phẩy / khoảng trắng) cho các tab "đã tải lên"
+  const [billUploadedMaDonFilter, setBillUploadedMaDonFilter] = useState('');
+  const [cuocUploadedMaDonFilter, setCuocUploadedMaDonFilter] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [compareUploading, setCompareUploading] = useState(false);
@@ -1060,9 +1063,32 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       })
     : [];
 
+  /** Tách chuỗi lọc nhiều mã đơn (xuống dòng / dấu phẩy / chấm phẩy / tab / khoảng trắng). */
+  const parseMaDonHangFilterTokens = (text) => {
+    if (!text) return [];
+    return String(text)
+      .split(/[\s,;]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  };
+
   const getCurrentData = () => {
     const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
-    return isBillTab ? billDataWithTableDemLan : cuocDataWithTableDemLan;
+    const baseData = isBillTab ? billDataWithTableDemLan : cuocDataWithTableDemLan;
+
+    // Lọc nhiều mã đơn hàng (FFM-style) cho các tab xem lịch sử
+    if (activeTab === 'bill_view' || activeTab === 'cuoc_view') {
+      const filterText =
+        activeTab === 'bill_view' ? billUploadedMaDonFilter : cuocUploadedMaDonFilter;
+      const tokens = parseMaDonHangFilterTokens(filterText);
+      if (tokens.length === 0) return baseData;
+      return baseData.filter((row) => {
+        const code = String(row?.ma_don_hang ?? '').trim().toLowerCase();
+        if (!code) return false;
+        return tokens.some((t) => code === t || code.includes(t));
+      });
+    }
+    return baseData;
   };
 
   const getCurrentColumns = () => {
@@ -1091,10 +1117,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   }, [selection]);
 
   // Mouse handlers for selection
+  const isViewOnlyTab = activeTab === 'bill_view' || activeTab === 'cuoc_view';
   const handleMouseDown = useCallback((rowIndex, colIndex, e) => {
     if (e.button !== 0) return;
     const target = e.target;
     if (target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
+    // Trên các tab xem lịch sử (read-only), cho phép bôi đen sao chép văn bản —
+    // không kích hoạt chọn ô để không chặn text selection mặc định của trình duyệt.
+    if (isViewOnlyTab) return;
     e.preventDefault();
 
     if (e.shiftKey && selection.startRow !== null) {
@@ -1103,13 +1133,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       isSelecting.current = true;
       setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
     }
-  }, [selection.startRow]);
+  }, [selection.startRow, isViewOnlyTab]);
 
   const handleMouseEnter = useCallback((rowIndex, colIndex) => {
+    if (isViewOnlyTab) return;
     if (isSelecting.current) {
       setSelection((prev) => ({ ...prev, endRow: rowIndex, endCol: colIndex }));
     }
-  }, []);
+  }, [isViewOnlyTab]);
 
   const handleMouseUp = useCallback(() => {
     isSelecting.current = false;
@@ -1119,6 +1150,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [handleMouseUp]);
+
+  // Trên các tab xem lịch sử, xoá vùng chọn ô (nếu có) để không gây nhiễu khi user bôi đen sao chép
+  useEffect(() => {
+    if (isViewOnlyTab) {
+      setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
+      isSelecting.current = false;
+    }
+  }, [isViewOnlyTab]);
 
   // Copy handler - supports up to 200 rows for mã đơn hàng
   const handleCopy = useCallback(() => {
@@ -3806,57 +3845,90 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
             )}
           </div>
           
-          {(activeTab === 'bill_view' || activeTab === 'cuoc_view') && (
-            <div className="flex flex-wrap items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mt-2 max-w-4xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-gray-700">Ngày đồng bộ</span>
-                <input
-                  type="date"
-                  value={
-                    activeTab === 'bill_view' ? billUploadedSyncDateFrom : cuocUploadedSyncDateFrom
-                  }
-                  onChange={(e) => {
-                    const v = e.target.value || '';
-                    if (activeTab === 'bill_view') setBillUploadedSyncDateFrom(v);
-                    else setCuocUploadedSyncDateFrom(v);
-                  }}
-                  className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none"
-                />
-                <span className="text-xs text-gray-400">-</span>
-                <input
-                  type="date"
-                  value={
-                    activeTab === 'bill_view' ? billUploadedSyncDateTo : cuocUploadedSyncDateTo
-                  }
-                  onChange={(e) => {
-                    const v = e.target.value || '';
-                    if (activeTab === 'bill_view') setBillUploadedSyncDateTo(v);
-                    else setCuocUploadedSyncDateTo(v);
-                  }}
-                  className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none"
-                />
-              </div>
+          {(activeTab === 'bill_view' || activeTab === 'cuoc_view') && (() => {
+            const currentMaDonFilter =
+              activeTab === 'bill_view' ? billUploadedMaDonFilter : cuocUploadedMaDonFilter;
+            const setCurrentMaDonFilter =
+              activeTab === 'bill_view' ? setBillUploadedMaDonFilter : setCuocUploadedMaDonFilter;
+            const tokenCount = parseMaDonHangFilterTokens(currentMaDonFilter).length;
+            const hasAnyFilter =
+              !!billUploadedSyncDateFrom ||
+              !!billUploadedSyncDateTo ||
+              !!cuocUploadedSyncDateFrom ||
+              !!cuocUploadedSyncDateTo ||
+              !!billUploadedMaDonFilter ||
+              !!cuocUploadedMaDonFilter;
+            return (
+              <div className="flex flex-wrap items-start gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mt-2 max-w-5xl">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-700">Ngày đồng bộ</span>
+                  <input
+                    type="date"
+                    value={
+                      activeTab === 'bill_view' ? billUploadedSyncDateFrom : cuocUploadedSyncDateFrom
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value || '';
+                      if (activeTab === 'bill_view') setBillUploadedSyncDateFrom(v);
+                      else setCuocUploadedSyncDateFrom(v);
+                    }}
+                    className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none"
+                  />
+                  <span className="text-xs text-gray-400">-</span>
+                  <input
+                    type="date"
+                    value={
+                      activeTab === 'bill_view' ? billUploadedSyncDateTo : cuocUploadedSyncDateTo
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value || '';
+                      if (activeTab === 'bill_view') setBillUploadedSyncDateTo(v);
+                      else setCuocUploadedSyncDateTo(v);
+                    }}
+                    className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none"
+                  />
+                </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setBillUploadedSyncDateFrom('');
-                  setBillUploadedSyncDateTo('');
-                  setCuocUploadedSyncDateFrom('');
-                  setCuocUploadedSyncDateTo('');
-                }}
-                disabled={
-                  !billUploadedSyncDateFrom &&
-                  !billUploadedSyncDateTo &&
-                  !cuocUploadedSyncDateFrom &&
-                  !cuocUploadedSyncDateTo
-                }
-                className="px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 rounded-lg text-xs font-medium transition disabled:opacity-50"
-              >
-                Xóa lọc
-              </button>
-            </div>
-          )}
+                <div className="flex items-start gap-2">
+                  <span className="text-xs font-bold text-gray-700 mt-2">Mã đơn hàng</span>
+                  <div className="flex flex-col">
+                    <textarea
+                      rows={1}
+                      value={currentMaDonFilter}
+                      onChange={(e) => {
+                        setCurrentMaDonFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      placeholder="Dán nhiều mã (cách nhau dấu phẩy / xuống dòng / khoảng trắng)…"
+                      className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none w-72 min-h-[36px] max-h-32 resize-y"
+                    />
+                    {tokenCount > 0 && (
+                      <span className="text-[11px] text-blue-600 font-semibold mt-1">
+                        Đang lọc theo {tokenCount} mã
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBillUploadedSyncDateFrom('');
+                    setBillUploadedSyncDateTo('');
+                    setCuocUploadedSyncDateFrom('');
+                    setCuocUploadedSyncDateTo('');
+                    setBillUploadedMaDonFilter('');
+                    setCuocUploadedMaDonFilter('');
+                    setCurrentPage(1);
+                  }}
+                  disabled={!hasAnyFilter}
+                  className="px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 rounded-lg text-xs font-medium transition disabled:opacity-50 mt-0"
+                >
+                  Xóa lọc
+                </button>
+              </div>
+            );
+          })()}
 
           {(activeTab === 'bill' || activeTab === 'bill_view') && (
             <p className="text-sm text-gray-600 mt-2 max-w-4xl">
@@ -4057,7 +4129,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                             hasChange ? 'bg-yellow-200' : ''
                           } ${isReadOnly ? 'bg-gray-50' : 'cursor-text'} ${
                             isSelected ? 'bg-blue-200 border-2 border-blue-400' : ''
-                          }`}
+                          } ${isViewOnlyTab ? 'select-text cursor-auto' : ''}`}
                           onMouseDown={(e) => handleMouseDown(rowIdx, colIdx, e)}
                           onMouseEnter={() => handleMouseEnter(rowIdx, colIdx)}
                         >
