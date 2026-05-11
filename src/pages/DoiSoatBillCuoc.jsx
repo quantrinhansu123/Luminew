@@ -4679,9 +4679,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
 
         {/* Table */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <div className="flex">
-          <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="bg-white rounded-lg shadow-sm">
+          <div className="overflow-x-auto rounded-lg">
             <table className="w-full min-w-max border-separate border-spacing-0">
               <thead className="bg-gray-100">
                 <tr>
@@ -4703,6 +4702,11 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                       {col.label}
                     </th>
                   ))}
+                  {isViewOnlyTab && (
+                    <th className="sticky right-0 z-30 w-36 min-w-36 border-b border-l border-gray-200 bg-gray-100 px-4 py-3 text-right text-xs font-semibold uppercase text-gray-700 shadow-[-10px_0_18px_-14px_rgba(15,23,42,0.9)]">
+                      Thao tác
+                    </th>
+                  )}
                 </tr>
               </thead>
 
@@ -4710,7 +4714,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0)}
+                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0) + (isViewOnlyTab ? 1 : 0)}
                       className="px-4 py-8 text-center text-gray-500"
                     >
                       Đang tải dữ liệu...
@@ -4719,7 +4723,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 ) : paginatedData().length === 0 ? (
                   <tr>
                     <td
-                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0)}
+                      colSpan={getCurrentColumns().length + (hasTableSelectionColumn ? 1 : 0) + (isViewOnlyTab ? 1 : 0)}
                       className="px-4 py-8 text-center text-gray-500 italic"
                     >
                       Không có dữ liệu
@@ -4992,41 +4996,17 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                             </td>
                           );
                         })}
+                        {isViewOnlyTab && (
+                          <td className="sticky right-0 z-20 w-36 min-w-36 border-b border-l border-gray-100 bg-white px-3 py-3 text-right shadow-[-10px_0_18px_-14px_rgba(15,23,42,0.9)]">
+                            {renderHistoryActionButtons(row)}
+                          </td>
+                        )}
                       </tr>
                     );
                   })
                 )}
               </tbody>
             </table>
-          </div>
-          {isViewOnlyTab && (
-            <div className="w-36 shrink-0 border-l border-gray-200 bg-white shadow-[-10px_0_18px_-16px_rgba(15,23,42,0.9)]">
-              <div className="flex h-[41px] items-center justify-end border-b border-gray-200 bg-gray-100 px-4 text-right text-xs font-semibold uppercase text-gray-700">
-                Thao tác
-              </div>
-              <div className="bg-white">
-                {!loading && paginatedData().length > 0 &&
-                  paginatedData().map((row, rowIdx) => {
-                    const rowId = row.id;
-                    const hasPendingChanges = pendingChanges.has(rowId);
-                    const isCuocDup =
-                      (activeTab === 'cuoc' || activeTab === 'cuoc_view') &&
-                      row.dem_lan_thanh_toan != null &&
-                      Number(row.dem_lan_thanh_toan) > 1;
-                    return (
-                      <div
-                        key={`action-${rowId || rowIdx}`}
-                        className={`flex min-h-[57px] items-center justify-end border-b border-gray-100 px-3 py-3 ${
-                          hasPendingChanges ? 'bg-yellow-50' : isCuocDup ? 'bg-red-50' : 'bg-white'
-                        } ${selectedRows.has(rowId) ? 'bg-blue-50/50' : ''}`}
-                      >
-                        {renderHistoryActionButtons(row)}
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
           </div>
 
           {/* Pagination */}
