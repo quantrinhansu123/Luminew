@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { supabase } from '../../supabase/config';
 
 export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }) {
+  const DEFAULT_NEW_USER_PASSWORD = '123456';
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [editingUser, setEditingUser] = useState(null);
@@ -22,13 +23,12 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
   const [newUser, setNewUser] = useState({
     name: '',
     email: '',
-    password: '',
     department: '',
     team: '',
     position: '',
     branch: '',
     shift: '',
-    role: 'user'
+    role: ''
   });
 
   // Pagination states
@@ -154,13 +154,12 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
     setNewUser({
       name: '',
       email: '',
-      password: '',
       department: '',
       team: '',
       position: '',
       branch: '',
       shift: '',
-      role: 'user'
+      role: ''
     });
     setIsAddModalOpen(true);
   };
@@ -171,26 +170,20 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
     setNewUser({
       name: '',
       email: '',
-      password: '',
       department: '',
       team: '',
       position: '',
       branch: '',
       shift: '',
-      role: 'user'
+      role: ''
     });
   };
 
   // Add new user
   const handleAddUser = async () => {
     // Validation
-    if (!newUser.name || !newUser.email || !newUser.password) {
+    if (!newUser.name || !newUser.email || !newUser.team || !newUser.role) {
       toast.error('Vui lòng điền đầy đủ thông tin bắt buộc!');
-      return;
-    }
-
-    if (newUser.password.length < 6) {
-      toast.error('Mật khẩu phải có ít nhất 6 ký tự!');
       return;
     }
 
@@ -209,7 +202,7 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
       }
 
       // Hash password
-      const hashedPassword = bcrypt.hashSync(newUser.password, 10);
+      const hashedPassword = bcrypt.hashSync(DEFAULT_NEW_USER_PASSWORD, 10);
 
       const userData = {
         username: newUser.email.split('@')[0],
@@ -251,7 +244,7 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
       }
 
       closeAddModal();
-      toast.success('Thêm nhân sự thành công!');
+      toast.success(`Thêm nhân sự thành công! Mật khẩu mặc định: ${DEFAULT_NEW_USER_PASSWORD}`);
     } catch (err) {
       console.error('Error adding user:', err);
       toast.error('Đã xảy ra lỗi khi thêm nhân sự: ' + err.message);
@@ -311,6 +304,14 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
     if (!str) return '';
     return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
   };
+
+  const teamOptions = Array.from(
+    new Set([
+      'Hà Nội',
+      'HCM',
+      ...users.map((u) => String(u?.team || '').trim()).filter(Boolean),
+    ])
+  ).sort((a, b) => a.localeCompare(b, 'vi'));
 
   // Tự động điền branch từ bảng nhân sự vào orders
   const handleAutoFillBranch = async () => {
@@ -927,17 +928,16 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
                   />
                 </div>
 
-                {/* Password */}
+                {/* Password (auto) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Mật khẩu <span className="text-red-500">*</span>
+                    Mật khẩu mặc định
                   </label>
                   <input
-                    type="password"
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="Nhập mật khẩu (tối thiểu 6 ký tự)"
+                    type="text"
+                    value={DEFAULT_NEW_USER_PASSWORD}
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700"
                   />
                 </div>
 
@@ -958,15 +958,18 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
                 {/* Team */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Team
+                    Team <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={newUser.team}
                     onChange={(e) => setNewUser({ ...newUser, team: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="Nhập team"
-                  />
+                  >
+                    <option value="">-- Chọn team --</option>
+                    {teamOptions.map((team) => (
+                      <option key={team} value={team}>{team}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Vị trí */}
@@ -1025,6 +1028,7 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
                     onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   >
+                    <option value="">-- Chọn quyền --</option>
                     <option value="user">User</option>
                     <option value="leader">Leader</option>
                     <option value="admin">Admin</option>
