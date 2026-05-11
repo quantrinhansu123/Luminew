@@ -98,6 +98,14 @@ function Home() {
       allowDirectorDept: true,
       subItems: [
         {
+          id: "dashboard-dieu-hanh",
+          label: "Dashboard điều hành",
+          icon: <BarChart3 className="w-4 h-4" />,
+          path: "/dashboard-dieu-hanh",
+          adminOnly: true,
+          allowDirectorDept: true,
+        },
+        {
           id: "dashboard-growth",
           label: "Dashboard Tăng trưởng",
           icon: <TrendingUp className="w-4 h-4" />,
@@ -824,6 +832,15 @@ function Home() {
     {
       title: "DASHBOARD ĐIỀU HÀNH",
       items: [
+        {
+          title: "Dashboard điều hành",
+          icon: <BarChart3 className="w-8 h-8" />,
+          color: "bg-emerald-700",
+          path: "/dashboard-dieu-hanh",
+          status: "MKT + Vận đơn",
+          adminOnly: true,
+          allowDirectorDept: true,
+        },
         {
           title: "Dashboard Tăng trưởng",
           icon: <TrendingUp className="w-8 h-8" />,
