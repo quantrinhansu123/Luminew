@@ -363,6 +363,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [editingHistoryRows, setEditingHistoryRows] = useState(new Set());
   const [historyActionLoading, setHistoryActionLoading] = useState(false);
   const [historyActionRowId, setHistoryActionRowId] = useState(null);
+  const [rowContextMenu, setRowContextMenu] = useState(null); // { x, y, row }
   const accountantOptions = ["", "Đã thu tiền", "Chưa thu tiền", "Treo", "Hủy", "Khác"];
 
   /** Modal đồng bộ tùy chỉnh (Premium) */
@@ -2303,6 +2304,31 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     }
   };
 
+  const startEditingUploadedHistoryRow = (row) => {
+    if (!row?.id) return;
+    setEditingHistoryRows((prev) => {
+      const next = new Set(prev);
+      next.add(row.id);
+      return next;
+    });
+    setRowContextMenu(null);
+  };
+
+  const cancelEditingUploadedHistoryRow = (row) => {
+    if (!row?.id) return;
+    setPendingChanges((prev) => {
+      const next = new Map(prev);
+      next.delete(row.id);
+      return next;
+    });
+    setEditingHistoryRows((prev) => {
+      const next = new Set(prev);
+      next.delete(row.id);
+      return next;
+    });
+    setRowContextMenu(null);
+  };
+
   const handleSaveUploadedHistoryRow = async (row) => {
     const historyId = getRowHistoryId(row);
     if (!historyId) return;
@@ -2317,6 +2343,17 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       });
       return;
     }
+
+    const changedFields = [...rowChanges.keys()]
+      .filter((key) => key !== 'dem_lan_thanh_toan' && key !== 'chi_nhanh')
+      .join(', ');
+    const confirmMsg =
+      `Bạn sắp LƯU SỬA dòng lịch sử ${historyId}.\n\n` +
+      `Các cột đổi: ${changedFields || 'không xác định'}\n` +
+      `Sau khi lưu, hệ thống sẽ tính lại và cập nhật bảng ${ordersTableName}.\n` +
+      `Thao tác sẽ được ghi vào Lịch sử.\n\n` +
+      `Tiếp tục?`;
+    if (!window.confirm(confirmMsg)) return;
 
     setHistoryActionLoading(true);
     setHistoryActionRowId(row.id);
@@ -2367,8 +2404,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     const tableName = getUploadedHistoryTableName(isBill);
     const confirmMsg =
       selected.length === 1
-        ? `Xóa dòng này khỏi ${tableName} và đồng bộ trừ lại tiền trên ${ordersTableName}?`
-        : `Xóa ${selected.length} dòng khỏi ${tableName} và đồng bộ trừ lại tiền trên ${ordersTableName}?`;
+        ? `Bạn sắp XÓA dòng này khỏi ${tableName}.\n\nHệ thống sẽ tính lại và cập nhật bảng ${ordersTableName} để trừ/điều chỉnh số tiền liên quan.\nThao tác sẽ được ghi vào Lịch sử.\n\nTiếp tục?`
+        : `Bạn sắp XÓA ${selected.length} dòng khỏi ${tableName}.\n\nHệ thống sẽ tính lại và cập nhật bảng ${ordersTableName} để trừ/điều chỉnh số tiền liên quan.\nThao tác sẽ được ghi vào Lịch sử.\n\nTiếp tục?`;
     if (!options.skipConfirm && !window.confirm(confirmMsg)) return;
 
     setHistoryActionLoading(true);
@@ -2419,7 +2456,13 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       const changes = pendingChanges.get(row.id) || new Map();
       return makeHistorySourceRow(row, changes);
     });
-    if (!window.confirm(`Đồng bộ lại ${selected.length} dòng đang chọn lên ${ordersTableName}?`)) return;
+    if (
+      !window.confirm(
+        `Bạn sắp ĐỒNG BỘ LẠI ${selected.length} dòng đang chọn lên ${ordersTableName}.\n\n` +
+          `Hệ thống sẽ tính lại các mã đơn liên quan và ghi lịch sử thao tác.\n\n` +
+          `Tiếp tục?`
+      )
+    ) return;
 
     setHistoryActionLoading(true);
     setHistoryActionRowId(selected.length === 1 ? selected[0].id : null);
@@ -2472,18 +2515,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               type="button"
               title="Hủy sửa"
               disabled={historyActionLoading}
-              onClick={() => {
-                setPendingChanges((prev) => {
-                  const next = new Map(prev);
-                  next.delete(rowId);
-                  return next;
-                });
-                setEditingHistoryRows((prev) => {
-                  const next = new Set(prev);
-                  next.delete(rowId);
-                  return next;
-                });
-              }}
+              onClick={() => cancelEditingUploadedHistoryRow(row)}
               className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-40"
             >
               <X className="h-4 w-4" />
@@ -2495,13 +2527,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               type="button"
               title="Sửa dòng lịch sử"
               disabled={historyActionLoading}
-              onClick={() => {
-                setEditingHistoryRows((prev) => {
-                  const next = new Set(prev);
-                  next.add(rowId);
-                  return next;
-                });
-              }}
+              onClick={() => startEditingUploadedHistoryRow(row)}
               className="inline-flex h-7 w-7 items-center justify-center rounded-md text-blue-600 hover:bg-blue-50 disabled:opacity-40"
             >
               <Edit3 className="h-4 w-4" />
@@ -2533,6 +2559,44 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       </div>
     );
   };
+
+  const handleRowContextMenu = (event, row) => {
+    if (!isViewOnlyTab || !row || !getRowHistoryId(row)) return;
+    event.preventDefault();
+    const menuWidth = 230;
+    const menuHeight = 280;
+    const x = Math.min(event.clientX, window.innerWidth - menuWidth - 8);
+    const y = Math.min(event.clientY, window.innerHeight - menuHeight - 8);
+    setRowContextMenu({ x: Math.max(8, x), y: Math.max(8, y), row });
+  };
+
+  const copyContextRowCode = async (row) => {
+    const text = String(row?.ma_don_hang || '').trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.warn('Không copy được mã đơn:', err);
+    } finally {
+      setRowContextMenu(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!rowContextMenu) return undefined;
+    const close = () => setRowContextMenu(null);
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [rowContextMenu]);
 
   // --- Bulk Selection Handlers ---
   const toggleSelectAll = (e) => {
@@ -4742,12 +4806,13 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                       Number(row.dem_lan_thanh_toan) > 1;
 
                     return (
-                      <tr
-                        key={rowId || rowIdx}
-                        className={`hover:bg-gray-50 ${
-                          hasPendingChanges ? 'bg-yellow-50' : isCuocDup ? 'bg-red-50' : ''
-                        } ${selectedRows.has(rowId) ? 'bg-blue-50/50' : ''}`}
-                      >
+	                      <tr
+	                        key={rowId || rowIdx}
+	                        onContextMenu={(e) => handleRowContextMenu(e, row)}
+	                        className={`hover:bg-gray-50 ${
+	                          hasPendingChanges ? 'bg-yellow-50' : isCuocDup ? 'bg-red-50' : ''
+	                        } ${selectedRows.has(rowId) ? 'bg-blue-50/50' : ''} ${isViewOnlyTab ? 'cursor-context-menu' : ''}`}
+	                      >
                         {hasTableSelectionColumn && (
                           <td className="px-4 py-3 border-b border-gray-100 text-center">
                             <input
@@ -5051,6 +5116,113 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
           )}
         </div>
       </div>
+
+      {rowContextMenu && isViewOnlyTab && (
+        <div
+          className="fixed z-[12000] w-56 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
+          style={{ left: rowContextMenu.x, top: rowContextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div className="border-b border-slate-100 bg-slate-50 px-3 py-2">
+            <div className="truncate text-[11px] font-semibold uppercase text-slate-500">Thao tác nhanh</div>
+            <div className="truncate font-mono text-xs font-bold text-slate-800">
+              {rowContextMenu.row?.ma_don_hang || 'Không có mã đơn'}
+            </div>
+          </div>
+
+          <div className="py-1 text-sm">
+            {editingHistoryRows.has(rowContextMenu.row.id) ? (
+              <>
+                <button
+                  type="button"
+                  disabled={historyActionLoading || !pendingChanges.has(rowContextMenu.row.id)}
+                  onClick={() => {
+                    const row = rowContextMenu.row;
+                    setRowContextMenu(null);
+                    handleSaveUploadedHistoryRow(row);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                >
+                  <Save className="h-4 w-4" />
+                  Lưu sửa và đồng bộ
+                </button>
+                <button
+                  type="button"
+                  disabled={historyActionLoading}
+                  onClick={() => cancelEditingUploadedHistoryRow(rowContextMenu.row)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" />
+                  Hủy sửa
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={historyActionLoading}
+                onClick={() => startEditingUploadedHistoryRow(rowContextMenu.row)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+              >
+                <Edit3 className="h-4 w-4" />
+                Sửa dòng
+              </button>
+            )}
+
+            <button
+              type="button"
+              disabled={historyActionLoading}
+              onClick={() => {
+                const row = rowContextMenu.row;
+                setRowContextMenu(null);
+                handleResyncUploadedHistoryRows([row]);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+            >
+              <RotateCw className="h-4 w-4" />
+              Đồng bộ lại dòng này
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const row = rowContextMenu.row;
+                toggleRowSelect(row.id);
+                setRowContextMenu(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Plus className="h-4 w-4" />
+              {selectedRows.has(rowContextMenu.row.id) ? 'Bỏ chọn dòng' : 'Chọn dòng'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => copyContextRowCode(rowContextMenu.row)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <FileDown className="h-4 w-4" />
+              Copy mã đơn
+            </button>
+
+            <div className="my-1 border-t border-slate-100" />
+
+            <button
+              type="button"
+              disabled={historyActionLoading}
+              onClick={() => {
+                const row = rowContextMenu.row;
+                setRowContextMenu(null);
+                handleDeleteUploadedHistoryRows([row]);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Xóa và trừ lại đơn
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add Modal */}
       {showAddModal && (
