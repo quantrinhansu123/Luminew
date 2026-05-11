@@ -63,11 +63,11 @@ const BRANCHES = [
   { value: 'hcm', label: 'Hồ Chí Minh' },
 ];
 const COMPANY_THRESHOLD_DATASETS = [
-  { label: 'Ngưỡng Ads 35%', value: 35, color: '#f97316' },
-  { label: 'Ngưỡng chốt 8%', value: 8, color: '#9333ea' },
-  { label: 'Ngưỡng giao TC 90%', value: 90, color: '#16a34a' },
-  { label: 'Ngưỡng Hủy + Hoàn 8%', value: 8, color: '#ef4444' },
-  { label: 'Ngưỡng thu tiền 80%', value: 80, color: '#2563eb' },
+  { label: 'Ngưỡng Ads 35%', value: 35, color: 'rgba(249, 115, 22, 0.45)' },
+  { label: 'Ngưỡng chốt 8%', value: 8, color: 'rgba(147, 51, 234, 0.45)' },
+  { label: 'Ngưỡng giao TC 90%', value: 90, color: 'rgba(22, 163, 74, 0.45)' },
+  { label: 'Ngưỡng Hủy + Hoàn 8%', value: 8, color: 'rgba(239, 68, 68, 0.45)' },
+  { label: 'Ngưỡng thu tiền 80%', value: 80, color: 'rgba(37, 99, 235, 0.45)' },
 ];
 
 function pad2(n) {
@@ -246,7 +246,10 @@ function lineDataset(label, data, borderColor, backgroundColor) {
     data,
     borderColor,
     backgroundColor,
+    borderWidth: 2,
     fill: true,
+    pointHoverRadius: 4,
+    pointRadius: 2,
     tension: 0.35,
   };
 }
@@ -256,7 +259,9 @@ function thresholdDataset(label, dataLength, value, color) {
     label,
     data: Array.from({ length: dataLength }, () => value),
     borderColor: color,
+    borderWidth: 1,
     borderDash: [6, 5],
+    pointHoverRadius: 0,
     pointRadius: 0,
     fill: false,
     tension: 0,
@@ -944,23 +949,23 @@ function KpiCard({ item }) {
   const dangerous = item.kind === 'danger';
   const deltaUp = Number(item.delta || 0) >= 0;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className={`rounded-md p-2 ${dangerous ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
-          <Icon className="h-5 w-5" />
+    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className={`rounded-md p-1.5 ${dangerous ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+          <Icon className="h-4 w-4" />
         </div>
         <div
-          className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${
+          className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
             dangerous ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-700'
           }`}
         >
-          {deltaUp ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+          {deltaUp ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
           {formatPercent(Math.abs(item.delta || 0))}
         </div>
       </div>
-      <div className="mt-4 text-sm font-medium text-slate-500">{item.label}</div>
-      <div className="mt-1 text-2xl font-bold text-slate-950">{item.value}</div>
-      <div className="mt-2 min-h-[1.25rem] text-xs text-slate-500">{item.note}</div>
+      <div className="mt-3 text-xs font-medium text-slate-500">{item.label}</div>
+      <div className="mt-0.5 text-xl font-bold leading-tight text-slate-950">{item.value}</div>
+      <div className="mt-1 truncate text-[11px] text-slate-500">{item.note}</div>
     </div>
   );
 }
@@ -1533,29 +1538,45 @@ export default function DashboardDieuHanh() {
           </TabsList>
 
           <TabsContent value="company" className="m-0 space-y-0 outline-none ring-0 focus-visible:ring-0 data-[state=inactive]:hidden">
-            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {kpis.map((item) => (
                 <KpiCard key={item.label} item={item} />
               ))}
             </div>
 
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-              <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2">
-                <div className="mb-3 flex items-center justify-between gap-3">
+              <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm xl:col-span-2">
+                <div className="mb-2 flex items-center justify-between gap-3">
                   <div>
                     <h2 className="text-base font-bold text-slate-950">Xu hướng 4 tháng gần nhất</h2>
                     <p className="text-xs text-slate-500">Có đủ ngưỡng Ads, chốt đơn, giao thành công, hủy hoàn và thu tiền.</p>
                   </div>
                   <ChevronDown className="h-4 w-4 text-slate-400" />
                 </div>
-                <div className="h-[320px]">
+                <div className="h-[260px]">
                   <Line
                     data={lineData}
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
-                      plugins: { legend: { position: 'bottom' } },
-                      scales: { y: { beginAtZero: true, ticks: { callback: (v) => `${v}%` } } },
+                      interaction: { intersect: false, mode: 'index' },
+                      plugins: {
+                        legend: {
+                          position: 'bottom',
+                          labels: {
+                            boxWidth: 10,
+                            filter: (item) => !String(item.text || '').startsWith('Ngưỡng'),
+                            font: { size: 11 },
+                          },
+                        },
+                      },
+                      scales: {
+                        x: { grid: { display: false } },
+                        y: {
+                          beginAtZero: true,
+                          ticks: { callback: (v) => `${v}%`, maxTicksLimit: 6 },
+                        },
+                      },
                     }}
                   />
                 </div>
