@@ -658,7 +658,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
-    "Trạng thái thu tiền": item.payment_status_detail,
+    "Trạng thái thu tiền": item.payment_status_detail || item.payment_status,
     "Lý do": item.reason,
     "Phí ship": item.shipping_cost || item.shipping_fee || 0,
     "Tên Page": item.page_name, // Map Page Name
@@ -2562,7 +2562,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     const vals = new Set();
     let hasEmpty = false;
     allData.forEach((row) => {
-      const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail;
+      const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
       if (v != null && String(v).trim()) {
         vals.add(String(v).trim());
       } else {
@@ -2849,7 +2849,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     // Trạng thái thu tiền (payment_status_detail)
     if (filterPaymentCollectionStatus.length > 0) {
       data = data.filter((row) => {
-        const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail;
+        const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
         const s = v != null ? String(v).trim() : '';
         if (filterPaymentCollectionStatus.includes('(Trống)')) {
           if (!s) return true;
@@ -5009,4 +5009,3 @@ function DanhSachDon({ dataSource = 'default' }) {
 }
 
 export default DanhSachDon;
-

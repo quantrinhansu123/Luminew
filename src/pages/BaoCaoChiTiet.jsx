@@ -511,7 +511,7 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         "Phí ship": shippingVndFromOrder(item),
         "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
         "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
-        "Trạng thái thu tiền": item.payment_status_detail,
+        "Trạng thái thu tiền": item.payment_status_detail || item.payment_status,
         "Lý do": item.reason,
         "Page": item.page_name // Map Page Name
         // Note: _id and _source are excluded from mapSupabaseToUI to prevent them from appearing in column settings

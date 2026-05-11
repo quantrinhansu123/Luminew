@@ -718,7 +718,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
-    "Trạng thái thu tiền": item.payment_status_detail,
+    "Trạng thái thu tiền": item.payment_status_detail || item.payment_status,
     "Trạng thái thanh toán": item.payment_status,
     "Lý do": item.reason,
     // Đối soát cước trả về shipping_cost => hiển thị bằng tên "Phí cước".
@@ -2642,7 +2642,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     const vals = new Set();
     let hasEmpty = false;
     allData.forEach((row) => {
-      const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail;
+      const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
       if (v != null && String(v).trim()) {
         vals.add(String(v).trim());
       } else {
@@ -2920,7 +2920,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     // Trạng thái thu tiền (payment_status_detail)
     if (filterPaymentCollectionStatus.length > 0) {
       data = data.filter((row) => {
-        const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail;
+        const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
         const s = v != null ? String(v).trim() : '';
         if (filterPaymentCollectionStatus.includes('(Trống)')) {
           if (!s) return true;
@@ -4945,4 +4945,3 @@ function DanhSachDon({ dataSource = 'default' }) {
 }
 
 export default DanhSachDon;
-

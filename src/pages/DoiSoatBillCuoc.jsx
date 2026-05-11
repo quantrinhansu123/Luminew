@@ -1359,8 +1359,31 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     return tokens.some((t) => haystack === t || haystack.includes(t));
   };
 
+  const getEffectiveFilterValue = (row, key) => {
+    const rowPendingChanges = row?.id ? pendingChanges.get(row.id) : null;
+    if (rowPendingChanges?.has(key)) return rowPendingChanges.get(key);
+    return row?.[key];
+  };
+
+  const normalizeExactFilterValue = (value) =>
+    String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/\s+/g, ' ');
+
+  const matchesExactFilterValue = (value, selectedValue) => {
+    const needle = normalizeExactFilterValue(selectedValue);
+    if (!needle) return true;
+    return normalizeExactFilterValue(value) === needle;
+  };
+
   const getRowFilterAmount = (row, isBillTab) => {
-    const value = isBillTab ? row?.tien_viet : row?.tien_ship_vnd;
+    const value = isBillTab
+      ? getEffectiveFilterValue(row, 'tien_viet')
+      : getEffectiveFilterValue(row, 'tien_ship_vnd');
     if (value === null || value === undefined || value === '') return null;
     const num = parseFloat(String(value).replace(/,/g, ''));
     return Number.isFinite(num) ? num : null;
@@ -1373,12 +1396,15 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       tableFilters.amountMax === '' ? null : parseFloat(String(tableFilters.amountMax).replace(/,/g, ''));
 
     return (rows || []).filter((row) => {
-      if (!matchesFilterText(row?.ma_don_hang, tableFilters.orderCodes)) return false;
-      if (isBillTab && !matchesFilterText(row?.ma_tracking, tableFilters.tracking)) return false;
-      if (!matchesFilterText(row?.sync_batch_label, tableFilters.syncBatch)) return false;
-      if (!matchesFilterText(row?.synced_by, tableFilters.syncedBy)) return false;
-      if (isBillTab && !matchesFilterText(row?.accountant_confirm, tableFilters.accountantConfirm)) return false;
-      const ffmBranchValue = isBillTab ? row?.ffm : row?.chi_nhanh;
+      if (!matchesFilterText(getEffectiveFilterValue(row, 'ma_don_hang'), tableFilters.orderCodes)) return false;
+      if (isBillTab && !matchesFilterText(getEffectiveFilterValue(row, 'ma_tracking'), tableFilters.tracking)) return false;
+      if (!matchesFilterText(getEffectiveFilterValue(row, 'sync_batch_label'), tableFilters.syncBatch)) return false;
+      if (!matchesFilterText(getEffectiveFilterValue(row, 'synced_by'), tableFilters.syncedBy)) return false;
+      if (
+        isBillTab &&
+        !matchesExactFilterValue(getEffectiveFilterValue(row, 'accountant_confirm'), tableFilters.accountantConfirm)
+      ) return false;
+      const ffmBranchValue = isBillTab ? getEffectiveFilterValue(row, 'ffm') : getEffectiveFilterValue(row, 'chi_nhanh');
       if (!matchesFilterText(ffmBranchValue, tableFilters.ffmBranch)) return false;
       if (tableFilters.duplicateOnly && Number(row?.dem_lan_thanh_toan || 0) <= 1) return false;
 
