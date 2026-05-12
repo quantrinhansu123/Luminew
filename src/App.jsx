@@ -396,7 +396,8 @@ function App() {
   return (
     <Router
       future={{
-        v7_startTransition: true,
+        // Không bật v7_startTransition: điều hướng bọc startTransition dễ bị trì hoãn khi trang nặng
+        // (vd. /bao-cao-ceo) → thanh địa chỉ đổi nhưng UI vẫn dừng ở trang cũ tới khi F5.
         v7_relativeSplatPath: true,
       }}
     >

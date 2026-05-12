@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import '../../pages/BaoCaoSale.css';
 import { supabase } from '../../supabase/config';
 import { formatCurrency, formatNumber, filterRawData } from '../../utils/nhanSuSaleLumiMoiLogic';
 import { aggregateVanHanhSlice, formatPct, formatSlVi } from '../../utils/baoCaoVanDonMarketMatrix';
@@ -407,6 +408,14 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   const [branchPick, setBranchPick] = useState('all'); // all | hcm | hn
   const didInitFiltersRef = useState(false);
   const lastAllOptionsRef = useState(() => ({ shifts: [], teams: [], products: [], markets: [] }));
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const toggleInList = (list, value) => {
     const v = normalizePickValue(value);
@@ -428,9 +437,10 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   const load = useCallback(async () => {
     if (!globalFrom || !globalTo) return;
     if (globalFrom > globalTo) {
-      setError('Từ ngày phải ≤ Đến ngày.');
+      if (isMountedRef.current) setError('Từ ngày phải ≤ Đến ngày.');
       return;
     }
+    if (!isMountedRef.current) return;
     setLoading(true);
     setError(null);
     try {
@@ -531,19 +541,21 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
         loadOrdersTable('orders'),
         loadOrdersTable('order_code_hcm'),
       ]);
+      if (!isMountedRef.current) return;
       setRowsHn(hn);
       setRowsHcm(hcm);
       setRowsOrdersHn(ordersHn);
       setRowsOrdersHcm(ordersHcm);
     } catch (e) {
       console.error(e);
+      if (!isMountedRef.current) return;
       setError(e?.message || 'Không tải được detail_reports / marketing_report_hcm');
       setRowsHn([]);
       setRowsHcm([]);
       setRowsOrdersHn([]);
       setRowsOrdersHcm([]);
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }, [globalFrom, globalTo]);
 
@@ -760,8 +772,13 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   return (
     <div className="h-full min-h-0 overflow-auto">
       {/* Dashboard quản trị bọc TabsContent bằng overflow-hidden; tab CEO cần tự tạo vùng scroll. */}
-      <div className="bao-cao-sale-container" style={{ minHeight: 'auto', padding: 12 }}>
-        {loading && <div className="loading-overlay">Đang tải dữ liệu...</div>}
+      <div
+        className="bao-cao-sale-container relative"
+        style={{ minHeight: 'auto', padding: 12 }}
+      >
+        {loading && (
+          <div className="loading-overlay loading-overlay--panel-scoped">Đang tải dữ liệu...</div>
+        )}
 
         <div className="report-container">
           <div
