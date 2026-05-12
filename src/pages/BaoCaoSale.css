@@ -495,9 +495,9 @@
 }
 
 .bao-cao-sale-container .main-detailed {
-    flex-grow: 1;
+    flex: 1 1 0;
     min-width: 0;
-    width: calc(100% - 300px);
+    width: auto;
     position: relative;
     z-index: 1;
     overflow: visible;
@@ -621,6 +621,50 @@
     z-index: 40;
 }
 
+/* --- CEO panel: sidebar + nội dung (tránh khoảng trống phải do width calc cũ) --- */
+.bao-cao-sale-container.ceo-panel-root .report-container {
+    align-items: flex-start;
+}
+
+@media (min-width: 1201px) {
+    .bao-cao-sale-container.ceo-panel-root .report-container {
+        flex-wrap: nowrap;
+    }
+}
+
+.bao-cao-sale-container.ceo-panel-root .sidebar.ceo-panel-sidebar {
+    flex: 0 0 260px;
+    width: 260px;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    position: sticky;
+    top: 12px;
+    align-self: flex-start;
+    max-height: min(calc(100vh - 100px), 900px);
+    overflow-y: auto;
+}
+
+.bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+@media (min-width: 960px) {
+    .bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below {
+        display: grid;
+        grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+        gap: 20px;
+        align-items: start;
+    }
+
+    .bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below .ceo-chart-doughnut-wrap {
+        max-width: none;
+        margin: 0;
+    }
+}
+
 /* --- RESPONSIVE --- */
 @media (max-width: 1200px) {
     .bao-cao-sale-container .report-container {
@@ -635,6 +679,13 @@
 
     .bao-cao-sale-container .main-detailed {
         width: 100%;
+    }
+
+    .bao-cao-sale-container.ceo-panel-root .sidebar.ceo-panel-sidebar {
+        flex: 0 0 auto;
+        width: 100%;
+        position: static;
+        max-height: none;
     }
 }
 

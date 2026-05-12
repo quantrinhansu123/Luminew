@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import { Bar, Doughnut } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
 import '../../pages/BaoCaoSale.css';
 import { supabase } from '../../supabase/config';
 import { formatCurrency, formatNumber, filterRawData } from '../../utils/nhanSuSaleLumiMoiLogic';
@@ -12,6 +23,178 @@ import {
   dedupeMktDetailReportRows,
   overlayHcmMarketingReportRowsFromOrders,
 } from '../../services/mktRecalcSoDonThucTeFromOrders';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
+
+const CEO_CHART_COLORS = ['#2563eb', '#16a34a', '#ca8a04', '#dc2626', '#9333ea', '#0891b2', '#ea580c', '#4f46e5'];
+const CEO_REV_CHART_TOP_N = 18;
+/** Giới hạn số series sản phẩm trên biểu đồ cột ghép — phần còn lại gộp «Khác» để legend và cột gọn */
+const CEO_GROUPED_BAR_TOP_PRODUCTS = 7;
+/** Độ rộng tối thiểu mỗi cụm (chi nhánh × thị trường) trên biểu đồ 1 — mobile cuộn ngang thay vì ép nhỏ cột */
+const CEO_MAIN_BAR_MIN_PX_PER_CATEGORY = 150;
+
+function formatAxisMoneyShort(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '';
+  if (Math.abs(x) >= 1e9) return `${(x / 1e9).toFixed(1)}B`;
+  if (Math.abs(x) >= 1e6) return `${(x / 1e6).toFixed(0)}M`;
+  if (Math.abs(x) >= 1e3) return `${(x / 1e3).toFixed(0)}k`;
+  return String(Math.round(x));
+}
+
+function createCeoMainGroupedBarPlugins({ categoryTotals, dividerAfterIndex }) {
+  return [
+    {
+      id: 'ceoBranchDivider',
+      afterDraw(chart) {
+        const xScale = chart.scales.x;
+        if (!xScale || dividerAfterIndex <= 0 || dividerAfterIndex >= chart.data.labels.length) return;
+        const { ctx, chartArea } = chart;
+        const xMid =
+          (xScale.getPixelForTick(dividerAfterIndex - 1) + xScale.getPixelForTick(dividerAfterIndex)) / 2;
+        if (!Number.isFinite(xMid)) return;
+        ctx.save();
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 5]);
+        ctx.beginPath();
+        ctx.moveTo(xMid, chartArea.top);
+        ctx.lineTo(xMid, chartArea.bottom);
+        ctx.stroke();
+        ctx.restore();
+      },
+    },
+    {
+      id: 'ceoCategoryTotals',
+      afterDatasetsDraw(chart) {
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.y;
+        const { ctx, chartArea } = chart;
+        if (!xScale || !yScale || !categoryTotals?.length) return;
+        const n = Math.min(categoryTotals.length, chart.data.labels.length);
+        ctx.save();
+        ctx.font = '600 11px system-ui,-apple-system,sans-serif';
+        ctx.textAlign = 'center';
+        ctx.lineJoin = 'round';
+        for (let i = 0; i < n; i += 1) {
+          const t = Number(categoryTotals[i] || 0);
+          if (!t) continue;
+          const xPos = xScale.getPixelForTick(i);
+          const yAtVal = yScale.getPixelForValue(t);
+          const yPos = Math.max(chartArea.top + 2, yAtVal - 5);
+          const text = formatAxisMoneyShort(t);
+          ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+          ctx.lineWidth = 4;
+          ctx.strokeText(text, xPos, yPos);
+          ctx.fillStyle = '#0f172a';
+          ctx.fillText(text, xPos, yPos);
+        }
+        ctx.restore();
+      },
+    },
+  ];
+}
+
+function buildCeoNestedGroupedBarModel(rows) {
+  const BRANCHES = [
+    { key: 'hn', label: 'Hà Nội' },
+    { key: 'hcm', label: 'HCM' },
+  ];
+  /** @type {Map<string, Map<string, Map<string, number>>>} */
+  const nest = new Map();
+  for (const b of BRANCHES) nest.set(b.key, new Map());
+
+  for (const r of rows || []) {
+    const src = String(r?.__ceo_source || '').toLowerCase();
+    if (src !== 'hn' && src !== 'hcm') continue;
+    const market = normalizePickValue(r?.thiTruong) || '(Trống)';
+    const product = normalizePickValue(r?.sanPham) || '(Trống)';
+    const v = Number(r?.doanhThuChotThucTe || 0);
+    const mm = nest.get(src);
+    if (!mm.has(market)) mm.set(market, new Map());
+    const pm = mm.get(market);
+    pm.set(product, (pm.get(product) || 0) + v);
+  }
+
+  const productTotals = new Map();
+  nest.forEach((mm) => {
+    mm.forEach((pm) => {
+      pm.forEach((val, p) => {
+        productTotals.set(p, (productTotals.get(p) || 0) + val);
+      });
+    });
+  });
+  const productsAll = Array.from(productTotals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([p]) => p);
+  const mainProducts = productsAll.slice(0, CEO_GROUPED_BAR_TOP_PRODUCTS);
+  const tailProducts = productsAll.slice(CEO_GROUPED_BAR_TOP_PRODUCTS);
+
+  const categories = [];
+  for (const { key, label } of BRANCHES) {
+    const mm = nest.get(key);
+    const markets = Array.from(mm.keys()).sort((a, b) => a.localeCompare(b, 'vi'));
+    for (const m of markets) {
+      categories.push({ branchKey: key, branchLabel: label, market: m });
+    }
+  }
+
+  const hnCatCount = categories.filter((c) => c.branchKey === 'hn').length;
+  const hasHcm = categories.some((c) => c.branchKey === 'hcm');
+  const dividerAfterIndex = hnCatCount > 0 && hasHcm ? hnCatCount : -1;
+
+  function cellAt(cat, product) {
+    const mm = nest.get(cat.branchKey);
+    return Number(mm?.get(cat.market)?.get(product) || 0);
+  }
+
+  const datasets = mainProducts.map((p, idx) => {
+    const color = CEO_CHART_COLORS[idx % CEO_CHART_COLORS.length];
+    return {
+      label: p,
+      data: categories.map((c) => cellAt(c, p)),
+      backgroundColor: color,
+      borderColor: color,
+      borderWidth: 1,
+      borderRadius: 4,
+      maxBarThickness: 80,
+    };
+  });
+
+  if (tailProducts.length) {
+    const khacData = categories.map((cat) =>
+      tailProducts.reduce((s, p) => s + cellAt(cat, p), 0)
+    );
+    if (khacData.some((v) => Number(v) > 0)) {
+      const color = '#64748b';
+      datasets.push({
+        label: `Khác (${tailProducts.length} SP)`,
+        data: khacData,
+        backgroundColor: color,
+        borderColor: color,
+        borderWidth: 1,
+        borderRadius: 4,
+        maxBarThickness: 80,
+      });
+    }
+  }
+
+  const categoryTotals = categories.map((_, i) =>
+    datasets.reduce((s, ds) => s + Number(ds.data[i] || 0), 0)
+  );
+
+  const labels = categories.map((c) => `${c.branchLabel}\n${c.market}`);
+
+  return {
+    labels,
+    datasets,
+    categoryTotals,
+    dividerAfterIndex,
+    categoryCount: categories.length,
+    /** Số SP gộp vào series «Khác» (0 = không gộp) */
+    otherProductsGrouped: tailProducts.length,
+  };
+}
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 80;
@@ -391,6 +574,26 @@ function chotKind(soDon, mess) {
   return 'good';
 }
 
+function aggregateRevenuePairs(rows, keyFn) {
+  const map = new Map();
+  for (const r of rows || []) {
+    const raw = keyFn(r);
+    const k = normalizePickValue(String(raw ?? '')) || '(Trống)';
+    const v = Number(r?.doanhThuChotThucTe || 0);
+    map.set(k, (map.get(k) || 0) + v);
+  }
+  return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+}
+
+function topNWithOther(pairs, n) {
+  if (!pairs.length) return [];
+  if (pairs.length <= n) return pairs;
+  const top = pairs.slice(0, n);
+  const rest = pairs.slice(n).reduce((s, [, v]) => s + Number(v || 0), 0);
+  if (rest > 0) top.push(['Khác', rest]);
+  return top;
+}
+
 export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, onChangeFrom, onChangeTo }) {
   const [rowsHn, setRowsHn] = useState([]);
   const [rowsHcm, setRowsHcm] = useState([]);
@@ -767,13 +970,199 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
     return { rows, total };
   }, [vanDonOrdersMapped]);
 
+  const ceoVizModels = useMemo(() => {
+    const rows = mappedFiltered || [];
+    const nestedGrouped = buildCeoNestedGroupedBarModel(rows);
+    let hnRev = 0;
+    let hcmRev = 0;
+    for (const r of rows) {
+      const src = String(r?.__ceo_source || '').toLowerCase();
+      const v = Number(r?.doanhThuChotThucTe || 0);
+      if (src === 'hn') hnRev += v;
+      else if (src === 'hcm') hcmRev += v;
+    }
+    const byMarket = topNWithOther(aggregateRevenuePairs(rows, (r) => r.thiTruong), CEO_REV_CHART_TOP_N);
+    return { nestedGrouped, branchPie: { hnRev, hcmRev }, byMarket };
+  }, [mappedFiltered]);
+
+  const ceoMainBarData = useMemo(
+    () => ({
+      labels: ceoVizModels.nestedGrouped.labels,
+      datasets: ceoVizModels.nestedGrouped.datasets,
+    }),
+    [ceoVizModels]
+  );
+
+  const ceoMainBarPlugins = useMemo(
+    () =>
+      createCeoMainGroupedBarPlugins({
+        categoryTotals: ceoVizModels.nestedGrouped.categoryTotals,
+        dividerAfterIndex: ceoVizModels.nestedGrouped.dividerAfterIndex,
+      }),
+    [ceoVizModels]
+  );
+
+  const ceoMainBarOptions = useMemo(() => {
+    const totals = ceoVizModels.nestedGrouped.categoryTotals;
+    const maxY = Math.max(1, ...totals.map((t) => Number(t || 0)));
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      datasets: {
+        bar: {
+          categoryPercentage: 0.98,
+          barPercentage: 0.98,
+        },
+      },
+      plugins: {
+        // BaoCaoVanDon đăng ký chartjs-plugin-datalabels toàn cục → tắt tại đây tránh số thô chồng lên cột
+        datalabels: {
+          display: false,
+        },
+        legend: {
+          position: 'bottom',
+          labels: {
+            boxWidth: 10,
+            padding: 10,
+            font: { size: 11 },
+            usePointStyle: true,
+            pointStyle: 'rect',
+          },
+        },
+        tooltip: {
+          filter: (item) => Number(item.raw || 0) !== 0,
+          callbacks: {
+            label: (ctx) => {
+              const name = ctx.dataset?.label || '';
+              return ` ${name}: ${formatCurrency(Number(ctx.raw || 0))}`;
+            },
+            footer: (items) => {
+              const idx = items[0]?.dataIndex;
+              if (idx == null) return '';
+              return `Tổng (các SP hiển thị): ${formatCurrency(Number(totals[idx] || 0))}`;
+            },
+          },
+        },
+      },
+      layout: { padding: { top: 20, left: 2, right: 6, bottom: 2 } },
+      scales: {
+        x: {
+          stacked: false,
+          ticks: {
+            maxRotation: 40,
+            minRotation: 0,
+            autoSkip: false,
+            font: { size: 10 },
+          },
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: true,
+          suggestedMax: maxY * 1.1,
+          ticks: {
+            callback: (v) => formatAxisMoneyShort(v),
+          },
+          grid: { color: 'rgba(148, 163, 184, 0.25)' },
+        },
+      },
+    };
+  }, [ceoVizModels]);
+
+  const ceoMainBarScrollWidth = useMemo(() => {
+    const n = ceoVizModels.nestedGrouped.categoryCount || 0;
+    return Math.max(400, n * CEO_MAIN_BAR_MIN_PX_PER_CATEGORY);
+  }, [ceoVizModels]);
+
+  const ceoDoughnutData = useMemo(() => {
+    const { hnRev, hcmRev } = ceoVizModels.branchPie;
+    return {
+      labels: ['Hà Nội', 'HCM'],
+      datasets: [
+        {
+          data: [hnRev, hcmRev],
+          backgroundColor: ['#2563eb', '#16a34a'],
+          borderWidth: 2,
+          borderColor: '#ffffff',
+        },
+      ],
+    };
+  }, [ceoVizModels]);
+
+  const ceoDoughnutOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        datalabels: { display: false },
+        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const v = Number(ctx.raw || 0);
+              const arr = ctx.chart?.data?.datasets?.[0]?.data || [];
+              const sum = arr.reduce((a, b) => a + Number(b || 0), 0);
+              const pct = sum ? ((v / sum) * 100).toFixed(1) : '0.0';
+              return ` ${formatCurrency(v)} (${pct}%)`;
+            },
+          },
+        },
+      },
+    }),
+    []
+  );
+
+  const ceoMarketRankBarData = useMemo(() => {
+    const pairs = ceoVizModels.byMarket;
+    const labels = pairs.map(([k]) => k);
+    const data = pairs.map(([, v]) => Number(v || 0));
+    const bg = labels.map((_, i) => CEO_CHART_COLORS[i % CEO_CHART_COLORS.length]);
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'DS Chốt (TT)',
+          data,
+          backgroundColor: bg,
+          borderWidth: 1,
+        },
+      ],
+    };
+  }, [ceoVizModels]);
+
+  const ceoMarketRankBarOptions = useMemo(
+    () => ({
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        datalabels: { display: false },
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${formatCurrency(Number(ctx.raw || 0))}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: {
+            callback: (v) => formatAxisMoneyShort(v),
+          },
+        },
+      },
+    }),
+    []
+  );
+
   // Đã bỏ phần bảng theo ngày theo yêu cầu.
 
   return (
     <div className="h-full min-h-0 overflow-auto">
       {/* Dashboard quản trị bọc TabsContent bằng overflow-hidden; tab CEO cần tự tạo vùng scroll. */}
       <div
-        className="bao-cao-sale-container relative"
+        className="bao-cao-sale-container ceo-panel-root relative"
         style={{ minHeight: 'auto', padding: 12 }}
       >
         {loading && (
@@ -781,16 +1170,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
         )}
 
         <div className="report-container">
-          <div
-            className="sidebar"
-            style={{
-              width: '250px',
-              minWidth: '250px',
-              top: 12,
-              maxHeight: 'calc(100vh - 140px)',
-              overscrollBehavior: 'contain',
-            }}
-          >
+          <div className="sidebar ceo-panel-sidebar" style={{ overscrollBehavior: 'contain' }}>
           <FilterHeader title="Bộ lọc" />
 
           <label style={labelStyle}>
@@ -896,114 +1276,163 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
             </div>
           </div>
 
-          <div className="table-responsive-container">
-            <table>
-              <thead>
-                <tr>
-                  <th className="text-left">Khu vực</th>
-                  <th>Số Mess</th>
-                  <th>CPQC</th>
-                  <th>DS Chốt (TT)</th>
-                  <th>Tỉ lệ chốt</th>
-                  <th>Tỉ lệ chốt (TT)</th>
-                  <th>Giá Mess</th>
-                  <th>CPS</th>
-                  <th>%CP/DS</th>
-                  <th>Giá TB Đơn</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.map((a) => (
-                  <tr key={a.label} className={a.label === 'Tổng' ? 'total-row' : ''}>
-                    <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
-                    <td
-                      style={warnStyle(chotKind(a.soDonForTiLeChot, a.mess))}
-                      className={a.label === 'Tổng' ? 'total-value' : ''}
-                    >
-                      {pct(a.soDonForTiLeChot, a.mess)}
-                    </td>
-                    <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                      {pct(a.soDonTT, a.mess)}
-                    </td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaMess)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cps)}</td>
-                    <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoTT))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                      {pct(a.cpqc, a.doanhSoTT)}
-                    </td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaTbDon)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ marginTop: 18 }}>
-            <h3 style={{ marginTop: 0, marginBottom: 8 }}>Vận đơn (orders)</h3>
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-              Đã tải: <strong>{rowsOrdersHn.length}</strong> (HN: <code>orders</code>) +{' '}
-              <strong>{rowsOrdersHcm.length}</strong> (HCM: <code>order_code_hcm</code>) — theo <code>order_date</code>,{' '}
-              {globalFrom} → {globalTo}
-            </div>
-
             <div className="table-responsive-container">
               <table>
                 <thead>
                   <tr>
                     <th className="text-left">Khu vực</th>
-                    <th>Tổng đơn</th>
-                    <th>OK</th>
-                    <th>Huỷ</th>
-                    <th>Sau huỷ</th>
-                    <th>Lên VH</th>
-                    <th>Có mã</th>
-                    <th>Đang giao</th>
-                    <th>Giao TC</th>
-                    <th>Có bill</th>
-                    <th>%Thu/TC</th>
-                    <th>Tổng tiền (VND)</th>
-                    <th>Tiền đã thu (bill)</th>
+                    <th>Số Mess</th>
+                    <th>CPQC</th>
+                    <th>DS Chốt (TT)</th>
+                    <th>Tỉ lệ chốt</th>
+                    <th>Tỉ lệ chốt (TT)</th>
+                    <th>Giá Mess</th>
+                    <th>CPS</th>
+                    <th>%CP/DS</th>
+                    <th>Giá TB Đơn</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="total-row">
-                    <td className="total-label text-left">Tổng</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.tongLenDon)}</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.ok)}</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.huyCheck)}</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.sauHuy)}</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.donDayVanHanh)}</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.coMa)}</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.dangGiao)}</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.giaoTC)}</td>
-                    <td className="total-value">{formatSlVi(vanDonByBranch.total.donCoBill)}</td>
-                    <td className="total-value">{formatPct(vanDonByBranch.total.donCoBill, vanDonByBranch.total.giaoTC)}</td>
-                    <td className="total-value">{formatCurrency(vanDonByBranch.total.tongLenDonAmount)}</td>
-                    <td className="total-value">{formatCurrency(vanDonByBranch.total.donCoBillAmount)}</td>
-                  </tr>
-                  {vanDonByBranch.rows.map(({ label, m }) => (
-                    <tr key={label}>
-                      <td className="text-left">{label}</td>
-                      <td>{formatSlVi(m.tongLenDon)}</td>
-                      <td>{formatSlVi(m.ok)}</td>
-                      <td>{formatSlVi(m.huyCheck)}</td>
-                      <td>{formatSlVi(m.sauHuy)}</td>
-                      <td>{formatSlVi(m.donDayVanHanh)}</td>
-                      <td>{formatSlVi(m.coMa)}</td>
-                      <td>{formatSlVi(m.dangGiao)}</td>
-                      <td>{formatSlVi(m.giaoTC)}</td>
-                      <td>{formatSlVi(m.donCoBill)}</td>
-                      <td>{formatPct(m.donCoBill, m.giaoTC)}</td>
-                      <td>{formatCurrency(m.tongLenDonAmount)}</td>
-                      <td>{formatCurrency(m.donCoBillAmount)}</td>
+                  {summary.map((a) => (
+                    <tr key={a.label} className={a.label === 'Tổng' ? 'total-row' : ''}>
+                      <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
+                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
+                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
+                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
+                      <td
+                        style={warnStyle(chotKind(a.soDonForTiLeChot, a.mess))}
+                        className={a.label === 'Tổng' ? 'total-value' : ''}
+                      >
+                        {pct(a.soDonForTiLeChot, a.mess)}
+                      </td>
+                      <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                        {pct(a.soDonTT, a.mess)}
+                      </td>
+                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaMess)}</td>
+                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cps)}</td>
+                      <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoTT))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                        {pct(a.cpqc, a.doanhSoTT)}
+                      </td>
+                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaTbDon)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+
+            <div style={{ marginTop: 18 }}>
+              <h3 style={{ marginTop: 0, marginBottom: 8 }}>Vận đơn (orders)</h3>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                Đã tải: <strong>{rowsOrdersHn.length}</strong> (HN: <code>orders</code>) +{' '}
+                <strong>{rowsOrdersHcm.length}</strong> (HCM: <code>order_code_hcm</code>) — theo <code>order_date</code>,{' '}
+                {globalFrom} → {globalTo}
+              </div>
+
+              <div className="table-responsive-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="text-left">Khu vực</th>
+                      <th>Tổng đơn</th>
+                      <th>OK</th>
+                      <th>Huỷ</th>
+                      <th>Sau huỷ</th>
+                      <th>Lên VH</th>
+                      <th>Có mã</th>
+                      <th>Đang giao</th>
+                      <th>Giao TC</th>
+                      <th>Có bill</th>
+                      <th>%Thu/TC</th>
+                      <th>Tổng tiền (VND)</th>
+                      <th>Tiền đã thu (bill)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="total-row">
+                      <td className="total-label text-left">Tổng</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.tongLenDon)}</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.ok)}</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.huyCheck)}</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.sauHuy)}</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.donDayVanHanh)}</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.coMa)}</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.dangGiao)}</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.giaoTC)}</td>
+                      <td className="total-value">{formatSlVi(vanDonByBranch.total.donCoBill)}</td>
+                      <td className="total-value">{formatPct(vanDonByBranch.total.donCoBill, vanDonByBranch.total.giaoTC)}</td>
+                      <td className="total-value">{formatCurrency(vanDonByBranch.total.tongLenDonAmount)}</td>
+                      <td className="total-value">{formatCurrency(vanDonByBranch.total.donCoBillAmount)}</td>
+                    </tr>
+                    {vanDonByBranch.rows.map(({ label, m }) => (
+                      <tr key={label}>
+                        <td className="text-left">{label}</td>
+                        <td>{formatSlVi(m.tongLenDon)}</td>
+                        <td>{formatSlVi(m.ok)}</td>
+                        <td>{formatSlVi(m.huyCheck)}</td>
+                        <td>{formatSlVi(m.sauHuy)}</td>
+                        <td>{formatSlVi(m.donDayVanHanh)}</td>
+                        <td>{formatSlVi(m.coMa)}</td>
+                        <td>{formatSlVi(m.dangGiao)}</td>
+                        <td>{formatSlVi(m.giaoTC)}</td>
+                        <td>{formatSlVi(m.donCoBill)}</td>
+                        <td>{formatPct(m.donCoBill, m.giaoTC)}</td>
+                        <td>{formatCurrency(m.tongLenDonAmount)}</td>
+                        <td>{formatCurrency(m.donCoBillAmount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <section style={{ marginTop: 28, marginBottom: 32 }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: '1.1em' }}>Phân bổ doanh thu chi tiết (cột ghép)</h3>
+              <div
+                className="ceo-nested-bar-scroll"
+                style={{
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  WebkitOverflowScrolling: 'touch',
+                  marginBottom: 4,
+                  maxWidth: '100%',
+                }}
+              >
+                <div style={{ width: ceoMainBarScrollWidth, minWidth: '100%', height: 520 }}>
+                  {ceoVizModels.nestedGrouped.categoryCount === 0 ? (
+                    <div style={{ padding: 24, color: '#888' }}>Không có dữ liệu sau lọc.</div>
+                  ) : (
+                    <Bar data={ceoMainBarData} options={ceoMainBarOptions} plugins={ceoMainBarPlugins} />
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <div className="ceo-charts-grid-below">
+              <section style={{ marginBottom: 0 }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '1.1em' }}>Cơ cấu doanh thu theo chi nhánh</h3>
+                <div
+                  className="ceo-chart-doughnut-wrap"
+                  style={{ height: 300, maxWidth: 360, margin: '0 auto' }}
+                >
+                  {ceoVizModels.branchPie.hnRev + ceoVizModels.branchPie.hcmRev <= 0 ? (
+                    <div style={{ padding: 24, color: '#888', textAlign: 'center' }}>Không có dữ liệu sau lọc.</div>
+                  ) : (
+                    <Doughnut data={ceoDoughnutData} options={ceoDoughnutOptions} />
+                  )}
+                </div>
+              </section>
+
+              <section style={{ marginBottom: 8 }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '1.1em' }}>Xếp hạng doanh thu theo thị trường (toàn quốc)</h3>
+                <div style={{ height: Math.min(520, 40 + ceoVizModels.byMarket.length * 36), minHeight: 200 }}>
+                  {ceoVizModels.byMarket.length === 0 ? (
+                    <div style={{ padding: 24, color: '#888' }}>Không có dữ liệu sau lọc.</div>
+                  ) : (
+                    <Bar data={ceoMarketRankBarData} options={ceoMarketRankBarOptions} />
+                  )}
+                </div>
+              </section>
+            </div>
 
         </div>
       </div>
