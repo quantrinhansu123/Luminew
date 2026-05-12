@@ -265,6 +265,14 @@ function isHcmTeam(team) {
   return v === 'HCM' || v.includes('HCM');
 }
 
+/** Array | Set | nullish → mảng (recalculate* nhận Set từ getBillAffectedOrderCodesFromSourceRows). */
+function coerceToOrderCodeIterable(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value;
+  if (value instanceof Set) return [...value];
+  return [];
+}
+
 async function fetchScopedOrderCodesSet(supabaseClient, orderCodes, isHcmScope, ordersTable = 'orders') {
   const list = [...new Set((orderCodes || []).map((c) => String(c ?? '').trim()).filter(Boolean))];
   const out = new Set();
@@ -580,7 +588,13 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   };
 
   const recalculateBillOrdersFromHistory = async (affectedOrderCodes) => {
-    const affected = [...new Set((affectedOrderCodes || []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+    const affected = [
+      ...new Set(
+        coerceToOrderCodeIterable(affectedOrderCodes)
+          .map((c) => String(c ?? '').trim())
+          .filter(Boolean)
+      ),
+    ];
     if (affected.length === 0) return 0;
 
     const orderTrackingMap = await fetchOrdersTrackingForCodes(affected);
@@ -643,7 +657,13 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   };
 
   const recalculateCuocOrdersFromHistory = async (affectedOrderCodes) => {
-    const affected = [...new Set((affectedOrderCodes || []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+    const affected = [
+      ...new Set(
+        coerceToOrderCodeIterable(affectedOrderCodes)
+          .map((c) => String(c ?? '').trim())
+          .filter(Boolean)
+      ),
+    ];
     if (affected.length === 0) return 0;
     const historyRows = await fetchUploadedHistoryRowsByJsonValues('cuoc_uploaded_history', 'ma_don_hang', affected);
     const aggregate = new Map(affected.map((oc) => [oc, { sum: 0, count: 0, date: null }]));
