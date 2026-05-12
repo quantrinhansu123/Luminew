@@ -393,6 +393,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   /** Tiến độ đồng bộ */
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0, active: false });
   const [backfillingHcm, setBackfillingHcm] = useState(false);
+  const [recalculatingAllBill, setRecalculatingAllBill] = useState(false);
 
   const fetchSyncHistory = async () => {
     setLoadingHistory(true);
@@ -587,6 +588,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     }
   };
 
+  const chunkArray = (array, size) => {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  };
+
   const recalculateBillOrdersFromHistory = async (affectedOrderCodes) => {
     const affected = [
       ...new Set(
@@ -656,6 +665,90 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     return payload.length;
   };
 
+  /**
+   * Gom mọi dòng bill_uploaded_history theo **mã đơn hàng** (cộng dồn tien_viet),
+   * rồi ghi reconciled_vnd lên orders / order_code_hcm. Không chia theo tracking.
+   * Dòng không có mã đơn hợp lệ bị bỏ qua. Đơn không có trong lịch sử không bị chỉnh.
+   */
+  const recalculateAllBillOrdersFromUploadedHistory = async () => {
+    const PAGE_SIZE = 1000;
+    let from = 0;
+    const sourceRows = [];
+    while (true) {
+      const { data, error } = await supabase
+        .from('bill_uploaded_history')
+        .select('source_row')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const batch = data || [];
+      for (const item of batch) {
+        const r =
+          item?.source_row && typeof item.source_row === 'object' && !Array.isArray(item.source_row)
+            ? item.source_row
+            : null;
+        if (r) sourceRows.push(r);
+      }
+      if (batch.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+
+    if (sourceRows.length === 0) {
+      return { historyRows: 0, orderRows: 0 };
+    }
+
+    const allTargets = new Set();
+    for (const r of sourceRows) {
+      if (parseMoneyValue(r?.tien_viet) === null) continue;
+      const oc = syncOrderKeyForScope(r?.ma_don_hang);
+      if (oc) allTargets.add(oc);
+    }
+
+    const scopedCodes = await fetchScopedOrderCodesSet(supabase, [...allTargets], isHcmScope, ordersTableName);
+    if (scopedCodes.size === 0) {
+      return { historyRows: sourceRows.length, orderRows: 0 };
+    }
+
+    const aggregate = new Map(
+      [...scopedCodes].map((oc) => [oc, { sum: 0, acc: null, date: null, touched: false }])
+    );
+
+    sourceRows.forEach((r) => {
+      const amount = parseMoneyValue(r?.tien_viet);
+      if (amount === null) return;
+      const oc = syncOrderKeyForScope(r?.ma_don_hang);
+      if (!oc || !aggregate.has(oc)) return;
+      const agg = aggregate.get(oc);
+      agg.sum += amount;
+      agg.touched = true;
+      if (r.accountant_confirm !== undefined && r.accountant_confirm !== null && r.accountant_confirm !== '') {
+        agg.acc = r.accountant_confirm;
+      }
+      if (r.ngay_doi_soat) {
+        agg.date = normalizeUpdateValue('ngay_doi_soat', r.ngay_doi_soat) || agg.date;
+      }
+    });
+
+    const modifiedBy = getVanDonSessionDisplayName();
+    const today = toIsoDateString(new Date());
+    const payload = [...aggregate.entries()].map(([orderCode, agg]) => ({
+      order_code: orderCode,
+      reconciled_vnd: agg.touched ? agg.sum : null,
+      accountant_confirm: agg.touched ? agg.acc : null,
+      ngay_doi_soat_bill: agg.touched ? agg.date || today : null,
+      last_modified_by: modifiedBy,
+    }));
+
+    const chunks = chunkArray(payload, 80);
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const { error: upErr } = await supabase.from(ordersTableName).upsert(chunk, { onConflict: 'order_code' });
+      if (upErr) throw upErr;
+    }
+
+    return { historyRows: sourceRows.length, orderRows: payload.length };
+  };
+
   const recalculateCuocOrdersFromHistory = async (affectedOrderCodes) => {
     const affected = [
       ...new Set(
@@ -694,15 +787,6 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     }));
     await updateOrdersByCode(payload);
     return payload.length;
-  };
-
-  // Helper chia mảng thành các lô nhỏ (chunks)
-  const chunkArray = (array, size) => {
-    const chunks = [];
-    for (let i = 0; i < array.length; i += size) {
-      chunks.push(array.slice(i, i + size));
-    }
-    return chunks;
   };
 
   /** Đếm lần thanh toán: cùng Mã Tracking (tracking thật) hoặc cùng Mã đơn (dropoff / trống tracking). */
@@ -1778,6 +1862,49 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       loadCuocUploadedHistoryData();
     } else {
       loadCuocData();
+    }
+  };
+
+  const handleRecalculateAllBillFromHistory = async () => {
+    if (activeTab !== 'bill_view') return;
+    const scopeLabel = isHcmScope ? 'order_code_hcm (HCM)' : 'orders';
+    if (
+      !window.confirm(
+        `Tính lại toàn bộ từ bill_uploaded_history (chỉ theo mã đơn hàng) và ghi lên ${scopeLabel}?\n\n` +
+          'Mỗi dòng có Tiền Việt được cộng vào đúng mã đơn trên dòng; không chia theo tracking.\n' +
+          'Dòng thiếu mã đơn bị bỏ qua. Đơn không có trong lịch sử bill không đổi.'
+      )
+    ) {
+      return;
+    }
+    setRecalculatingAllBill(true);
+    try {
+      const { historyRows, orderRows } = await recalculateAllBillOrdersFromUploadedHistory();
+      if (historyRows === 0) {
+        alert('bill_uploaded_history đang trống.');
+        return;
+      }
+      if (orderRows === 0) {
+        alert(
+          `Đã đọc ${historyRows} dòng lịch sử nhưng không có mã đơn hợp lệ + Tiền Việt trong phạm vi (kiểm tra ma_don_hang / HCM).`
+        );
+        return;
+      }
+      await saveHistoryActionLog({
+        syncType: 'Tính lại toàn bộ Bill từ lịch sử (theo mã đơn)',
+        modeLabel: `bill_uploaded_history → ${ordersTableName} (ma_don_hang)`,
+        totalInputRows: historyRows,
+        uniqueOrdersCount: orderRows,
+        successCount: orderRows,
+        missingCount: 0,
+      });
+      await loadBillUploadedHistoryData();
+      alert(`Đã tính lại: ${historyRows} dòng lịch sử → cập nhật ${orderRows} đơn trên ${ordersTableName}.`);
+    } catch (err) {
+      console.error('recalculateAllBillOrdersFromUploadedHistory:', err);
+      alert(`Lỗi khi tính lại toàn bộ: ${err?.message || String(err)}`);
+    } finally {
+      setRecalculatingAllBill(false);
     }
   };
 
@@ -4298,6 +4425,22 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 {loading ? 'Đang tải...' : 'Tải lại'}
               </button>
+              {activeTab === 'bill_view' && (
+                <button
+                  type="button"
+                  onClick={handleRecalculateAllBillFromHistory}
+                  disabled={loading || syncing || recalculatingAllBill}
+                  title="Gom bill_uploaded_history theo mã đơn hàng (cộng dồn), ghi reconciled_vnd lên bảng đơn"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {recalculatingAllBill ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCw className="h-4 w-4" />
+                  )}
+                  {recalculatingAllBill ? 'Đang tính lại...' : 'Tính lại toàn bộ'}
+                </button>
+              )}
             </div>
 
             {/* Row 2: sync actions */}
