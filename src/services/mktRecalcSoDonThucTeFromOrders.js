@@ -2,6 +2,7 @@ import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName } from '../utils/emailFromName';
 import { mergeUniqueRowsById, parseSmartDate } from '../utils/dateParsing';
 import { getCheckResult, isCheckResultHuy, orderAmountVnd } from '../utils/orderCheckAndVnd';
+import { parseIntegerVi, parseMoneyNumber } from '../utils/mktNormalizeDetailReportRows';
 
 function normalizeStr(str) {
   if (str === null || str === undefined) return '';
@@ -264,58 +265,137 @@ export function buildMktDetailReportRowKey(row) {
 
 function parseSoDonThucTeFromRow(row) {
   if (!row) return 0;
-  const v = row['Số đơn thực tế'] ?? row.so_don_thuc_te;
-  if (v == null || v === '') return 0;
-  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
-  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
-  const n = parseInt(s, 10);
-  return Number.isFinite(n) ? n : 0;
+  return parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
 }
 
 function parseSoDonHoanHuyFromRow(row) {
   if (!row) return 0;
-  const v = row['Số đơn hoàn hủy'] ?? row['Số đơn hoàn hủy thực tế'];
-  if (v == null || v === '') return 0;
-  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
-  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
-  const n = parseInt(s, 10);
-  return Number.isFinite(n) ? n : 0;
+  return parseIntegerVi(row['Số đơn hoàn hủy'] ?? row['Số đơn hoàn hủy thực tế'] ?? 0);
 }
 
 /** Cột «Số đơn» nhập tay trên báo cáo — recalc không ghi đè. */
 function parseSoDonBaoCaoTayFromRow(row) {
   if (!row) return 0;
-  const v = row['Số đơn'] ?? row.so_don;
-  if (v == null || v === '') return 0;
-  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
-  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
-  const n = parseInt(s, 10);
-  return Number.isFinite(n) ? n : 0;
+  return parseIntegerVi(row['Số đơn'] ?? row.so_don ?? 0);
 }
 
+/** Khớp `parseDoanhSoChotTTFromRow` trong viewNsMoiNhanh*.html (dedupe). */
 function parseDoanhSoChotTTFromRow(row) {
   if (!row) return 0;
   return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
 }
 
+/** Khớp dedupe HTML: `parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0)`. */
 function parseCpqcFromRow(row) {
   if (!row) return 0;
-  const v = row['CPQC'] ?? row.cpqc;
-  if (v == null || v === '') return 0;
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
+  return parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0);
 }
 
+/** Khớp `parseSoMessCmtFromRow` trong viewNsMoiNhanh*.html — chỉ Số_Mess_Cmt (sau normalize). */
 function parseSoMessCmtFromRow(row) {
   if (!row) return 0;
-  const v = row['Số_Mess_Cmt'] ?? row.so_mess_cmt;
-  if (v == null || v === '') return 0;
-  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
-  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
-  const n = parseInt(s, 10);
-  return Number.isFinite(n) ? n : 0;
+  return parseIntegerVi(row['Số_Mess_Cmt'] ?? row.so_mess_cmt ?? 0);
+}
+
+function orderShiftGroupsForHcmOverlay(shiftVal) {
+  const g = orderShiftToGroups(shiftVal);
+  return g.length ? g : ['Hết ca'];
+}
+
+function caSegmentFromOrderGroupLabel(groupLabel) {
+  const norm = normalizeStr(String(groupLabel ?? '').trim());
+  if (norm.includes('hết ca') || norm.includes('het ca')) return 'het';
+  if (norm.includes('giữa ca') || norm.includes('giua ca')) return 'gua';
+  return normalizeCaForRowKey(groupLabel);
+}
+
+function orderAmountVndHcmOverlay(order) {
+  const raw =
+    order?.total_amount_vnd ??
+    order?.total_vnd ??
+    order?.reconciled_vnd ??
+    order?.goods_amount ??
+    order?.sale_price ??
+    0;
+  return parseMoneyNumber(raw);
+}
+
+function isOrderHuyHcmOverlay(order) {
+  const s = String(order?.check_result ?? '').trim();
+  if (!s) return false;
+  const ascii = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return ascii === 'huy';
+}
+
+function buildHcmActualsByReportKeyFromOrders(orders) {
+  const counts = new Map();
+  for (const order of orders || []) {
+    const baseKey = buildKey(
+      order.order_date,
+      order.marketing_staff,
+      order.product,
+      order.country
+    );
+    if (!baseKey || baseKey.split('|').some((part) => !part)) continue;
+
+    const amount = orderAmountVndHcmOverlay(order);
+    const isHuy = isOrderHuyHcmOverlay(order);
+    for (const group of orderShiftGroupsForHcmOverlay(order.shift)) {
+      const key = `${baseKey}|${caSegmentFromOrderGroupLabel(group)}`;
+      const prev =
+        counts.get(key) || { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0 };
+      prev.count += 1;
+      prev.totalRevenueVnd += amount;
+      if (isHuy) {
+        prev.cancelCount += 1;
+        prev.cancelRevenueVnd += amount;
+      }
+      counts.set(key, prev);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Khớp `overlayHcmActualsFromOrders` trong `viewNsMoiNhanh-HCM.html`.
+ */
+export function overlayHcmMarketingReportRowsFromOrders(reportRows, orders) {
+  const actualsByKey = buildHcmActualsByReportKeyFromOrders(orders);
+  return (reportRows || []).map((row) => {
+    const r = row || {};
+    const ngay = r['Ngày'] ?? r.ngay ?? r.date;
+    const ten = r['Tên'] ?? r.ten ?? r.name;
+    const sp = r['Sản_phẩm'] ?? r['Sản phẩm'] ?? r.san_pham ?? r.product;
+    const tt = r['Thị_trường'] ?? r['Thị trường'] ?? r.thi_truong ?? r.market;
+    const baseKey = buildKey(ngay, ten, sp, tt);
+    if (!baseKey || baseKey.split('|').some((part) => !part)) return r;
+
+    const caKey = normalizeCaForRowKey(r.ca ?? r['Ca'] ?? r.shift);
+    const actual = actualsByKey.get(`${baseKey}|${caKey}`);
+    const count = actual?.count || 0;
+    const cancelCount = actual?.cancelCount || 0;
+    const totalRevenueVnd = actual?.totalRevenueVnd || 0;
+    const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
+    const netCount = Math.max(0, count - cancelCount);
+    const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
+
+    return {
+      ...r,
+      'Số đơn thực tế': netCount,
+      so_don_thuc_te: r.so_don_thuc_te != null ? netCount : r.so_don_thuc_te,
+      order_count_actual: r.order_count_actual != null ? netCount : r.order_count_actual,
+      'Doanh số TT': netRevenueVnd,
+      doanh_so_tt: r.doanh_so_tt != null ? netRevenueVnd : r.doanh_so_tt,
+      'Số đơn hoàn hủy': cancelCount,
+      'Số đơn hoàn hủy thực tế': cancelCount,
+      so_don_hoan_huy: r.so_don_hoan_huy != null ? cancelCount : r.so_don_hoan_huy,
+      so_don_hoan_huy_thuc_te:
+        r.so_don_hoan_huy_thuc_te != null ? cancelCount : r.so_don_hoan_huy_thuc_te,
+      'Doanh số hoàn hủy thực tế': cancelRevenueVnd,
+      doanh_so_hoan_huy_thuc_te:
+        r.doanh_so_hoan_huy_thuc_te != null ? cancelRevenueVnd : r.doanh_so_hoan_huy_thuc_te,
+    };
+  });
 }
 
 /**

@@ -3,12 +3,26 @@ import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../supabase/config';
 import { formatCurrency, formatNumber, filterRawData } from '../../utils/nhanSuSaleLumiMoiLogic';
 import { aggregateVanHanhSlice, formatPct, formatSlVi } from '../../utils/baoCaoVanDonMarketMatrix';
-import { dedupeMktDetailReportRows } from '../../services/mktRecalcSoDonThucTeFromOrders';
+import {
+  normalizeMktHcmDetailReportRow,
+  normalizeMktHnDetailReportRow,
+} from '../../utils/mktNormalizeDetailReportRows';
+import {
+  dedupeMktDetailReportRows,
+  overlayHcmMarketingReportRowsFromOrders,
+} from '../../services/mktRecalcSoDonThucTeFromOrders';
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 80;
-const CEO_DEFAULT_SHIFT = 'Hết ca';
-// Bộ lọc Ca đang ẩn; mặc định tính theo tất cả ca để khớp báo cáo MKT.
+
+function mktRowHasTen(r) {
+  const t = String(r?.['Tên'] ?? r?.ten ?? '').trim();
+  return Boolean(t);
+}
+
+// Bộ lọc Ca mặc định tick toàn bộ — khớp đúng tab "Báo cáo chi tiết" của trang Báo cáo MKT
+// (`viewNsMoiNhanh.html`), nơi mọi ca được check sẵn khi mở. Trước đây panel CEO mặc định
+// chỉ tick "Hết ca" nên tổng DS Chốt / CPQC / Số Mess đều thiếu so với báo cáo MKT.
 
 function normalizePickValue(value) {
   return String(value ?? '')
@@ -35,9 +49,14 @@ function normalizeShiftLabel(value) {
 
 // CEO MKT: đọc trực tiếp bảng MKT (HN + HCM). Các cột tiếng Việt cần quote đúng key.
 const MKT_DATE_COL = '"Ngày"';
-// HN (`detail_reports`): scope giống trang Báo cáo MKT (không áp dụng cho HCM).
-const MKT_DETAIL_REPORTS_SCOPE_OR =
-  'department.is.null,department.eq.MKT,department.neq.RD,Team.ilike.test';
+// HN (`detail_reports`): khớp đúng filter của `/xem-bao-cao-mkt`
+// (`viewNsMoiNhanh.html` → `MKT_ALLOWED_TEAMS = ['HN-MKT', 'Team Test']`).
+// Trước đây panel CEO dùng OR-scope dựa trên `department` quá rộng nên cộng dồn
+// cả các team không thuộc báo cáo MKT HN → tổng Số Mess / Doanh số TT bị "phình".
+const MKT_HN_ALLOWED_TEAMS = ['HN-MKT', 'Team Test'];
+// HCM (`marketing_report_hcm`): khớp `/xem-bao-cao-mkt-hcm`
+// (`viewNsMoiNhanh-HCM.html` → mặc định team `MKT - Đức Anh`).
+const MKT_HCM_ALLOWED_TEAMS = ['MKT - Đức Anh'];
 const MKT_REPORTS_SELECT_BASE = [
   'id',
   '"Ngày"',
@@ -68,8 +87,12 @@ const MKT_REPORTS_SELECT_CANDIDATES = [
 function selectCandidatesForTable(tableName) {
   const t = String(tableName || '').trim();
   if (t === 'detail_reports') {
+    // Bảng HN (detail_reports) — luôn ưu tiên lấy "Doanh số TT" (đúng cột DS Chốt TT mà
+    // trang Báo cáo MKT dùng); không lấy "Doanh số đi thực tế" vì đó là khái niệm khác
+    // (doanh số đã ship đi) và không phải DS Chốt TT.
     return [
-      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số đi thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số TT","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh thu chốt thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
       `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
       MKT_REPORTS_SELECT_BASE,
     ];
@@ -247,22 +270,26 @@ function mapMktReportRowToVirtual(row, source) {
     getFirstDefined(row, ['Doanh số', 'Doanh_số', 'Doanh so', 'Doanh_so']) ?? 0
   );
 
-  // TT: ưu tiên cột TT nếu có; không có thì fallback theo “tay”.
+  // TT: chỉ dùng cột TT (Số đơn thực tế / Doanh số TT). Trang Báo cáo MKT
+  // (`viewNsMoiNhanh.html`) cũng dùng đúng cột này — không fallback sang
+  // "Số đơn" / "Doanh số" nhập tay khi TT = 0. Trước đây panel CEO fallback
+  // sang giá trị nhập tay nên DS Chốt (TT) và Số đơn TT bị lệch (thường cao
+  // hơn) so với báo cáo MKT.
   const soDonTT = parseNumberLoose(
-    getFirstDefined(row, ['Số đơn thực tế', 'Số đơn TT', 'So don thuc te', 'So don tt', 'So don TT']) ?? NaN
+    getFirstDefined(row, ['Số đơn thực tế', 'Số đơn TT', 'So don thuc te', 'So don tt', 'So don TT']) ?? 0
   );
   const dsTT = parseNumberLoose(
     getFirstDefined(row, [
-      // Ưu tiên DS chốt TT (đã trừ huỷ) đúng nghĩa
+      // Ưu tiên DS chốt TT (đã trừ huỷ) đúng nghĩa — khớp viewNsMoiNhanh.html.
       'Doanh số TT',
       'Doanh thu chốt thực tế',
       'Doanh thu chot thuc te',
       'Doanh số thực tế',
-      // Fallback legacy label
+      // Fallback legacy label (chỉ khi DB còn dữ liệu cũ chưa migrate).
       'DS chốt',
       'DS chot',
       'Doanh so thuc te',
-    ]) ?? NaN
+    ]) ?? 0
   );
   const soDonHuyTT = parseNumberLoose(
     getFirstDefined(row, ['Số đơn hoàn hủy', 'Số đơn hủy', 'So don huy']) ?? 0
@@ -271,8 +298,8 @@ function mapMktReportRowToVirtual(row, source) {
     getFirstDefined(row, ['Doanh số hoàn hủy thực tế', 'Doanh số hủy TT', 'Doanh so huy thuc te']) ?? 0
   );
 
-  const soDonThucTe = Number.isFinite(soDonTT) && soDonTT !== 0 ? soDonTT : soDonTay;
-  const doanhThuChotThucTe = Number.isFinite(dsTT) && dsTT !== 0 ? dsTT : doanhSoTay;
+  const soDonThucTe = soDonTT;
+  const doanhThuChotThucTe = dsTT;
 
   return {
     __ceo_source: source, // 'hn' | 'hcm'
@@ -301,6 +328,8 @@ function emptyAgg(label) {
     doanhSoTay: 0,
     soDonTT: 0,
     doanhSoTT: 0,
+    /** Tử số «Tỉ lệ chốt» khớp MKT: HN = tổng TT/đơn thực tế; HCM = tổng «Số đơn» nhập tay (xem masterData viewNsMoiNhanh*.html). */
+    soDonForTiLeChot: 0,
   };
 }
 
@@ -311,6 +340,9 @@ function addRow(agg, r) {
   agg.doanhSoTay += Number(r.doanhSoTay || 0);
   agg.soDonTT += Number(r.soDonThucTe || 0);
   agg.doanhSoTT += Number(r.doanhThuChotThucTe || 0);
+  const src = String(r.__ceo_source || '').toLowerCase();
+  const donMkt = src === 'hcm' ? Number(r.soDonTay || 0) : Number(r.soDonThucTe || 0);
+  agg.soDonForTiLeChot += donMkt;
 }
 
 function addAgg(dst, src) {
@@ -320,6 +352,7 @@ function addAgg(dst, src) {
   dst.doanhSoTay += Number(src.doanhSoTay || 0);
   dst.soDonTT += Number(src.soDonTT || 0);
   dst.doanhSoTT += Number(src.doanhSoTT || 0);
+  dst.soDonForTiLeChot += Number(src.soDonForTiLeChot || 0);
 }
 
 function pct(n, d) {
@@ -429,9 +462,16 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
                 .gte(MKT_DATE_COL, globalFrom)
                 .lte(MKT_DATE_COL, globalTo);
 
-              // Đồng bộ scope giống trang Báo cáo MKT HN (detail_reports).
-              if (String(tableName || '').trim() === 'detail_reports') {
-                q = q.or(MKT_DETAIL_REPORTS_SCOPE_OR);
+              // Lọc team đúng theo trang Báo cáo MKT để Số Mess / Doanh số TT
+              // khớp `/xem-bao-cao-mkt` (HN) và `/xem-bao-cao-mkt-hcm` (HCM).
+              const tNorm = String(tableName || '').trim();
+              if (tNorm === 'detail_reports' && MKT_HN_ALLOWED_TEAMS.length > 0) {
+                q = q.in('Team', MKT_HN_ALLOWED_TEAMS);
+              } else if (tNorm === 'marketing_report_hcm' && MKT_HCM_ALLOWED_TEAMS.length > 0) {
+                q =
+                  MKT_HCM_ALLOWED_TEAMS.length === 1
+                    ? q.eq('Team', MKT_HCM_ALLOWED_TEAMS[0])
+                    : q.in('Team', MKT_HCM_ALLOWED_TEAMS);
               }
 
               const { data, error: qErr } = await q
@@ -454,16 +494,18 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
         return all;
       };
 
+      const ORDERS_SELECT_HN =
+        'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit, reconciled_vnd, reconciled_amount, payment_bill, payment_image, ngayupbill';
+      const ORDERS_SELECT_HCM = `${ORDERS_SELECT_HN}, marketing_staff, product, shift, total_vnd`;
+
       const loadOrdersTable = async (tableName) => {
         const all = [];
+        const selectStr =
+          String(tableName || '').trim() === 'order_code_hcm' ? ORDERS_SELECT_HCM : ORDERS_SELECT_HN;
         for (let page = 0; page < MAX_PAGES; page += 1) {
           const from = page * PAGE_SIZE;
           const to = from + PAGE_SIZE - 1;
-          let q = supabase
-            .from(tableName)
-            .select(
-              'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit, reconciled_vnd, reconciled_amount, payment_bill, payment_image, ngayupbill'
-            )
+          let q = supabase.from(tableName).select(selectStr)
             .gte('order_date', globalFrom)
             .lte('order_date', globalTo);
 
@@ -512,8 +554,14 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   const mappedAll = useMemo(() => {
     const out = [];
     // Khử trùng giống trang Báo cáo MKT để tránh cộng trùng số liệu (trùng key/ngày+tên+sp+tt+ca).
-    const hnDeduped = dedupeMktDetailReportRows(rowsHn || []);
-    const hcmDeduped = dedupeMktDetailReportRows(rowsHcm || []);
+    // HN: normalize → lọc dòng có Tên → dedupe (giống viewNsMoiNhanh.html).
+    const hnDeduped = dedupeMktDetailReportRows(
+      (rowsHn || []).map(normalizeMktHnDetailReportRow).filter(mktRowHasTen)
+    );
+    // HCM: normalize → lọc Tên → phủ TT từ đơn → dedupe (giống viewNsMoiNhanh-HCM.html).
+    const hcmNorm = (rowsHcm || []).map(normalizeMktHcmDetailReportRow).filter(mktRowHasTen);
+    const hcmActualized = overlayHcmMarketingReportRowsFromOrders(hcmNorm, rowsOrdersHcm || []);
+    const hcmDeduped = dedupeMktDetailReportRows(hcmActualized);
     for (const r of hnDeduped) {
       const m = mapMktReportRowToVirtual(r, 'hn');
       if (m) out.push(m);
@@ -523,7 +571,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
       if (m) out.push(m);
     }
     return out;
-  }, [rowsHn, rowsHcm]);
+  }, [rowsHn, rowsHcm, rowsOrdersHcm]);
 
   const bucketFromRow = useCallback((r) => {
     const src = String(r?.__ceo_source || '').toLowerCase();
@@ -553,7 +601,8 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
       return;
     }
     setFilters({
-      shifts: filterOptions.shifts.includes(CEO_DEFAULT_SHIFT) ? [CEO_DEFAULT_SHIFT] : [...filterOptions.shifts],
+      // Tick toàn bộ Ca giống tab "Báo cáo chi tiết" trên trang Báo cáo MKT.
+      shifts: [...filterOptions.shifts],
       teams: [...filterOptions.teams],
       products: [...filterOptions.products],
       markets: [...filterOptions.markets],
@@ -666,10 +715,11 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
     const finalize = (a) => {
       return {
         ...a,
-        tiLeChot: moneyDiv(a.soDonTay, a.mess),
+        tiLeChot: moneyDiv(a.soDonForTiLeChot, a.mess),
         tiLeChotTT: moneyDiv(a.soDonTT, a.mess),
         giaMess: moneyDiv(a.cpqc, a.mess),
-        cps: moneyDiv(a.cpqc, a.soDonTT),
+        // CPS trên MKT = CPQC / «Số đơn» (cột don — HN=TT, HCM=nhập tay).
+        cps: moneyDiv(a.cpqc, a.soDonForTiLeChot),
         cpDs: moneyDiv(a.cpqc, a.doanhSoTT),
         giaTbDon: moneyDiv(a.doanhSoTT, a.soDonTT),
       };
@@ -852,8 +902,11 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
                     <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
                     <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
                     <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
-                    <td style={warnStyle(chotKind(a.soDonTay, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                      {pct(a.soDonTay, a.mess)}
+                    <td
+                      style={warnStyle(chotKind(a.soDonForTiLeChot, a.mess))}
+                      className={a.label === 'Tổng' ? 'total-value' : ''}
+                    >
+                      {pct(a.soDonForTiLeChot, a.mess)}
                     </td>
                     <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
                       {pct(a.soDonTT, a.mess)}
