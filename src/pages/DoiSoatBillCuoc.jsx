@@ -335,6 +335,10 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     amountMin: '',
     amountMax: '',
     duplicateOnly: false,
+    sameOrderSameAmountOnly: false,
+    syncDateFrom: '',
+    syncDateTo: '',
+    minSameMaCount: '',
   });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
@@ -1446,6 +1450,10 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       amountMin: '',
       amountMax: '',
       duplicateOnly: false,
+      sameOrderSameAmountOnly: false,
+      syncDateFrom: '',
+      syncDateTo: '',
+      minSameMaCount: '',
     });
     setCurrentPage(1);
   };
@@ -1493,11 +1501,56 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     return Number.isFinite(num) ? num : null;
   };
 
+  /** Khóa nhóm: mã đơn (chuẩn hóa) + số tiền — dùng lọc trùng cùng mã cùng tiền */
+  const getOrderAmountDupKey = (row, isBillTab) => {
+    const code = String(getEffectiveFilterValue(row, 'ma_don_hang') ?? '')
+      .trim()
+      .toLowerCase();
+    const amt = getRowFilterAmount(row, isBillTab);
+    if (!code || amt === null) return null;
+    return `${code}::${amt}`;
+  };
+
   const applyTableFilters = (rows, isBillTab) => {
     const minAmount =
       tableFilters.amountMin === '' ? null : parseFloat(String(tableFilters.amountMin).replace(/,/g, ''));
     const maxAmount =
       tableFilters.amountMax === '' ? null : parseFloat(String(tableFilters.amountMax).replace(/,/g, ''));
+
+    let dupOrderAmountKeys = null;
+    if (tableFilters.sameOrderSameAmountOnly) {
+      const counts = new Map();
+      for (const row of rows || []) {
+        const k = getOrderAmountDupKey(row, isBillTab);
+        if (!k) continue;
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
+      dupOrderAmountKeys = new Set();
+      for (const [k, c] of counts) {
+        if (c >= 2) dupOrderAmountKeys.add(k);
+      }
+    }
+
+    let maDonOccurrences = null;
+    let minMaRequired = 0;
+    const minMaRaw = String(tableFilters.minSameMaCount ?? '').trim();
+    if (minMaRaw !== '') {
+      const n = parseInt(minMaRaw, 10);
+      if (Number.isFinite(n) && n >= 1) {
+        minMaRequired = n;
+        maDonOccurrences = new Map();
+        for (const row of rows || []) {
+          const code = String(getEffectiveFilterValue(row, 'ma_don_hang') ?? '')
+            .trim()
+            .toLowerCase();
+          if (!code) continue;
+          maDonOccurrences.set(code, (maDonOccurrences.get(code) || 0) + 1);
+        }
+      }
+    }
+
+    const syncDf = String(tableFilters.syncDateFrom ?? '').trim();
+    const syncDt = String(tableFilters.syncDateTo ?? '').trim();
 
     return (rows || []).filter((row) => {
       if (!matchesFilterText(getEffectiveFilterValue(row, 'ma_don_hang'), tableFilters.orderCodes)) return false;
@@ -1515,6 +1568,26 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       const amount = getRowFilterAmount(row, isBillTab);
       if (Number.isFinite(minAmount) && (amount === null || amount < minAmount)) return false;
       if (Number.isFinite(maxAmount) && (amount === null || amount > maxAmount)) return false;
+
+      if (tableFilters.sameOrderSameAmountOnly) {
+        const k = getOrderAmountDupKey(row, isBillTab);
+        if (!k || !dupOrderAmountKeys?.has(k)) return false;
+      }
+
+      if (syncDf || syncDt) {
+        const ymd = row?.synced_at ? String(row.synced_at).slice(0, 10) : '';
+        if (syncDf && (!ymd || ymd < syncDf)) return false;
+        if (syncDt && (!ymd || ymd > syncDt)) return false;
+        if ((syncDf || syncDt) && !ymd) return false;
+      }
+
+      if (maDonOccurrences) {
+        const code = String(getEffectiveFilterValue(row, 'ma_don_hang') ?? '')
+          .trim()
+          .toLowerCase();
+        if (!code || (maDonOccurrences.get(code) || 0) < minMaRequired) return false;
+      }
+
       return true;
     });
   };
@@ -4778,7 +4851,11 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               (tableFilters.ffmBranch.trim() ? 1 : 0) +
               (tableFilters.amountMin.trim() ? 1 : 0) +
               (tableFilters.amountMax.trim() ? 1 : 0) +
-              (tableFilters.duplicateOnly ? 1 : 0);
+              (tableFilters.duplicateOnly ? 1 : 0) +
+              (tableFilters.sameOrderSameAmountOnly ? 1 : 0) +
+              (tableFilters.syncDateFrom.trim() ? 1 : 0) +
+              (tableFilters.syncDateTo.trim() ? 1 : 0) +
+              (tableFilters.minSameMaCount.trim() ? 1 : 0);
             return (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -4878,6 +4955,45 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                     </label>
                   )}
 
+                  <div className="grid grid-cols-2 gap-2 md:col-span-2 xl:col-span-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600">Ngày đồng bộ từ</span>
+                      <input
+                        type="date"
+                        value={tableFilters.syncDateFrom}
+                        onChange={(e) => updateTableFilter('syncDateFrom', e.target.value || '')}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600">Ngày đồng bộ đến</span>
+                      <input
+                        type="date"
+                        value={tableFilters.syncDateTo}
+                        onChange={(e) => updateTableFilter('syncDateTo', e.target.value || '')}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                  </div>
+
+                  <label
+                    className="flex flex-col gap-1 md:col-span-2 xl:col-span-2"
+                    title="Đếm số dòng cùng mã đơn trên bảng hiện tại (sau lọc mã đầu trang); chỉ giữ dòng thuộc mã có ≥ N dòng"
+                  >
+                    <span className="text-[11px] font-semibold text-slate-600">
+                      Số lần trùng mã (tối thiểu)
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={tableFilters.minSameMaCount}
+                      onChange={(e) => updateTableFilter('minSameMaCount', e.target.value)}
+                      placeholder="VD: 2 — chỉ mã có từ 2 dòng trở lên"
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+
                   <div className="grid grid-cols-2 gap-2">
                     <label className="flex flex-col gap-1">
                       <span className="text-[11px] font-semibold text-slate-600">Tiền từ</span>
@@ -4909,6 +5025,19 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                       className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm font-semibold text-slate-700">Chỉ dòng trùng thanh toán</span>
+                  </label>
+
+                  <label
+                    className="flex min-h-[58px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                    title="Ít nhất 2 dòng cùng mã đơn và cùng số tiền (Bill: Tiền Việt; Cước: Tiền ship)"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={tableFilters.sameOrderSameAmountOnly}
+                      onChange={(e) => updateTableFilter('sameOrderSameAmountOnly', e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span className="text-sm font-semibold text-slate-700">Cùng mã + cùng tiền (≥2 dòng)</span>
                   </label>
                 </div>
               </div>
