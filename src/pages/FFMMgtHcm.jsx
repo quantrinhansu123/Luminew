@@ -100,12 +100,17 @@ function normalizeBulkTrackingCode(value) {
 
 /** Sắp theo Ngày lên đơn giảm dần + gán rowIndex (khớp sort trong getFilteredData). */
 function assignRowIndexByOrderDate(rows) {
+  const pk = PRIMARY_KEY_COLUMN;
   const sorted = [...rows].sort((a, b) => {
     const da = new Date(a['Ngày lên đơn'] || a.order_date || 0).getTime();
     const db = new Date(b['Ngày lên đơn'] || b.order_date || 0).getTime();
+    if (Number.isNaN(da) && Number.isNaN(db)) {
+      return String(a[pk] ?? '').localeCompare(String(b[pk] ?? ''));
+    }
     if (Number.isNaN(da)) return 1;
     if (Number.isNaN(db)) return -1;
-    return db - da;
+    if (db !== da) return db - da;
+    return String(a[pk] ?? '').localeCompare(String(b[pk] ?? ''));
   });
   return sorted.map((r, i) => ({ ...r, rowIndex: i + 1 }));
 }
@@ -3598,6 +3603,9 @@ function FFMMgtHcm() {
     );
   }
 
+  /** Lọc client chỉ trên đơn đã nạp; khi true số sau lọc có thể tăng hoặc lệch (tải lô + realtime). */
+  const ffmGridCountsPartial = ffmBackgroundLoading || (!loading && ffmHasMore);
+
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden font-sans text-gray-800 bg-[#f8f9fa] p-2">
       {/* Header */}
@@ -3616,10 +3624,20 @@ function FFMMgtHcm() {
             </h2>
             <div className="flex items-center gap-1.5 text-xs">
               <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
-              <span className="text-gray-600" title="Số đơn sau bộ lọc / số đơn đã tải">
+              <span
+                className="text-gray-600"
+                title={
+                  ffmGridCountsPartial
+                    ? 'Số đơn sau lọc tính trên dữ liệu đã tải (có thể chưa đủ toàn DB). Cập nhật từ người dùng khác cũng làm số liệu thay đổi (đồng bộ realtime).'
+                    : 'Số đơn sau bộ lọc / số đơn đã tải (đã nạp đủ lô FFM HCM). Realtime vẫn có thể cập nhật từng dòng.'
+                }
+              >
                 {getFilteredData.length !== allData.length
                   ? `${getFilteredData.length.toLocaleString('vi-VN')} / ${allData.length.toLocaleString('vi-VN')} sau lọc`
                   : `${allData.length.toLocaleString('vi-VN')} đơn hàng`}
+                {ffmGridCountsPartial ? (
+                  <span className="ml-1 text-amber-700 font-medium">· chưa đủ dữ liệu</span>
+                ) : null}
               </span>
             </div>
           </div>
@@ -3857,8 +3875,17 @@ function FFMMgtHcm() {
             {ffmBackgroundLoading && (
               <span className="text-amber-700 text-sm font-medium animate-pulse">Đang tải đầy đủ đơn…</span>
             )}
-            <div className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded text-xs font-semibold border border-blue-200">
-              {getFilteredData.length} đơn | {totalMoney.toLocaleString('vi-VN')} ₫
+            <div
+              className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded text-xs font-semibold border border-blue-200"
+              title={
+                ffmGridCountsPartial
+                  ? 'Tổng đơn / tiền theo lọc trên dữ liệu đã tải — có thể tăng khi tải thêm hoặc khi có cập nhật từ người dùng khác.'
+                  : 'Tổng đơn và tiền theo bộ lọc hiện tại (đã nạp đủ lô FFM HCM).'
+              }
+            >
+              {getFilteredData.length} đơn
+              {ffmGridCountsPartial ? <span className="font-normal opacity-90"> (tạm)</span> : null} |{' '}
+              {totalMoney.toLocaleString('vi-VN')} ₫
             </div>
           </div>
         </div>
