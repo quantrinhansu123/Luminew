@@ -11,6 +11,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
 import '../../pages/BaoCaoSale.css';
 import { supabase } from '../../supabase/config';
 import { formatCurrency, formatNumber, filterRawData } from '../../utils/nhanSuSaleLumiMoiLogic';
@@ -24,9 +25,35 @@ import {
   overlayHcmMarketingReportRowsFromOrders,
 } from '../../services/mktRecalcSoDonThucTeFromOrders';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend, ChartDataLabels);
 
 const CEO_CHART_COLORS = ['#2563eb', '#16a34a', '#ca8a04', '#dc2626', '#9333ea', '#0891b2', '#ea580c', '#4f46e5'];
+/** Màu nền mờ theo thị trường trên biểu đồ cột tổng (cùng palette, ổn định theo tên TT) */
+const CEO_MARKET_ZONE_ALPHA = 0.14;
+
+function hexToRgba(hex, alpha) {
+  const h = String(hex || '').replace('#', '').trim();
+  if (h.length !== 3 && h.length !== 6) return `rgba(148, 163, 184, ${alpha})`;
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  if ([r, g, b].some((x) => Number.isNaN(x))) return `rgba(148, 163, 184, ${alpha})`;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** Map thị trường → màu chính (thứ tự tên sort vi — khớp vùng nền biểu đồ tổng & cột TT) */
+function ceoMarketColorByName(marketNames) {
+  const unique = [...new Set((marketNames || []).map((m) => String(m || '').trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'vi')
+  );
+  const map = new Map();
+  unique.forEach((m, i) => {
+    map.set(m, CEO_CHART_COLORS[i % CEO_CHART_COLORS.length]);
+  });
+  return map;
+}
+
 const CEO_REV_CHART_TOP_N = 18;
 /** Giới hạn số series sản phẩm trên biểu đồ cột ghép — phần còn lại gộp «Khác» để legend và cột gọn */
 const CEO_GROUPED_BAR_TOP_PRODUCTS = 7;
@@ -42,8 +69,33 @@ function formatAxisMoneyShort(n) {
   return String(Math.round(x));
 }
 
-function createCeoMainGroupedBarPlugins({ categoryTotals, dividerAfterIndex }) {
+function createCeoMainGroupedBarPlugins({ categoryTotals, dividerAfterIndex, categoryZoneFills }) {
   return [
+    {
+      id: 'ceoMarketCategoryZones',
+      beforeDatasetsDraw(chart) {
+        const fills = categoryZoneFills;
+        if (!fills?.length) return;
+        const xScale = chart.scales.x;
+        const { ctx, chartArea } = chart;
+        if (!xScale || !chartArea) return;
+        const n = Math.min(fills.length, chart.data?.labels?.length ?? 0);
+        if (!n) return;
+        ctx.save();
+        for (let i = 0; i < n; i += 1) {
+          const fill = fills[i];
+          if (!fill) continue;
+          const xC = xScale.getPixelForTick(i);
+          if (!Number.isFinite(xC)) continue;
+          const xL = i <= 0 ? chartArea.left : (xScale.getPixelForTick(i - 1) + xC) / 2;
+          const xR = i >= n - 1 ? chartArea.right : (xC + xScale.getPixelForTick(i + 1)) / 2;
+          if (!Number.isFinite(xL) || !Number.isFinite(xR) || xR <= xL) continue;
+          ctx.fillStyle = fill;
+          ctx.fillRect(xL, chartArea.top, xR - xL, chartArea.bottom - chartArea.top);
+        }
+        ctx.restore();
+      },
+    },
     {
       id: 'ceoBranchDivider',
       afterDraw(chart) {
@@ -185,10 +237,21 @@ function buildCeoNestedGroupedBarModel(rows) {
 
   const labels = categories.map((c) => `${c.branchLabel}\n${c.market}`);
 
+  const colorByMarket = ceoMarketColorByName(categories.map((c) => c.market));
+  const categoryZoneFills = categories.map((c) => {
+    const m = c.market;
+    if (!m || m === '(Trống)') return `rgba(148, 163, 184, ${CEO_MARKET_ZONE_ALPHA})`;
+    const hex = colorByMarket.get(m);
+    return hexToRgba(hex || '#94a3b8', CEO_MARKET_ZONE_ALPHA);
+  });
+
   return {
     labels,
     datasets,
     categoryTotals,
+    categoryZoneFills,
+    /** Cùng quy tắc gán màu theo tên TT (sort vi) — dùng cho biểu đồ xếp hạng TT */
+    marketColorByName: colorByMarket,
     dividerAfterIndex,
     categoryCount: categories.length,
     /** Số SP gộp vào series «Khác» (0 = không gộp) */
@@ -574,6 +637,18 @@ function chotKind(soDon, mess) {
   return 'good';
 }
 
+function finalizeCeoAgg(a) {
+  return {
+    ...a,
+    tiLeChot: moneyDiv(a.soDonForTiLeChot, a.mess),
+    tiLeChotTT: moneyDiv(a.soDonTT, a.mess),
+    giaMess: moneyDiv(a.cpqc, a.mess),
+    cps: moneyDiv(a.cpqc, a.soDonForTiLeChot),
+    cpDs: moneyDiv(a.cpqc, a.doanhSoTT),
+    giaTbDon: moneyDiv(a.doanhSoTT, a.soDonTT),
+  };
+}
+
 function aggregateRevenuePairs(rows, keyFn) {
   const map = new Map();
   for (const r of rows || []) {
@@ -927,18 +1002,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
     addAgg(total, hcm);
     addAgg(total, hn);
 
-    const finalize = (a) => {
-      return {
-        ...a,
-        tiLeChot: moneyDiv(a.soDonForTiLeChot, a.mess),
-        tiLeChotTT: moneyDiv(a.soDonTT, a.mess),
-        giaMess: moneyDiv(a.cpqc, a.mess),
-        // CPS trên MKT = CPQC / «Số đơn» (cột don — HN=TT, HCM=nhập tay).
-        cps: moneyDiv(a.cpqc, a.soDonForTiLeChot),
-        cpDs: moneyDiv(a.cpqc, a.doanhSoTT),
-        giaTbDon: moneyDiv(a.doanhSoTT, a.soDonTT),
-      };
-    };
+    const finalize = finalizeCeoAgg;
 
     return [finalize(total), finalize(hcm), finalize(hn)];
   }, [mappedFiltered, bucketFromRow]);
@@ -982,7 +1046,8 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
       else if (src === 'hcm') hcmRev += v;
     }
     const byMarket = topNWithOther(aggregateRevenuePairs(rows, (r) => r.thiTruong), CEO_REV_CHART_TOP_N);
-    return { nestedGrouped, branchPie: { hnRev, hcmRev }, byMarket };
+    const byProduct = topNWithOther(aggregateRevenuePairs(rows, (r) => r.sanPham), CEO_REV_CHART_TOP_N);
+    return { nestedGrouped, branchPie: { hnRev, hcmRev }, byMarket, byProduct };
   }, [mappedFiltered]);
 
   const ceoMainBarData = useMemo(
@@ -998,6 +1063,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
       createCeoMainGroupedBarPlugins({
         categoryTotals: ceoVizModels.nestedGrouped.categoryTotals,
         dividerAfterIndex: ceoVizModels.nestedGrouped.dividerAfterIndex,
+        categoryZoneFills: ceoVizModels.nestedGrouped.categoryZoneFills,
       }),
     [ceoVizModels]
   );
@@ -1016,9 +1082,18 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
         },
       },
       plugins: {
-        // BaoCaoVanDon đăng ký chartjs-plugin-datalabels toàn cục → tắt tại đây tránh số thô chồng lên cột
         datalabels: {
-          display: false,
+          display: (ctx) => Number(ctx?.parsed?.y ?? 0) > 0,
+          anchor: 'end',
+          align: 'end',
+          offset: -2,
+          formatter: (ctx) => formatAxisMoneyShort(Number(ctx?.parsed?.y ?? 0)),
+          color: '#0f172a',
+          backgroundColor: 'rgba(255,255,255,0.82)',
+          borderRadius: 4,
+          padding: { top: 2, right: 4, bottom: 2, left: 4 },
+          font: { size: 10, weight: '700' },
+          clamp: true,
         },
         legend: {
           position: 'bottom',
@@ -1116,7 +1191,8 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
     const pairs = ceoVizModels.byMarket;
     const labels = pairs.map(([k]) => k);
     const data = pairs.map(([, v]) => Number(v || 0));
-    const bg = labels.map((_, i) => CEO_CHART_COLORS[i % CEO_CHART_COLORS.length]);
+    const marketColors = ceoVizModels.nestedGrouped.marketColorByName;
+    const bg = labels.map((k) => marketColors.get(k) || '#64748b');
     return {
       labels,
       datasets: [
@@ -1136,8 +1212,19 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        datalabels: { display: false },
-        legend: { display: false },
+        datalabels: {
+          display: (ctx) => Number(ctx?.parsed?.x ?? 0) > 0,
+          anchor: 'end',
+          align: 'end',
+          offset: 4,
+          formatter: (ctx) => formatAxisMoneyShort(Number(ctx?.parsed?.x ?? 0)),
+          color: '#0f172a',
+          backgroundColor: 'rgba(255,255,255,0.82)',
+          borderRadius: 4,
+          padding: { top: 2, right: 4, bottom: 2, left: 4 },
+          font: { size: 10, weight: '700' },
+          clamp: true,
+        },
         tooltip: {
           callbacks: {
             label: (ctx) => ` ${formatCurrency(Number(ctx.raw || 0))}`,
@@ -1156,10 +1243,29 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
     []
   );
 
+  const ceoProductRankBarData = useMemo(() => {
+    const pairs = ceoVizModels.byProduct;
+    const labels = pairs.map(([k]) => k);
+    const data = pairs.map(([, v]) => Number(v || 0));
+    const palette = ceoMarketColorByName(labels);
+    const bg = labels.map((k) => palette.get(k) || '#64748b');
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'DS Chốt (TT)',
+          data,
+          backgroundColor: bg,
+          borderWidth: 1,
+        },
+      ],
+    };
+  }, [ceoVizModels]);
+
   // Đã bỏ phần bảng theo ngày theo yêu cầu.
 
   return (
-    <div className="h-full min-h-0 overflow-auto">
+    <div className="h-full min-h-0 w-full min-w-0 overflow-x-hidden overflow-y-auto">
       {/* Dashboard quản trị bọc TabsContent bằng overflow-hidden; tab CEO cần tự tạo vùng scroll. */}
       <div
         className="bao-cao-sale-container ceo-panel-root relative"
@@ -1276,48 +1382,118 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
             </div>
           </div>
 
-            <div className="table-responsive-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th className="text-left">Khu vực</th>
-                    <th>Số Mess</th>
-                    <th>CPQC</th>
-                    <th>DS Chốt (TT)</th>
-                    <th>Tỉ lệ chốt</th>
-                    <th>Tỉ lệ chốt (TT)</th>
-                    <th>Giá Mess</th>
-                    <th>CPS</th>
-                    <th>%CP/DS</th>
-                    <th>Giá TB Đơn</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.map((a) => (
-                    <tr key={a.label} className={a.label === 'Tổng' ? 'total-row' : ''}>
-                      <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
-                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
-                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
-                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
-                      <td
-                        style={warnStyle(chotKind(a.soDonForTiLeChot, a.mess))}
-                        className={a.label === 'Tổng' ? 'total-value' : ''}
-                      >
-                        {pct(a.soDonForTiLeChot, a.mess)}
-                      </td>
-                      <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                        {pct(a.soDonTT, a.mess)}
-                      </td>
-                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaMess)}</td>
-                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cps)}</td>
-                      <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoTT))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                        {pct(a.cpqc, a.doanhSoTT)}
-                      </td>
-                      <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaTbDon)}</td>
+            <section style={{ marginTop: 8, marginBottom: 28 }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: '1.1em' }}>Sơ đồ tổng — phân bổ doanh thu chi tiết (cột ghép)</h3>
+              <div
+                className="ceo-nested-bar-scroll"
+                style={{
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  WebkitOverflowScrolling: 'touch',
+                  marginBottom: 4,
+                  maxWidth: '100%',
+                }}
+              >
+                <div style={{ width: ceoMainBarScrollWidth, minWidth: '100%', height: 520 }}>
+                  {ceoVizModels.nestedGrouped.categoryCount === 0 ? (
+                    <div style={{ padding: 24, color: '#888' }}>Không có dữ liệu sau lọc.</div>
+                  ) : (
+                    <Bar data={ceoMainBarData} options={ceoMainBarOptions} plugins={ceoMainBarPlugins} />
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <div className="ceo-charts-grid-below" style={{ marginBottom: 28 }}>
+              <section className="ceo-chart-cell ceo-chart-cell--branch">
+                <h3 style={{ margin: '0 0 8px', fontSize: '1.1em' }}>Cơ cấu doanh thu theo chi nhánh</h3>
+                <div
+                  className="ceo-chart-doughnut-wrap"
+                  style={{ height: 300, maxWidth: 360, margin: '0 auto' }}
+                >
+                  {ceoVizModels.branchPie.hnRev + ceoVizModels.branchPie.hcmRev <= 0 ? (
+                    <div style={{ padding: 24, color: '#888', textAlign: 'center' }}>Không có dữ liệu sau lọc.</div>
+                  ) : (
+                    <Doughnut data={ceoDoughnutData} options={ceoDoughnutOptions} />
+                  )}
+                </div>
+              </section>
+
+              <section className="ceo-chart-cell ceo-chart-cell--market">
+                <h3 style={{ margin: '0 0 8px', fontSize: '1.1em' }}>Xếp hạng doanh thu theo thị trường (toàn quốc)</h3>
+                <div style={{ height: Math.min(520, 40 + ceoVizModels.byMarket.length * 36), minHeight: 200 }}>
+                  {ceoVizModels.byMarket.length === 0 ? (
+                    <div style={{ padding: 24, color: '#888' }}>Không có dữ liệu sau lọc.</div>
+                  ) : (
+                    <Bar data={ceoMarketRankBarData} options={ceoMarketRankBarOptions} />
+                  )}
+                </div>
+              </section>
+
+              <section className="ceo-chart-cell ceo-chart-cell--product">
+                <h3 style={{ margin: '0 0 8px', fontSize: '1.1em' }}>Xếp hạng doanh thu theo sản phẩm (toàn quốc)</h3>
+                <div style={{ height: Math.min(520, 40 + ceoVizModels.byProduct.length * 36), minHeight: 200 }}>
+                  {ceoVizModels.byProduct.length === 0 ? (
+                    <div style={{ padding: 24, color: '#888' }}>Không có dữ liệu sau lọc.</div>
+                  ) : (
+                    <Bar data={ceoProductRankBarData} options={ceoMarketRankBarOptions} />
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <div style={{ marginTop: 22, marginBottom: 16 }}>
+              <h3 style={{ margin: '0 0 10px', fontSize: '1.05em' }}>Toàn bộ (theo bộ lọc)</h3>
+              <div
+                className="table-responsive-container ceo-kpi-table-wrap"
+                style={{
+                  borderRadius: 8,
+                  border: '1px solid rgba(148, 163, 184, 0.35)',
+                  background: 'rgba(248, 250, 252, 0.85)',
+                }}
+              >
+                <table className="ceo-kpi-table">
+                  <thead>
+                    <tr>
+                      <th className="text-left">Khu vực</th>
+                      <th>Số Mess</th>
+                      <th>CPQC</th>
+                      <th>DS Chốt (TT)</th>
+                      <th>Tỉ lệ chốt</th>
+                      <th>Tỉ lệ chốt (TT)</th>
+                      <th>Giá Mess</th>
+                      <th>CPS</th>
+                      <th>%CP/DS</th>
+                      <th>Giá TB Đơn</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {summary.map((a) => (
+                      <tr key={a.label} className={a.label === 'Tổng' ? 'total-row' : ''}>
+                        <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
+                        <td
+                          style={warnStyle(chotKind(a.soDonForTiLeChot, a.mess))}
+                          className={a.label === 'Tổng' ? 'total-value' : ''}
+                        >
+                          {pct(a.soDonForTiLeChot, a.mess)}
+                        </td>
+                        <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                          {pct(a.soDonTT, a.mess)}
+                        </td>
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaMess)}</td>
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cps)}</td>
+                        <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoTT))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                          {pct(a.cpqc, a.doanhSoTT)}
+                        </td>
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaTbDon)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div style={{ marginTop: 18 }}>
@@ -1383,55 +1559,6 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <section style={{ marginTop: 28, marginBottom: 32 }}>
-              <h3 style={{ margin: '0 0 12px', fontSize: '1.1em' }}>Phân bổ doanh thu chi tiết (cột ghép)</h3>
-              <div
-                className="ceo-nested-bar-scroll"
-                style={{
-                  overflowX: 'auto',
-                  overflowY: 'hidden',
-                  WebkitOverflowScrolling: 'touch',
-                  marginBottom: 4,
-                  maxWidth: '100%',
-                }}
-              >
-                <div style={{ width: ceoMainBarScrollWidth, minWidth: '100%', height: 520 }}>
-                  {ceoVizModels.nestedGrouped.categoryCount === 0 ? (
-                    <div style={{ padding: 24, color: '#888' }}>Không có dữ liệu sau lọc.</div>
-                  ) : (
-                    <Bar data={ceoMainBarData} options={ceoMainBarOptions} plugins={ceoMainBarPlugins} />
-                  )}
-                </div>
-              </div>
-            </section>
-
-            <div className="ceo-charts-grid-below">
-              <section style={{ marginBottom: 0 }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: '1.1em' }}>Cơ cấu doanh thu theo chi nhánh</h3>
-                <div
-                  className="ceo-chart-doughnut-wrap"
-                  style={{ height: 300, maxWidth: 360, margin: '0 auto' }}
-                >
-                  {ceoVizModels.branchPie.hnRev + ceoVizModels.branchPie.hcmRev <= 0 ? (
-                    <div style={{ padding: 24, color: '#888', textAlign: 'center' }}>Không có dữ liệu sau lọc.</div>
-                  ) : (
-                    <Doughnut data={ceoDoughnutData} options={ceoDoughnutOptions} />
-                  )}
-                </div>
-              </section>
-
-              <section style={{ marginBottom: 8 }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: '1.1em' }}>Xếp hạng doanh thu theo thị trường (toàn quốc)</h3>
-                <div style={{ height: Math.min(520, 40 + ceoVizModels.byMarket.length * 36), minHeight: 200 }}>
-                  {ceoVizModels.byMarket.length === 0 ? (
-                    <div style={{ padding: 24, color: '#888' }}>Không có dữ liệu sau lọc.</div>
-                  ) : (
-                    <Bar data={ceoMarketRankBarData} options={ceoMarketRankBarOptions} />
-                  )}
-                </div>
-              </section>
             </div>
 
         </div>

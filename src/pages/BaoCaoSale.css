@@ -622,14 +622,52 @@
 }
 
 /* --- CEO panel: sidebar + nội dung (tránh khoảng trống phải do width calc cũ) --- */
+.bao-cao-sale-container.ceo-panel-root {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
+
 .bao-cao-sale-container.ceo-panel-root .report-container {
     align-items: flex-start;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 @media (min-width: 1201px) {
+
+    /* Desktop: bộ lọc trái, nội dung phải */
+    .bao-cao-sale-container.ceo-panel-root .sidebar.ceo-panel-sidebar {
+        order: 1;
+    }
+
+    .bao-cao-sale-container.ceo-panel-root .main-detailed {
+        order: 2;
+    }
+
     .bao-cao-sale-container.ceo-panel-root .report-container {
         flex-wrap: nowrap;
     }
+}
+
+@media (max-width: 1200px) {
+
+    /* Mobile: biểu đồ/bảng trước, bộ lọc xuống dưới */
+    .bao-cao-sale-container.ceo-panel-root .main-detailed {
+        order: 1;
+    }
+
+    .bao-cao-sale-container.ceo-panel-root .sidebar.ceo-panel-sidebar {
+        order: 2;
+    }
+}
+
+.bao-cao-sale-container.ceo-panel-root .main-detailed {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .bao-cao-sale-container.ceo-panel-root .sidebar.ceo-panel-sidebar {
@@ -645,23 +683,56 @@
     overflow-y: auto;
 }
 
+.bao-cao-sale-container.ceo-panel-root .ceo-kpi-table-wrap table {
+    margin-top: 0;
+}
+
+@media (max-width: 768px) {
+
+    .bao-cao-sale-container.ceo-panel-root .ceo-kpi-table th,
+    .bao-cao-sale-container.ceo-panel-root .ceo-kpi-table td {
+        padding: 8px 10px;
+        font-size: 0.82em;
+    }
+}
+
 .bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below {
     display: flex;
     flex-direction: column;
     gap: 24px;
 }
 
-@media (min-width: 960px) {
+.bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below .ceo-chart-cell {
+    min-width: 0;
+}
+
+@media (min-width: 1100px) {
     .bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below {
         display: grid;
-        grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
-        gap: 20px;
+        grid-template-columns: minmax(240px, 1fr) minmax(0, 1.15fr) minmax(0, 1.15fr);
+        gap: 16px 20px;
         align-items: start;
     }
 
     .bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below .ceo-chart-doughnut-wrap {
         max-width: none;
         margin: 0;
+    }
+}
+
+@media (min-width: 768px) and (max-width: 1099px) {
+    .bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        align-items: start;
+    }
+
+    .bao-cao-sale-container.ceo-panel-root .ceo-charts-grid-below .ceo-chart-cell--branch {
+        grid-column: 1 / -1;
+        max-width: 400px;
+        margin: 0 auto;
+        width: 100%;
     }
 }
 

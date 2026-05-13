@@ -60,8 +60,9 @@ export default function Header() {
   const hideHeader =
     location.pathname === "/dang-nhap" || location.pathname === "/" || location.pathname === "/trang-chu";
 
-  /** Dashboard quản trị: thanh mỏng hơn để ưu tiên iframe báo cáo */
-  const compact = location.pathname === "/dashboard-quan-tri";
+  /** Dashboard quản trị + Báo cáo CEO: thanh gọn, dễ xếp hàng trên mobile */
+  const compact =
+    location.pathname === "/dashboard-quan-tri" || location.pathname === "/bao-cao-ceo";
 
   useEffect(() => {
     const onStorage = (e) => {
@@ -155,10 +156,14 @@ export default function Header() {
   if (hideHeader) return null;
 
   return (
-    <nav className="bg-green-600 shadow-lg sticky top-0 z-50">
-      <div className={`mx-auto ${compact ? "px-3 sm:px-4" : "px-8"}`}>
-        <div className={`flex items-center justify-between ${compact ? "h-11 min-h-[2.75rem]" : "h-16"}`}>
-          <div className={`flex items-center ${compact ? "space-x-2" : "space-x-4"}`}>
+    <nav className="bg-green-600 shadow-lg sticky top-0 z-50 w-full min-w-0">
+      <div className={`mx-auto max-w-[100vw] min-w-0 ${compact ? "px-3 sm:px-4" : "px-4 sm:px-8"}`}>
+        <div
+          className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-2 ${
+            compact ? "min-h-[2.75rem] py-1.5" : "min-h-16 py-2"
+          }`}
+        >
+          <div className={`flex min-w-0 shrink-0 items-center ${compact ? "space-x-2" : "space-x-4"}`}>
             <img
               src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
               alt="Logo"
@@ -168,7 +173,7 @@ export default function Header() {
               LUMI OMS
             </span>
           </div>
-          <div className={`flex items-center ${compact ? "space-x-1.5" : "space-x-4"}`}>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-1.5 gap-y-1.5 sm:gap-x-2">
             {isAuthenticated && (
               <div className="relative" ref={popoverRef}>
                 <button
@@ -308,7 +313,7 @@ export default function Header() {
             </Link>
             <Link
               to="/cham-cong"
-              className={`text-white bg-green-500 hover:bg-green-400 rounded-md font-bold transition ml-2 ${compact ? "px-2 py-1 text-xs" : "px-3 py-2 text-sm"}`}
+              className={`text-white bg-green-500 hover:bg-green-400 rounded-md font-bold transition ${compact ? "px-2 py-1 text-xs" : "px-3 py-2 text-sm"}`}
               title="Điểm danh đầu giờ/cuối giờ"
             >
               📷 Chấm công

@@ -52,7 +52,7 @@ export default function BaoCaoCeo() {
   }
 
   return (
-    <div className="h-[calc(100vh-64px)] min-h-0">
+    <div className="h-[calc(100vh-64px)] min-h-0 w-full min-w-0 overflow-x-hidden box-border">
       <DashboardQuanTriBaoCaoCeoPanel
         globalFrom={from}
         globalTo={to}
