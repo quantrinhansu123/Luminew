@@ -8,7 +8,11 @@ import { normalizePermissionCode } from '../../utils/permissionCodes';
 const REQUIRED_PAGE_OVERRIDES = {
     MODULE_SALE: [
         { code: 'SALE_VIEW_HCM', name: 'Xem báo cáo Sale HCM', path: '/xem-bao-cao-sale-hcm' }
-    ]
+    ],
+    MODULE_FINANCE: [
+        { code: 'FINANCE_F3_HCM', name: 'Dữ liệu F3 (HCM)', path: '/du-lieu-f3-hcm' },
+        { code: 'FINANCE_DOI_SOAT_BILL_HCM', name: 'Đối soát bill cước (HCM)', path: '/doi-soat-bill-cuoc-hcm' },
+    ],
 };
 
 const PermissionTree = ({ roleCode, onPermissionChange }) => {

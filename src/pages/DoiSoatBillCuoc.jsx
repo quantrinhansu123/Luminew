@@ -265,6 +265,30 @@ function isHcmTeam(team) {
   return v === 'HCM' || v.includes('HCM');
 }
 
+/** Chỉ lọc team khi scope HCM đọc bảng `orders`; `order_code_hcm` đã là nguồn HCM. */
+function skipOrderRowForHcmScope(isHcmScope, ordersTable, team) {
+  return isHcmScope && ordersTable === 'orders' && !isHcmTeam(team);
+}
+
+async function fetchAllSupabaseTableRows(tableName, { orderColumn = 'created_at', ascending = false, maxPages = 500 } = {}) {
+  const PAGE_SIZE = 1000;
+  const all = [];
+  let from = 0;
+  for (let page = 0; page < maxPages; page++) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('*')
+      .order(orderColumn, { ascending })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return all;
+}
+
 /** Array | Set | nullish → mảng (recalculate* nhận Set từ getBillAffectedOrderCodesFromSourceRows). */
 function coerceToOrderCodeIterable(value) {
   if (value == null) return [];
@@ -833,12 +857,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     setLoading(true);
     try {
       const billCutoff = syncCutoff !== undefined && syncCutoff !== null ? syncCutoff : lastBillSyncTime;
-      const { data, error } = await supabase
-        .from('chi_tiet_bill_tien')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await fetchAllSupabaseTableRows('chi_tiet_bill_tien');
 
       // Lấy shipping_unit và payment_type từ orders theo mã đơn; theo mã tracking nếu thiếu mã đơn
       const orderCodes = [...new Set((data || []).map((row) => row.ma_don_hang).filter(Boolean))];
@@ -866,7 +885,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
           if (!ordersError && ordersData) {
             ordersData.forEach((order) => {
-              if (isHcmScope && !isHcmTeam(order.team)) return;
+              if (skipOrderRowForHcmScope(isHcmScope, ordersTableName, order.team)) return;
               if (order.order_code) {
                 if (order.shipping_unit) {
                   shippingUnitMap.set(order.order_code, order.shipping_unit);
@@ -892,7 +911,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
           if (!trErr && byTracking) {
             const tcGroups = new Map();
             byTracking.forEach((order) => {
-              if (isHcmScope && !isHcmTeam(order.team)) return;
+              if (skipOrderRowForHcmScope(isHcmScope, ordersTableName, order.team)) return;
               const tc =
                 order.tracking_code != null && order.tracking_code !== ''
                   ? String(order.tracking_code).trim()
@@ -1060,12 +1079,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     setLoading(true);
     try {
       const cuocCutoff = syncCutoff !== undefined && syncCutoff !== null ? syncCutoff : lastCuocSyncTime;
-      const { data, error } = await supabase
-        .from('chitiet_cuoc')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await fetchAllSupabaseTableRows('chitiet_cuoc');
 
       // Lấy danh sách mã đơn hàng để tìm chi nhánh từ bảng orders
       const orderCodes = [...new Set((data || []).map((row) => normalizeCuocMaDon(row.ma_don_hang)).filter(Boolean))];
@@ -1084,7 +1098,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
           
           if (!ordersError && ordersData) {
             ordersData.forEach((order) => {
-              if (isHcmScope && !isHcmTeam(order.team)) return;
+              if (skipOrderRowForHcmScope(isHcmScope, ordersTableName, order.team)) return;
               const k = normalizeCuocMaDon(order.order_code);
               if (k && order.team) {
                 ordersMap.set(k, order.team);

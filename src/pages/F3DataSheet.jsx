@@ -258,6 +258,22 @@ async function fetchDanhSachDonMergedRawOrders({
   return [...byKey.values()];
 }
 
+/** Gộp đơn HCM: ưu tiên bản từ `order_code_hcm`, bổ sung đơn còn trên `orders` (team HCM). */
+function mergeRawOrdersPreferPrimary(primaryRaw, supplementalRaw) {
+  const byKey = new Map();
+  for (const r of supplementalRaw || []) {
+    const code = r?.order_code != null && String(r.order_code).trim() !== '' ? String(r.order_code).trim() : '';
+    const key = code || `__row_${r?.id ?? ''}`;
+    byKey.set(key, r);
+  }
+  for (const r of primaryRaw || []) {
+    const code = r?.order_code != null && String(r.order_code).trim() !== '' ? String(r.order_code).trim() : '';
+    const key = code || `__row_${r?.id ?? ''}`;
+    byKey.set(key, r);
+  }
+  return [...byKey.values()];
+}
+
 /** Khóa trùng Name* + Phone* + Add trong danh sách (chuẩn hóa giống cảnh báo trùng khách). */
 function tripleNamePhoneAddKey(row) {
   const name = row['Name*'] ?? row['Name'] ?? '';
@@ -298,6 +314,27 @@ function resolveTienVeForSummary(row) {
     if (vnd < 1000 && legacy >= 100000) return legacy;
   }
   return vnd;
+}
+
+function f3NbDeliveryStatusNormKey(raw) {
+  return String(raw ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+/** DS đi: tổng Tổng tiền VNĐ khi «Trạng thái giao hàng NB» thuộc nhóm đơn đã đi / kết thúc giao. */
+function isF3DsDiFromNbDeliveryStatus(row) {
+  const raw = row?.['Trạng thái giao hàng NB'] ?? row?.delivery_status_nb ?? '';
+  const n = f3NbDeliveryStatusNormKey(raw);
+  if (!n) return false;
+  if (n.includes('giao thanh cong') || n.includes('don thanh cong')) return true;
+  if (n.includes('giao khong thanh cong')) return true;
+  if (n === 'hoan' || n.startsWith('hoan ')) return true;
+  if (n.includes('dang giao')) return true;
+  return false;
 }
 
 function DanhSachDon({ dataSource = 'default' }) {
@@ -364,7 +401,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   const orderListAccessCodes =
     teamFilter === 'RD'
       ? ORDER_LIST_ACCESS_RD
-      : activeTab === 'hcm'
+      : activeTab === 'hcm' || isHcmDataSource
         ? ORDER_LIST_ACCESS_SALE_HCM
         : ORDER_LIST_ACCESS_SALE_DEFAULT;
 
@@ -824,19 +861,29 @@ function DanhSachDon({ dataSource = 'default' }) {
       const effectiveTeamFilter =
         ordersTableName === 'order_code_hcm' ? null : (isHcmDataSource || isHcmView ? 'HCM' : teamFilter);
 
-      const mergedRaw = await fetchDanhSachDonMergedRawOrders({
+      let mergedRaw = await fetchDanhSachDonMergedRawOrders({
         supabaseClient: supabase,
         ordersTableName,
         startDate,
         endDate,
         teamFilter: effectiveTeamFilter,
-        isAdmin,
-        selectedPersonnelNames,
-        userName,
         selectColumns: '*',
         // Không bỏ implicit filters ở HCM để vẫn áp ngày + scope team đúng nguồn
         skipImplicitFilters: false,
       });
+
+      if (isHcmDataSource && ordersTableName === 'order_code_hcm') {
+        const hcmRowsFromOrders = await fetchDanhSachDonMergedRawOrders({
+          supabaseClient: supabase,
+          ordersTableName: 'orders',
+          startDate,
+          endDate,
+          teamFilter: 'HCM',
+          selectColumns: '*',
+          skipImplicitFilters: false,
+        });
+        mergedRaw = mergeRawOrdersPreferPrimary(mergedRaw, hcmRowsFromOrders);
+      }
 
       setLoadingProgress(70);
 
@@ -1294,13 +1341,15 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   // Reload khi chuyển đổi bảng (sử dụng cache nếu có)
   useEffect(() => {
-    if (activeTab === 'f3_summary') return; // Không load orders cho tab summary
+    if (activeTab === 'f3_summary') return;
     if (!selectedPersonnelLoaded) return;
 
-    if (dataCache[ordersTableName]) {
-      setAllData(dataCache[ordersTableName]);
+    const cacheKey = buildOrdersCacheKey(ordersTableName, startDate, endDate, selectedPersonnelNames);
+    const cached = dataCache[cacheKey] ?? dataCache[ordersTableName];
+    if (Array.isArray(cached)) {
+      setAllData(cached);
     }
-  }, [activeTab, selectedPersonnelLoaded, dataCache, ordersTableName]);
+  }, [activeTab, selectedPersonnelLoaded, dataCache, ordersTableName, startDate, endDate, selectedPersonnelNames]);
 
   // Route /du-lieu-f3-hcm chỉ dùng nguồn HCM, không cho drift sang RD.
   useEffect(() => {
@@ -3259,12 +3308,10 @@ function DanhSachDon({ dataSource = 'default' }) {
       const shipRaw = parseVietnameseMoneyToNumber(
         row["Phí ship"] ?? row.shipping_cost ?? 0
       ) || 0;
-      // So sánh cùng mẫu dữ liệu: chỉ tính ship cho các đơn đã có tiền về/đối soát.
-      const ship = tienVe > 0 ? shipRaw : 0;
+      const ship = shipRaw;
 
-      const hasTracking = String(row["Mã Tracking"] || row.tracking_code || "").trim() !== "";
-      const dsDi = hasTracking
-        ? (parseVietnameseMoneyToNumber(row["Tổng tiền VNĐ"] ?? row.total_amount_vnd ?? 0) || 0)
+      const dsDi = isF3DsDiFromNbDeliveryStatus(row)
+        ? (parseVietnameseMoneyToNumber(row['Tổng tiền VNĐ'] ?? row.total_amount_vnd ?? 0) || 0)
         : 0;
 
       const updateStats = (dept, rawName) => {

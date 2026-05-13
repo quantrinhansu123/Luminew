@@ -433,24 +433,60 @@ function rowChiTietInNgayRange(row, start, end) {
     return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= start && d <= end;
 }
 
+/** PostgREST thường giới hạn ~1000 dòng/request — tải nhiều đợt cho báo cáo chia đơn. */
+const ADMIN_TOOLS_PAGE_SIZE = 1000;
+
+async function fetchPagedSupabaseSelect(
+    tableName,
+    selectColumns,
+    applyFilters,
+    { orderColumn = 'order_code', ascending = true, maxPages = 500 } = {}
+) {
+    const all = [];
+    let from = 0;
+    for (let page = 0; page < maxPages; page++) {
+        let q = supabase.from(tableName).select(selectColumns);
+        if (typeof applyFilters === 'function') {
+            q = applyFilters(q);
+        }
+        const { data, error } = await q
+            .order(orderColumn, { ascending })
+            .range(from, from + ADMIN_TOOLS_PAGE_SIZE - 1);
+        if (error) {
+            return { data: all, error };
+        }
+        const chunk = data || [];
+        all.push(...chunk);
+        if (chunk.length < ADMIN_TOOLS_PAGE_SIZE) {
+            break;
+        }
+        from += ADMIN_TOOLS_PAGE_SIZE;
+    }
+    return { data: all, error: null };
+}
+
 async function fetchOrderRowsWithChiTietForReportRange(start, end) {
     const sel =
         'order_code, team, chi_tiet_chia, delivery_staff, thu_tu_chia, order_date, updated_at, ngay_chia_van_don';
     const [rOrd, rHcm, rOrdNgayNull, rHcmNgayNull] = await Promise.all([
-        supabase
-            .from('orders')
-            .select(sel)
-            .gte('ngay_chia_van_don', start)
-            .lte('ngay_chia_van_don', end)
-            .not('chi_tiet_chia', 'is', null),
-        supabase
-            .from('order_code_hcm')
-            .select(sel)
-            .gte('ngay_chia_van_don', start)
-            .lte('ngay_chia_van_don', end)
-            .not('chi_tiet_chia', 'is', null),
-        supabase.from('orders').select(sel).is('ngay_chia_van_don', null).not('chi_tiet_chia', 'is', null).limit(3000),
-        supabase.from('order_code_hcm').select(sel).is('ngay_chia_van_don', null).not('chi_tiet_chia', 'is', null).limit(3000),
+        fetchPagedSupabaseSelect('orders', sel, (q) =>
+            q
+                .gte('ngay_chia_van_don', start)
+                .lte('ngay_chia_van_don', end)
+                .not('chi_tiet_chia', 'is', null)
+        ),
+        fetchPagedSupabaseSelect('order_code_hcm', sel, (q) =>
+            q
+                .gte('ngay_chia_van_don', start)
+                .lte('ngay_chia_van_don', end)
+                .not('chi_tiet_chia', 'is', null)
+        ),
+        fetchPagedSupabaseSelect('orders', sel, (q) =>
+            q.is('ngay_chia_van_don', null).not('chi_tiet_chia', 'is', null)
+        ),
+        fetchPagedSupabaseSelect('order_code_hcm', sel, (q) =>
+            q.is('ngay_chia_van_don', null).not('chi_tiet_chia', 'is', null)
+        ),
     ]);
 
     const ordOk = !(rOrd || {}).error;
@@ -489,6 +525,10 @@ async function fetchOrderRowsWithChiTietForReportRange(start, end) {
         keysMain.add(k);
         mergedMain.push(r);
     }
+
+    console.log(
+        `[Báo cáo I.] Prefetch chi_tiet_chia ${start}→${end}: ${mergedMain.length} đơn (orders ${ordOk ? rOrd.data.length : 0}, HCM ${hcmOk ? rHcm.data.length : 0}, null-ngày +${mergedAux.length})`
+    );
 
     return mergedMain;
 }
@@ -2594,12 +2634,15 @@ const AdminTools = () => {
             const startDate = new Date(`${historyStartDate}T00:00:00+07:00`); // VN time
             const endDate = new Date(`${historyEndDate}T23:59:59.999+07:00`); // VN time
             
-            const { data, error } = await supabase
-                .from('history_chia_don')
-                .select('*')
-                .gte('created_at', startDate.toISOString()) // Chuyển sang UTC
-                .lte('created_at', endDate.toISOString())   // Chuyển sang UTC
-                .order('created_at', { ascending: false });
+            const { data, error } = await fetchPagedSupabaseSelect(
+                'history_chia_don',
+                '*',
+                (q) =>
+                    q
+                        .gte('created_at', startDate.toISOString())
+                        .lte('created_at', endDate.toISOString()),
+                { orderColumn: 'created_at', ascending: false }
+            );
 
             if (error) throw error;
 

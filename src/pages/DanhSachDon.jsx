@@ -29,6 +29,14 @@ import { fetchVanDonStaffNameList, isHanoiBranchTeamLabel } from '../utils/vanDo
  */
 const ORDERS_PAGE_SIZE = 1000;
 
+/** Cộng tiền từ ô lưới — cùng ý với báo cáo chi tiết / format số trên bảng. */
+function parseMoneyCell(v) {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const n = parseFloat(String(v).replace(/[^\d.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
 function chunkArray(arr, size) {
   const a = arr || [];
   const out = [];
@@ -2903,6 +2911,16 @@ function DanhSachDon({ dataSource = 'default' }) {
     teamFilter,
   ]);
 
+  const filteredTotals = useMemo(() => {
+    let totalKeToanThuVe = 0;
+    let totalShip = 0;
+    for (const row of filteredData) {
+      totalKeToanThuVe += parseMoneyCell(row['Tiền Việt đã đối soát']);
+      totalShip += parseMoneyCell(row['Phí ship']);
+    }
+    return { totalKeToanThuVe, totalShip };
+  }, [filteredData]);
+
   const bulkClearDeliveryStaffCandidateCount = useMemo(() => {
     return (filteredData || []).filter((row) => {
       const current = String(row?.['NV Vận đơn'] ?? row?.delivery_staff ?? '').trim();
@@ -3206,11 +3224,23 @@ function DanhSachDon({ dataSource = 'default' }) {
               </div>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg border border-green-200">
                 <span className="text-sm font-semibold text-green-700">Tổng tiền:</span>
-                <span className="text-sm text-green-600">
+                <span className="text-sm text-green-600 tabular-nums">
                   {filteredData.reduce((sum, row) => {
                     const amount = parseFloat(String(row["Tổng tiền VNĐ"] || 0).replace(/[^\d.-]/g, '')) || 0;
                     return sum + amount;
                   }, 0).toLocaleString('vi-VN')} ₫
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-lg border border-emerald-200">
+                <span className="text-sm font-semibold text-emerald-800">Tổng tiền Kế toán thu về:</span>
+                <span className="text-sm text-emerald-700 tabular-nums">
+                  {Math.round(filteredTotals.totalKeToanThuVe).toLocaleString('vi-VN')} ₫
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 rounded-lg border border-amber-200">
+                <span className="text-sm font-semibold text-amber-800">Tổng Ship:</span>
+                <span className="text-sm text-amber-700 tabular-nums">
+                  {Math.round(filteredTotals.totalShip).toLocaleString('vi-VN')} ₫
                 </span>
               </div>
               <button
@@ -3224,33 +3254,6 @@ function DanhSachDon({ dataSource = 'default' }) {
               </button>
               {isAdminOnly && (
                 <>
-                  <button
-                    onClick={handleAutoFillPaymentCurrencyFromArea}
-                    disabled={
-                      syncing ||
-                      loading ||
-                      deleting ||
-                      isFixingTeams ||
-                      isFixingShift ||
-                      isFillingPaymentCurrency ||
-                      isRecalculatingZeroTotalVnd ||
-                      isApplyingCanhBaoTrung
-                    }
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                    title='Tự điền "Loại tiền thanh toán" theo "Khu vực" (chỉ dòng đang trống)'
-                  >
-                    {isFillingPaymentCurrency ? (
-                      <>
-                        <span className="animate-spin">⏳</span>
-                        Đang điền...
-                      </>
-                    ) : (
-                      <>
-                        <Settings className="w-4 h-4" />
-                        Điền loại tiền
-                      </>
-                    )}
-                  </button>
                   <button
                     onClick={handleRecalculateZeroTotalVnd}
                     disabled={

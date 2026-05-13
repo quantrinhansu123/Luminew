@@ -924,8 +924,10 @@ export const MODULE_PAGES = {
             { code: 'FINANCE_LEDGER', name: 'Sổ quỹ & Dòng tiền', path: 'https://lumi-finance-manager.vercel.app/#/ledger' },
             { code: 'FINANCE_REPORTS', name: 'Báo cáo quản trị', path: 'https://lumi-finance-manager.vercel.app/#/management-reports' },
             { code: 'FINANCE_F3', name: 'Dữ liệu F3', path: '/du-lieu-f3' },
+            { code: 'FINANCE_F3_HCM', name: 'Dữ liệu F3 (HCM)', path: '/du-lieu-f3-hcm' },
             { code: 'FINANCE_KPI', name: 'Báo cáo KPI', path: '/bao-cao-kpi' },
-            { code: 'FINANCE_DOI_SOAT_BILL', name: 'Đối soát bill cước', path: '/doi-soat-bill-cuoc' }
+            { code: 'FINANCE_DOI_SOAT_BILL', name: 'Đối soát bill cước', path: '/doi-soat-bill-cuoc' },
+            { code: 'FINANCE_DOI_SOAT_BILL_HCM', name: 'Đối soát bill cước (HCM)', path: '/doi-soat-bill-cuoc-hcm' }
         ]
     },
     'MODULE_ADMIN': {
