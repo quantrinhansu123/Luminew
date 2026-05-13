@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { ArrowLeft, RefreshCw, Plus, X, RotateCw, Download, Upload, Trash2, History, Search, FileDown, User, Edit3, Save } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import * as XLSX from 'xlsx';
 
@@ -322,6 +323,7 @@ async function fetchScopedOrderCodesSet(supabaseClient, orderCodes, isHcmScope, 
 
 function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const isHcmScope = dataScope === 'hcm';
+  const { canView } = usePermissions();
   const ordersTableName = isHcmScope ? 'order_code_hcm' : 'orders';
   const [activeTab, setActiveTab] = useState('bill'); // 'bill' or 'cuoc'
   const [billData, setBillData] = useState([]);
@@ -4388,6 +4390,18 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       setBackfillingHcm(false);
     }
   };
+
+  const billCuocFinanceCodes = isHcmScope
+    ? ['FINANCE_DOI_SOAT_BILL_HCM', 'FINANCE_DOI_SOAT_BILL', 'FINANCE_DASHBOARD', 'FINANCE_ACCESS']
+    : ['FINANCE_DOI_SOAT_BILL', 'FINANCE_DASHBOARD', 'FINANCE_ACCESS'];
+  const hasBillCuocPageAccess = billCuocFinanceCodes.some((c) => canView(c));
+  if (!hasBillCuocPageAccess) {
+    return (
+      <div className="p-8 text-center text-red-600 font-bold">
+        Bạn không có quyền truy cập trang này. Cần quyền xem ít nhất một mã: {billCuocFinanceCodes.join(', ')}.
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

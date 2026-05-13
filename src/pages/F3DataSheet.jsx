@@ -413,6 +413,12 @@ function DanhSachDon({ dataSource = 'default' }) {
   /** Sửa / xóa vận đơn hàng loạt: cùng logic với nút Sửa VĐ từng dòng. */
   const canEditOnThisOrderList = orderListAccessCodes.some((code) => canEdit(code));
 
+  const F3_FINANCE_VIEW_CODES_HCM = ['FINANCE_F3_HCM', 'FINANCE_F3', 'FINANCE_DASHBOARD', 'FINANCE_ACCESS'];
+  const F3_FINANCE_VIEW_CODES_DEFAULT = ['FINANCE_F3', 'FINANCE_DASHBOARD', 'FINANCE_ACCESS'];
+  const hasF3FinanceRouteAccess = (isHcmDataSource ? F3_FINANCE_VIEW_CODES_HCM : F3_FINANCE_VIEW_CODES_DEFAULT).some(
+    (c) => canView(c)
+  );
+  const canAccessF3Page = hasOrderListAccess || hasF3FinanceRouteAccess;
 
   const [allData, setAllData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -3365,11 +3371,13 @@ function DanhSachDon({ dataSource = 'default' }) {
     isAdmin,
   ]);
 
-  if (!hasOrderListAccess) {
+  if (!canAccessF3Page) {
+    const codesHint = isHcmDataSource
+      ? `${orderListAccessCodes.join(', ')} hoặc ${F3_FINANCE_VIEW_CODES_HCM.join(', ')}`
+      : `${orderListAccessCodes.join(', ')} hoặc ${F3_FINANCE_VIEW_CODES_DEFAULT.join(', ')}`;
     return (
       <div className="p-8 text-center text-red-600 font-bold">
-        Bạn không có quyền truy cập trang này. Cần quyền xem ít nhất một mã:{' '}
-        {orderListAccessCodes.join(', ')}.
+        Bạn không có quyền truy cập trang này. Cần quyền xem ít nhất một mã trong: {codesHint}.
       </div>
     );
   }

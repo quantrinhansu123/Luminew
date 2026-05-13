@@ -437,6 +437,71 @@ async function buildPersonnelListFromUserRow(u) {
 }
 
 /**
+ * Đổi token email trong danh sách nhân sự sang tên (human_resources) để khớp cột `Tên` / `Họ Và Tên` trên báo cáo MKT HCM.
+ * Nếu không còn tên nào sau bước parse (selected_personnel rỗng, tên tài khoản là email, …) thì thử theo email đăng nhập.
+ */
+async function expandPersonnelTokensWithHrDisplayNames(tokens, { loginEmail } = {}) {
+    const nameSet = new Set();
+    const emailsToResolve = new Set();
+
+    for (const t of tokens || []) {
+        const n = normalizeMktPersonWhitespace(String(t ?? ''));
+        if (!n) continue;
+        if (n.includes('@')) {
+            emailsToResolve.add(n.toLowerCase().trim());
+        } else {
+            nameSet.add(n);
+        }
+    }
+
+    const loginLo = String(loginEmail || '').toLowerCase().trim();
+    if (nameSet.size === 0 && emailsToResolve.size === 0 && loginLo) {
+        emailsToResolve.add(loginLo);
+    }
+
+    if (emailsToResolve.size === 0) {
+        return [...nameSet].map((x) => normalizeMktPersonWhitespace(x)).filter(Boolean);
+    }
+
+    const emailArr = [...emailsToResolve];
+    try {
+        let rows = null;
+        const withTen = await supabase
+            .from('human_resources')
+            .select('"Họ Và Tên", email, "Tên"')
+            .in('email', emailArr);
+        if (withTen.error) {
+            const fb = await supabase
+                .from('human_resources')
+                .select('"Họ Và Tên", email')
+                .in('email', emailArr);
+            if (fb.error) {
+                console.warn('[rbacService] expandPersonnelTokensWithHrDisplayNames:', fb.error.message);
+                return [...nameSet].map((x) => normalizeMktPersonWhitespace(x)).filter(Boolean);
+            }
+            rows = fb.data;
+        } else {
+            rows = withTen.data;
+        }
+
+        const emailNorm = (e) => String(e || '').toLowerCase().trim();
+        const want = new Set(emailArr);
+        for (const r of rows || []) {
+            const em = emailNorm(r?.email);
+            if (!em || !want.has(em)) continue;
+            const hv = normalizeMktPersonWhitespace(r['Họ Và Tên'] || '');
+            const tenCol = normalizeMktPersonWhitespace(r['Tên'] || '');
+            if (hv) nameSet.add(hv);
+            if (tenCol) nameSet.add(tenCol);
+        }
+    } catch (e) {
+        console.warn('[rbacService] expandPersonnelTokensWithHrDisplayNames:', e);
+    }
+
+    return [...nameSet].map((x) => normalizeMktPersonWhitespace(x)).filter(Boolean);
+}
+
+/**
  * Tìm user theo email đăng nhập hoặc username (`users.username`), trả về danh sách tên phạm vi (selected_personnel tách dấu phẩy + …).
  */
 export async function getSelectedPersonnelForLogin({ email, username } = {}) {
@@ -475,7 +540,8 @@ export async function getSelectedPersonnelForLogin({ email, username } = {}) {
     }
 
     if (!row) return [];
-    return buildPersonnelListFromUserRow(row);
+    const base = await buildPersonnelListFromUserRow(row);
+    return expandPersonnelTokensWithHrDisplayNames(base, { loginEmail: row.email });
 }
 
 /**
@@ -501,7 +567,9 @@ export const getSelectedPersonnel = async (emails) => {
 
         for (const u of data) {
             const emailKey = String(u.email || '').toLowerCase().trim();
-            const list = await buildPersonnelListFromUserRow(u);
+            const list = await expandPersonnelTokensWithHrDisplayNames(await buildPersonnelListFromUserRow(u), {
+                loginEmail: u.email,
+            });
             personnelMap[emailKey] = list;
             const rawEmail = String(u.email || '').trim();
             if (rawEmail) {

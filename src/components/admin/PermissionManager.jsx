@@ -358,6 +358,177 @@ const EmployeesList = ({
         }
     }, [teams, employees, allEmployees, isNhanVien, isLeader, currentUserEmail, personnelNamesNorm, teamEmployees]);
 
+    const availableEmployees = allEmployees;
+
+    const getEmployeeDisplayName = (emp) =>
+        String(emp?.['Họ Và Tên'] || emp?.name || emp?.email || '').trim();
+
+    const collectSelectableEmployeeNames = () => {
+        const names = [];
+        for (const emp of availableEmployees) {
+            const empEmail = emp.email || emp.Email || '';
+            if (!empEmail || !empEmail.includes('@')) continue;
+            const empName = getEmployeeDisplayName(emp);
+            if (empName) names.push(empName);
+        }
+        return [...new Set(names)];
+    };
+
+    const toggleEmployee = (emp) => {
+        const employeeName = getEmployeeDisplayName(emp);
+        if (!employeeName) return;
+        setSelectedEmployees((prev) =>
+            prev.includes(employeeName) ? prev.filter((e) => e !== employeeName) : [...prev, employeeName]
+        );
+    };
+
+    const getNetworkHint = (err) => {
+        const msg = String(err?.message || err || '');
+        if (!/failed to fetch|networkerror/i.test(msg)) return '';
+        return ' Kiểm tra mạng/VPN, Vercel env (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY) và trạng thái project Supabase.';
+    };
+
+    const handleSave = async () => {
+        console.log('💾 EmployeesList handleSave called:', {
+            selectedEmployees,
+            count: selectedEmployees.length,
+            type: typeof selectedEmployees,
+            isArray: Array.isArray(selectedEmployees),
+            hasCallback: !!onUpdateEmployees,
+        });
+
+        if (!onUpdateEmployees) {
+            console.error('❌ onUpdateEmployees callback không tồn tại!');
+            alert('Lỗi: Không tìm thấy callback để lưu dữ liệu');
+            return;
+        }
+
+        const validNames = rbacService.normalizeSelectedPersonnelNamesInput(selectedEmployees);
+
+        console.log('📝 Valid names to save:', validNames);
+        console.log('📞 Calling onUpdateEmployees with:', validNames);
+
+        try {
+            await onUpdateEmployees(validNames);
+            console.log('✅ onUpdateEmployees called successfully');
+            setIsEditing(false);
+        } catch (error) {
+            console.error('❌ Error calling onUpdateEmployees:', error);
+            toast.error('Lỗi khi lưu: ' + (error?.message || 'Unknown error') + getNetworkHint(error));
+        }
+    };
+
+    const handleCancel = () => {
+        if (isNhanVien && currentUserEmail) {
+            setSelectedEmployees(personnelNamesNorm);
+        } else if (isLeader && teams && teams.length > 0 && teamEmployees.length > 0) {
+            const teamNames = teamEmployees.map((e) => e['Họ Và Tên'] || e.name || e.email);
+
+            if (personnelNamesNorm.length > 0) {
+                const merged = [...new Set([...teamNames, ...personnelNamesNorm])];
+                setSelectedEmployees(merged);
+            } else {
+                setSelectedEmployees(teamNames);
+            }
+        } else if (personnelNamesNorm.length > 0) {
+            setSelectedEmployees(personnelNamesNorm);
+        } else if (teams && teams.length > 0) {
+            const filtered = allEmployees.filter((emp) => {
+                const empTeam = emp.team || emp.Team || '';
+                return teams.some(
+                    (team) => empTeam === team || String(empTeam).toLowerCase() === String(team).toLowerCase()
+                );
+            });
+            setSelectedEmployees(filtered.map((e) => e['Họ Và Tên'] || e.name || e.email));
+        } else {
+            setSelectedEmployees([]);
+        }
+        setIsEditing(false);
+    };
+
+    const handleSyncTeamPersonnel = async () => {
+        if (!isLeader || !teams || teams.length === 0) return;
+        if (!Array.isArray(teamEmployeeNames) || teamEmployeeNames.length === 0) return;
+        if (typeof onUpdateEmployees !== 'function') return;
+
+        const names = Array.from(new Set(teamEmployeeNames));
+        try {
+            await onUpdateEmployees(names);
+            setSelectedEmployees(names);
+            setIsExpanded(true);
+            setIsEditing(false);
+        } catch (error) {
+            console.error('Error syncing team personnel:', error);
+            toast.error('Lỗi đồng bộ nhân sự: ' + (error?.message || 'Unknown error'));
+        }
+    };
+
+    const allEmployeesSelectedForEdit = () => {
+        const names = collectSelectableEmployeeNames();
+        return names.length > 0 && names.every((name) => selectedEmployees.includes(name));
+    };
+
+    const handleToggleSelectAllEmployees = () => {
+        const names = collectSelectableEmployeeNames();
+        if (names.length === 0) return;
+        setSelectedEmployees(allEmployeesSelectedForEdit() ? [] : names);
+    };
+
+    if (isEditing) {
+        return (
+            <div className="space-y-2">
+                <div className="flex items-center justify-end">
+                    <button
+                        type="button"
+                        onClick={handleToggleSelectAllEmployees}
+                        className="text-xs text-indigo-600 hover:text-indigo-700 underline"
+                        title="Chọn toàn bộ nhân sự trong danh sách"
+                    >
+                        {allEmployeesSelectedForEdit() ? 'Bỏ chọn hết' : 'Chọn full'}
+                    </button>
+                </div>
+                <div className="max-h-40 overflow-y-auto border rounded p-2 space-y-1 bg-gray-50">
+                    {availableEmployees.map((emp) => {
+                        const empEmail = emp.email || emp.Email || '';
+                        const empName = getEmployeeDisplayName(emp);
+
+                        if (!empEmail || !empEmail.includes('@')) {
+                            console.warn('⚠️ Employee không có email hợp lệ:', emp);
+                            return null;
+                        }
+
+                        const isSelected = selectedEmployees.includes(empName);
+                        return (
+                            <label key={empEmail} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {
+                                        console.log('🔘 Toggle employee:', { name: empName, email: empEmail });
+                                        toggleEmployee(emp);
+                                    }}
+                                    className="rounded"
+                                />
+                                <div className="flex-1 text-xs">
+                                    <div className="font-medium text-gray-700">{empName}</div>
+                                    <div className="text-gray-500">{empEmail}</div>
+                                </div>
+                            </label>
+                        );
+                    })}
+                </div>
+                <div className="flex items-center gap-1">
+                    <button onClick={handleSave} className="text-green-600 hover:text-green-700 p-1 text-xs">
+                        <Check size={14} /> Lưu
+                    </button>
+                    <button onClick={handleCancel} className="text-red-500 hover:text-red-600 p-1 text-xs">
+                        <X size={14} /> Hủy
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     // Nếu là Nhân viên: hiển thị danh sách nhân sự đã chọn (nếu có) hoặc cho phép thêm
     // Không tự động load từ teams, nhưng vẫn có thể edit và thêm nhân sự thủ công
         if (isNhanVien && currentUserEmail) {
@@ -457,151 +628,6 @@ const EmployeesList = ({
                 return teams.some(team => empTeam === team || String(empTeam).toLowerCase() === String(team).toLowerCase());
             }));
     
-    // Tất cả employees có sẵn để chọn (không chỉ từ team)
-    const availableEmployees = allEmployees;
-
-    const toggleEmployee = (emp) => {
-        // Lưu tên nhân viên thay vì email
-        const employeeName = emp['Họ Và Tên'] || emp.name || emp.email;
-        setSelectedEmployees(prev => {
-            if (prev.includes(employeeName)) {
-                return prev.filter(e => e !== employeeName);
-            } else {
-                return [...prev, employeeName];
-            }
-        });
-    };
-
-    const getNetworkHint = (err) => {
-        const msg = String(err?.message || err || '');
-        if (!/failed to fetch|networkerror/i.test(msg)) return '';
-        return ' Kiểm tra mạng/VPN, Vercel env (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY) và trạng thái project Supabase.';
-    };
-
-    const handleSave = async () => {
-        console.log('💾 EmployeesList handleSave called:', { 
-            selectedEmployees, 
-            count: selectedEmployees.length,
-            type: typeof selectedEmployees,
-            isArray: Array.isArray(selectedEmployees),
-            hasCallback: !!onUpdateEmployees
-        });
-        
-        if (!onUpdateEmployees) {
-            console.error('❌ onUpdateEmployees callback không tồn tại!');
-            alert('Lỗi: Không tìm thấy callback để lưu dữ liệu');
-            return;
-        }
-        
-        const validNames = rbacService.normalizeSelectedPersonnelNamesInput(selectedEmployees);
-        
-        console.log('📝 Valid names to save:', validNames);
-        console.log('📞 Calling onUpdateEmployees with:', validNames);
-        
-        try {
-            await onUpdateEmployees(validNames);
-            console.log('✅ onUpdateEmployees called successfully');
-            setIsEditing(false);
-        } catch (error) {
-            console.error('❌ Error calling onUpdateEmployees:', error);
-            toast.error('Lỗi khi lưu: ' + (error?.message || 'Unknown error') + getNetworkHint(error));
-        }
-    };
-
-    const handleCancel = () => {
-        if (isNhanVien && currentUserEmail) {
-            // Nhân viên: reset về selectedPersonnel nếu có (đã là tên)
-            setSelectedEmployees(personnelNamesNorm);
-        } else if (isLeader && teams && teams.length > 0 && teamEmployees.length > 0) {
-            // Nếu là Leader: lấy toàn bộ nhân sự từ teams (chuyển sang tên)
-            const teamEmployeeNames = teamEmployees.map(e => e['Họ Và Tên'] || e.name || e.email);
-            
-            // Merge với selectedPersonnel nếu có (đã là tên)
-            if (personnelNamesNorm.length > 0) {
-                const merged = [...new Set([...teamEmployeeNames, ...personnelNamesNorm])];
-                setSelectedEmployees(merged);
-            } else {
-                setSelectedEmployees(teamEmployeeNames);
-            }
-        } else if (personnelNamesNorm.length > 0) {
-            setSelectedEmployees(personnelNamesNorm);
-        } else if (teams && teams.length > 0) {
-            const filtered = allEmployees.filter(emp => {
-                const empTeam = emp.team || emp.Team || '';
-                return teams.some(team => empTeam === team || String(empTeam).toLowerCase() === String(team).toLowerCase());
-            });
-            // Chuyển sang tên
-            setSelectedEmployees(filtered.map(e => e['Họ Và Tên'] || e.name || e.email));
-        } else {
-            setSelectedEmployees([]);
-        }
-        setIsEditing(false);
-    };
-
-    // Đồng bộ toàn bộ nhân sự thuộc team hiện chọn vào cột "Nhân sự" (selected_personnel).
-    const handleSyncTeamPersonnel = async () => {
-        if (!isLeader || !teams || teams.length === 0) return;
-        if (!Array.isArray(teamEmployeeNames) || teamEmployeeNames.length === 0) return;
-        if (typeof onUpdateEmployees !== 'function') return;
-
-        const names = Array.from(new Set(teamEmployeeNames));
-        try {
-            await onUpdateEmployees(names);
-            setSelectedEmployees(names);
-            setIsExpanded(true);
-            setIsEditing(false);
-        } catch (error) {
-            console.error('Error syncing team personnel:', error);
-            toast.error('Lỗi đồng bộ nhân sự: ' + (error?.message || 'Unknown error'));
-        }
-    };
-
-    if (isEditing) {
-        return (
-            <div className="space-y-2">
-                <div className="max-h-40 overflow-y-auto border rounded p-2 space-y-1 bg-gray-50">
-                    {availableEmployees.map(emp => {
-                        // Đảm bảo có email
-                        const empEmail = emp.email || emp.Email || '';
-                        const empName = emp['Họ Và Tên'] || emp.name || empEmail;
-                        
-                        if (!empEmail || !empEmail.includes('@')) {
-                            console.warn('⚠️ Employee không có email hợp lệ:', emp);
-                            return null;
-                        }
-                        
-                        // So sánh theo tên (vì lưu tên)
-                        const isSelected = selectedEmployees.includes(empName);
-                        return (
-                            <label key={empEmail} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => {
-                                        console.log('🔘 Toggle employee:', { name: empName, email: empEmail });
-                                        toggleEmployee(emp);
-                                    }}
-                                    className="rounded"
-                                />
-                                <div className="flex-1 text-xs">
-                                    <div className="font-medium text-gray-700">{empName}</div>
-                                    <div className="text-gray-500">{empEmail}</div>
-                                </div>
-                            </label>
-                        );
-                    })}
-                </div>
-                <div className="flex items-center gap-1">
-                    <button onClick={handleSave} className="text-green-600 hover:text-green-700 p-1 text-xs">
-                        <Check size={14} /> Lưu
-                    </button>
-                    <button onClick={handleCancel} className="text-red-500 hover:text-red-600 p-1 text-xs">
-                        <X size={14} /> Hủy
-                    </button>
-                </div>
-            </div>
-        );
-    }
 
     if (filteredEmployees.length === 0) {
         return (
@@ -816,6 +842,35 @@ const PermissionManager = ({ searchQuery = "" }) => {
             return empName.includes(q) || email.includes(q) || team.includes(q);
         });
     }, [employees, editPersonnelSearch]);
+
+    const selectableEditPersonnelNames = useMemo(
+        () =>
+            filteredEmployeesForEditPersonnel
+                .map((emp) => String(emp['Họ Và Tên'] || emp.name || emp.email || '').trim())
+                .filter(Boolean),
+        [filteredEmployeesForEditPersonnel]
+    );
+
+    const allEditPersonnelSelected =
+        selectableEditPersonnelNames.length > 0 &&
+        selectableEditPersonnelNames.every((name) => editFormData.selectedPersonnel.includes(name));
+
+    const handleToggleSelectAllEditPersonnel = () => {
+        if (selectableEditPersonnelNames.length === 0) return;
+        setEditFormData((prev) => {
+            if (allEditPersonnelSelected) {
+                const visible = new Set(selectableEditPersonnelNames);
+                return {
+                    ...prev,
+                    selectedPersonnel: prev.selectedPersonnel.filter((name) => !visible.has(name)),
+                };
+            }
+            return {
+                ...prev,
+                selectedPersonnel: [...new Set([...prev.selectedPersonnel, ...selectableEditPersonnelNames])],
+            };
+        });
+    };
 
     // Leader teams state
     const [leaderTeamsMap, setLeaderTeamsMap] = useState({}); // { email: [teams] }
@@ -2018,6 +2073,19 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                     className="border rounded text-sm w-full pl-9 pr-3 py-2 bg-white"
                                                     autoComplete="off"
                                                 />
+                                            </div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <p className="text-xs text-gray-500">
+                                                    Đang hiển thị {selectableEditPersonnelNames.length} nhân sự
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleToggleSelectAllEditPersonnel}
+                                                    className="text-xs text-indigo-600 hover:text-indigo-700 underline"
+                                                    title="Chọn toàn bộ nhân sự đang hiển thị"
+                                                >
+                                                    {allEditPersonnelSelected ? 'Bỏ chọn hết' : 'Chọn full'}
+                                                </button>
                                             </div>
                                             <div className="border rounded p-3 bg-gray-50 max-h-60 overflow-y-auto">
                                                 <div className="space-y-2">
