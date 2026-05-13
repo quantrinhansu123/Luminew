@@ -152,40 +152,18 @@ async function fetchDanhSachDonMergedRawOrders({
   startDate,
   endDate,
   teamFilter,
-  isAdmin,
-  selectedPersonnelNames,
-  userName,
   selectColumns = '*',
   skipImplicitFilters = false,
 }) {
-  const normalizeNameForQuery = (str) => {
-    if (!str) return '';
-    return String(str).trim().replace(/\s+/g, ' ');
-  };
-
   const applyTeamAndPersonnel = (q) => {
     let query = q;
-    // Áp dụng bộ lọc Team nếu có
-    if (!skipImplicitFilters && teamFilter) {
-      query = query.eq('team', teamFilter);
-    } else if (!skipImplicitFilters && ordersTableName === 'orders') {
-      // Mặc định cho phép Admin xem toàn bộ, hoặc nếu không có teamFilter cụ thể
-      // Không ép lọc "neq.HCM" ở tầng query trừ khi database yêu cầu tách biệt hoàn toàn
-    }
-
-    // Áp dụng bộ lọc nhân sự nếu không phải Admin
-    if (!isAdmin && !skipImplicitFilters) {
-      const allNames = [...new Set([...(selectedPersonnelNames || []), userName].filter(Boolean))];
-      if (allNames.length > 0) {
-        const orConditions = allNames.flatMap((name) => {
-          const normalizedName = normalizeNameForQuery(name);
-          return [
-            `sale_staff.ilike.%${normalizedName}%`,
-            `marketing_staff.ilike.%${normalizedName}%`,
-            `delivery_staff.ilike.%${normalizedName}%`,
-          ];
-        });
-        query = query.or(orConditions.join(','));
+    if (!skipImplicitFilters && ordersTableName === 'orders') {
+      if (teamFilter === 'RD') {
+        query = query.or('team.is.null,team.neq.HCM');
+      } else if (teamFilter === 'HCM') {
+        query = query.ilike('team', '%HCM%');
+      } else {
+        query = query.not('team', 'ilike', '%HCM%');
       }
     }
     return query;
@@ -194,7 +172,8 @@ async function fetchDanhSachDonMergedRawOrders({
   const fetchAllPages = async ({ orderField = 'order_date', includeOrderDateRange = true, extraQueryBuilder = null }) => {
     const all = [];
     let from = 0;
-    const maxPages = 100;
+    const maxPages = 500;
+    const orderDateEnd = endDate ? `${endDate}T23:59:59` : endDate;
 
     for (let page = 0; page < maxPages; page++) {
       // Tạo query mới cho mỗi page
@@ -204,7 +183,7 @@ async function fetchDanhSachDonMergedRawOrders({
       // Áp dụng filter theo ngày tại Database level
       if (!skipImplicitFilters && includeOrderDateRange) {
         if (startDate) query = query.gte('order_date', startDate);
-        if (endDate) query = query.lte('order_date', endDate);
+        if (orderDateEnd) query = query.lte('order_date', orderDateEnd);
       }
       if (typeof extraQueryBuilder === 'function') {
         query = extraQueryBuilder(query);
@@ -233,6 +212,11 @@ async function fetchDanhSachDonMergedRawOrders({
       }
 
       from += ORDERS_PAGE_SIZE;
+      if (page === maxPages - 1) {
+        console.warn(
+          `⚠️ [DanhSachDon] Đã đạt giới hạn ${maxPages} trang (${all.length} đơn); có thể còn đơn chưa tải trong khoảng ngày.`
+        );
+      }
     }
 
     return all;
@@ -327,7 +311,14 @@ function DanhSachDon({ dataSource = 'default' }) {
   const isHcmDataSource = dataSource === 'hcm';
   const isHcmView = activeTab === 'hcm';
   const baseSourceTable = isHcmDataSource ? 'order_code_hcm' : 'orders';
-  const ordersTableName = activeTab === 'hcm' ? 'order_code_hcm' : 'orders';
+  /** Tab Tổng hợp F3 vẫn đọc đúng bảng HCM trên route /du-lieu-f3-hcm. */
+  const ordersTableName =
+    activeTab === 'hcm' || (isHcmDataSource && activeTab === 'f3_summary')
+      ? 'order_code_hcm'
+      : 'orders';
+
+  const buildOrdersCacheKey = (tableName, start, end, personnelNames) =>
+    `${tableName}_${start}_${end}_${(personnelNames || []).join(',')}`;
 
   // Cache để tránh load lại khi chuyển đổi
   const [dataCache, setDataCache] = useState({
@@ -747,7 +738,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       console.log(`Loading data from ${ordersTableName}...`);
 
       // Cache key phải bao gồm cả ngày tháng và nhân sự để đảm bảo tính chính xác
-      const cacheKey = `${ordersTableName}_${startDate}_${endDate}_${selectedPersonnelNames.join(',')}`;
+      const cacheKey = buildOrdersCacheKey(ordersTableName, startDate, endDate, selectedPersonnelNames);
 
       // Kiểm tra cache trước - Cache key phải bao gồm cả ngày tháng và nhân sự để đảm bảo tính chính xác
       if (!forceReload && dataCache[cacheKey]) {
@@ -830,7 +821,8 @@ function DanhSachDon({ dataSource = 'default' }) {
       // Giữ scope dữ liệu nhất quán với /van-don:
       // - HCM: chỉ lấy team HCM (tránh lẫn dữ liệu nhánh khác)
       // - Mặc định: dùng teamFilter hiện tại (nếu có)
-      const effectiveTeamFilter = isHcmView ? 'HCM' : teamFilter;
+      const effectiveTeamFilter =
+        ordersTableName === 'order_code_hcm' ? null : (isHcmDataSource || isHcmView ? 'HCM' : teamFilter);
 
       const mergedRaw = await fetchDanhSachDonMergedRawOrders({
         supabaseClient: supabase,
@@ -1295,9 +1287,10 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   useEffect(() => {
     if (!selectedPersonnelLoaded) return;
-    if (activeTab === 'f3_summary') return;
+    const summaryOnly = activeTab === 'f3_summary';
+    if (summaryOnly && ordersTableName !== baseSourceTable) return;
     loadData();
-  }, [startDate, endDate, role, selectedPersonnelNames.join('|'), selectedPersonnelLoaded, activeTab]); // reload khi filter nhân sự đổi
+  }, [startDate, endDate, role, selectedPersonnelNames.join('|'), selectedPersonnelLoaded, activeTab, ordersTableName, baseSourceTable]); // reload khi filter nhân sự đổi
 
   // Reload khi chuyển đổi bảng (sử dụng cache nếu có)
   useEffect(() => {
@@ -3218,9 +3211,35 @@ function DanhSachDon({ dataSource = 'default' }) {
   // --- F3 SUMMARY CALCULATION (DYNAMIC) ---
   const f3SummaryData = useMemo(() => {
     if (activeTab !== 'f3_summary') return null;
-    // Tổng hợp phải bám theo nhánh màn hình hiện tại (HCM/HN), không phụ thuộc tab vừa xem trước đó.
-    const cachedRows = Array.isArray(dataCache?.[baseSourceTable]) ? dataCache[baseSourceTable] : null;
-    const summaryRows = cachedRows ?? (ordersTableName === baseSourceTable ? allData : []);
+    const summaryCacheKey = buildOrdersCacheKey(
+      baseSourceTable,
+      startDate,
+      endDate,
+      selectedPersonnelNames
+    );
+    const cachedRows = Array.isArray(dataCache?.[summaryCacheKey])
+      ? dataCache[summaryCacheKey]
+      : Array.isArray(dataCache?.[baseSourceTable])
+        ? dataCache[baseSourceTable]
+        : null;
+    let summaryRows =
+      cachedRows ?? (ordersTableName === baseSourceTable ? allData : []);
+
+    if (!isAdmin && selectedPersonnelNames.length > 0) {
+      summaryRows = summaryRows.filter((row) => {
+        const marketingStaff = rowDisplayMktStaff(row).toLowerCase();
+        const salesStaff = rowDisplaySaleStaff(row).toLowerCase();
+        const deliveryStaff = String(row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').toLowerCase().trim();
+        return selectedPersonnelNames.some((name) => {
+          const nameLower = name.toLowerCase().trim();
+          return (
+            (marketingStaff && marketingStaff.includes(nameLower)) ||
+            (salesStaff && salesStaff.includes(nameLower)) ||
+            (deliveryStaff && deliveryStaff.includes(nameLower))
+          );
+        });
+      });
+    }
 
     const stats = {
       mkt: {},
@@ -3286,7 +3305,18 @@ function DanhSachDon({ dataSource = 'default' }) {
     };
 
     return result;
-  }, [allData, activeTab, dataCache, baseSourceTable, ordersTableName]);
+  }, [
+    allData,
+    activeTab,
+    dataCache,
+    baseSourceTable,
+    ordersTableName,
+    startDate,
+    endDate,
+    selectedPersonnelNames,
+    isHcmDataSource,
+    isAdmin,
+  ]);
 
   if (!hasOrderListAccess) {
     return (
