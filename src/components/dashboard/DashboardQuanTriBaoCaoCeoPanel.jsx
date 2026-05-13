@@ -577,6 +577,8 @@ function emptyAgg(label) {
     doanhSoTT: 0,
     /** Tử số «Tỉ lệ chốt» khớp MKT: HN = tổng TT/đơn thực tế; HCM = tổng «Số đơn» nhập tay (xem masterData viewNsMoiNhanh*.html). */
     soDonForTiLeChot: 0,
+    /** Mẫu số «%CP/DS» khớp MKT: = CPQC / DS Chốt nhập tay (doanhSoTay). */
+    doanhSoForCpDs: 0,
   };
 }
 
@@ -590,6 +592,10 @@ function addRow(agg, r) {
   const src = String(r.__ceo_source || '').toLowerCase();
   const donMkt = src === 'hcm' ? Number(r.soDonTay || 0) : Number(r.soDonThucTe || 0);
   agg.soDonForTiLeChot += donMkt;
+  // %CP/DS: HCM dùng DS Chốt nhập tay (cột «Doanh số»);
+  // HN dùng DS Chốt TT (vì HN map dsChot = dsChotThucTe trong viewNsMoiNhanh.html).
+  const dsForCpDs = src === 'hcm' ? Number(r.doanhSoTay || 0) : Number(r.doanhThuChotThucTe || 0);
+  agg.doanhSoForCpDs += dsForCpDs;
 }
 
 function addAgg(dst, src) {
@@ -600,6 +606,7 @@ function addAgg(dst, src) {
   dst.soDonTT += Number(src.soDonTT || 0);
   dst.doanhSoTT += Number(src.doanhSoTT || 0);
   dst.soDonForTiLeChot += Number(src.soDonForTiLeChot || 0);
+  dst.doanhSoForCpDs += Number(src.doanhSoForCpDs || 0);
 }
 
 function pct(n, d) {
@@ -644,8 +651,10 @@ function finalizeCeoAgg(a) {
     tiLeChotTT: moneyDiv(a.soDonTT, a.mess),
     giaMess: moneyDiv(a.cpqc, a.mess),
     cps: moneyDiv(a.cpqc, a.soDonForTiLeChot),
-    cpDs: moneyDiv(a.cpqc, a.doanhSoTT),
-    giaTbDon: moneyDiv(a.doanhSoTT, a.soDonTT),
+    // %CP/DS: khớp MKT → CPQC / DS Chốt nhập tay (doanhSoForCpDs)
+    cpDs: moneyDiv(a.cpqc, a.doanhSoForCpDs),
+    // Giá TB Đơn: khớp MKT → DS Chốt / Số đơn (HCM: nhập tay, HN: TT)
+    giaTbDon: moneyDiv(a.doanhSoForCpDs, a.soDonForTiLeChot),
   };
 }
 
@@ -1458,8 +1467,10 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
                       <th className="text-left">Khu vực</th>
                       <th>Số Mess</th>
                       <th>CPQC</th>
+                      <th>Số Đơn</th>
+                      <th>DS Chốt</th>
                       <th>DS Chốt (TT)</th>
-                      <th>Tỉ lệ chốt</th>
+                      <th>Số Đơn (TT)</th>
                       <th>Tỉ lệ chốt (TT)</th>
                       <th>Giá Mess</th>
                       <th>CPS</th>
@@ -1473,20 +1484,19 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
                         <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
                         <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
                         <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.soDonForTiLeChot)}</td>
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoForCpDs)}</td>
                         <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
-                        <td
-                          style={warnStyle(chotKind(a.soDonForTiLeChot, a.mess))}
-                          className={a.label === 'Tổng' ? 'total-value' : ''}
-                        >
-                          {pct(a.soDonForTiLeChot, a.mess)}
+                        <td className={a.label === 'Tổng' ? 'total-value' : ''}>
+                          {formatNumber(a.soDonTT)}
                         </td>
                         <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
                           {pct(a.soDonTT, a.mess)}
                         </td>
                         <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaMess)}</td>
                         <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cps)}</td>
-                        <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoTT))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                          {pct(a.cpqc, a.doanhSoTT)}
+                        <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoForCpDs))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                          {pct(a.cpqc, a.doanhSoForCpDs)}
                         </td>
                         <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaTbDon)}</td>
                       </tr>

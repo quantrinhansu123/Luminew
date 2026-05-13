@@ -279,6 +279,12 @@ function parseSoDonBaoCaoTayFromRow(row) {
   return parseIntegerVi(row['Số đơn'] ?? row.so_don ?? 0);
 }
 
+/** Cột «Doanh số» nhập tay trên báo cáo — recalc không ghi đè. */
+function parseDoanhSoManualFromRow(row) {
+  if (!row) return 0;
+  return parseMoneyNumber(row['Doanh số'] ?? row.doanh_so ?? row.revenue ?? 0);
+}
+
 /** Khớp `parseDoanhSoChotTTFromRow` trong viewNsMoiNhanh*.html (dedupe). */
 function parseDoanhSoChotTTFromRow(row) {
   if (!row) return 0;
@@ -400,7 +406,9 @@ export function overlayHcmMarketingReportRowsFromOrders(reportRows, orders) {
 
 /**
  * Trùng `id` (API lặp) hoặc trùng key logic → gộp một dòng:
- * chỉ CPQC và Số_Mess_Cmt: tổng; Số đơn TT / hoàn hủy / DS Chốt TT: max; «Số đơn» (nhập tay): max.
+ * CPQC, Số_Mess_Cmt, «Số đơn» (nhập tay), «Doanh số» (nhập tay): cộng dồn;
+ * Số đơn TT / hoàn hủy / DS Chốt TT: max.
+ * Khớp đúng logic dedupeMktDetailReportRows trong viewNsMoiNhanh-HCM.html.
  */
 export function dedupeMktDetailReportRows(rows) {
   const merged = mergeUniqueRowsById(rows || []);
@@ -413,19 +421,23 @@ export function dedupeMktDetailReportRows(rows) {
     const ds = parseDoanhSoChotTTFromRow(row);
     const cpqc = parseCpqcFromRow(row);
     const mess = parseSoMessCmtFromRow(row);
+    const dso = parseDoanhSoManualFromRow(row);
 
     const prev = byKey.get(k);
     if (!prev) {
-      byKey.set(k, { row, sd, sh, sm, ds, cpqc, mess });
+      byKey.set(k, { row, sd, sh, sm, ds, cpqc, mess, dso });
       continue;
     }
 
     const mergedSd = Math.max(prev.sd, sd);
     const mergedSh = Math.max(prev.sh, sh);
-    const mergedSm = Math.max(prev.sm, sm);
+    // «Số đơn» nhập tay: CỘNG DỒN (khớp viewNsMoiNhanh-HCM.html)
+    const mergedSm = prev.sm + sm;
     const mergedDs = Math.max(prev.ds, ds);
     const mergedCpqc = prev.cpqc + cpqc;
     const mergedMess = prev.mess + mess;
+    // «Doanh số» nhập tay: CỘNG DỒN (khớp viewNsMoiNhanh-HCM.html)
+    const mergedDso = prev.dso + dso;
 
     prev.sd = mergedSd;
     prev.sh = mergedSh;
@@ -433,15 +445,18 @@ export function dedupeMktDetailReportRows(rows) {
     prev.ds = mergedDs;
     prev.cpqc = mergedCpqc;
     prev.mess = mergedMess;
+    prev.dso = mergedDso;
     prev.row['Số đơn thực tế'] = mergedSd;
     prev.row['Số đơn hoàn hủy'] = mergedSh;
     prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
     prev.row['Số đơn'] = mergedSm;
     prev.row['Doanh số TT'] = mergedDs;
+    prev.row['Doanh số'] = mergedDso;
     prev.row['CPQC'] = mergedCpqc;
     prev.row['Số_Mess_Cmt'] = mergedMess;
     if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
     if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
+    if (prev.row.doanh_so != null) prev.row.doanh_so = mergedDso;
     if (prev.row.cpqc != null) prev.row.cpqc = mergedCpqc;
     if (prev.row.so_mess_cmt != null) prev.row.so_mess_cmt = mergedMess;
   }
