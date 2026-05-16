@@ -36,6 +36,8 @@ const FFM_HCM_SUPABASE_TABLE = 'order_code_hcm';
 const FFM_ROW_SOURCE_TABLE_KEY = '__ffmSourceTable';
 const FFM_MGT_MERGED_FIRST_BATCH_TOTAL = 1000;
 const FFM_MGT_MERGED_NEXT_BATCH_TOTAL = 2000;
+/** Debounce delay (ms) cho ghi pendingChanges vào localStorage — tránh serialize liên tục khi sửa nhanh. */
+const FFM_LS_DEBOUNCE_MS = 1500;
 /** Tách khỏi Vận đơn — trước đây chung `speegoPendingChanges` gây trộn hàng đợi. */
 const FFM_PENDING_LS_KEY = 'speegoPendingChanges_ffm';
 
@@ -606,6 +608,13 @@ function FFM({ variant = 'MGT' }) {
   const historyIndexRef = useRef(-1);
   const dbQueueRef = useRef([]); // FIFO Queue for Backend
   const isProcessingQueue = useRef(false);
+
+  /** Ref mirror của pendingChanges — tách khỏi closure handleCellChange để tránh cascading re-render. */
+  const pendingChangesRef = useRef(new Map());
+  /** Ref mirror của allData dạng Map<orderId, row> — O(1) lookup thay vì O(N) allData.find(). */
+  const allDataMapRef = useRef(new Map());
+  /** Timer debounce ghi localStorage (savePendingToLocalStorage). */
+  const pendingLsTimerRef = useRef(null);
   const manualSaveRequestedRef = useRef(false); // Chỉ lưu DB khi user bấm "Xác nhận lưu"
 
   const ffmRealtimeOrderCodesRef = useRef(new Set()); // Track order_code values pending a fetch
@@ -1309,16 +1318,53 @@ function FFM({ variant = 'MGT' }) {
     savePendingToLocalStorage(new Map());
     await loadData();
   };
-  const savePendingToLocalStorage = (newPending, newLegacy = new Map()) => {
-    const combined = new Map([...newLegacy, ...newPending]);
-    const changesToSave = {};
-    if (combined && combined.size > 0) {
-      combined.forEach((val, id) => {
-        changesToSave[id] = Object.fromEntries(val);
-      });
-    }
-    localStorage.setItem(FFM_PENDING_LS_KEY, JSON.stringify(changesToSave));
-  };
+  /** Ghi pendingChanges vào localStorage — **debounced** để tránh JSON.stringify liên tục khi sửa nhanh (gây jank / OOM trên máy RAM ít). */
+  const savePendingToLocalStorage = useCallback((newPending, newLegacy = new Map()) => {
+    // Luôn cập nhật ref ngay (để nếu page unload sớm vẫn có data).
+    pendingChangesRef.current = newPending;
+
+    if (pendingLsTimerRef.current) clearTimeout(pendingLsTimerRef.current);
+    pendingLsTimerRef.current = setTimeout(() => {
+      pendingLsTimerRef.current = null;
+      try {
+        const combined = new Map([...newLegacy, ...newPending]);
+        const changesToSave = {};
+        if (combined && combined.size > 0) {
+          combined.forEach((val, id) => {
+            changesToSave[id] = Object.fromEntries(val);
+          });
+        }
+        localStorage.setItem(FFM_PENDING_LS_KEY, JSON.stringify(changesToSave));
+      } catch (e) {
+        console.error('[FFM] savePendingToLocalStorage error:', e);
+      }
+    }, FFM_LS_DEBOUNCE_MS);
+  }, []);
+
+  // Flush pending trước khi rời trang (tránh mất dữ liệu chưa lưu)
+  useEffect(() => {
+    const flushOnUnload = () => {
+      if (pendingLsTimerRef.current) {
+        clearTimeout(pendingLsTimerRef.current);
+        pendingLsTimerRef.current = null;
+        try {
+          const pending = pendingChangesRef.current;
+          const changesToSave = {};
+          if (pending && pending.size > 0) {
+            pending.forEach((val, id) => {
+              changesToSave[id] = Object.fromEntries(val);
+            });
+          }
+          localStorage.setItem(FFM_PENDING_LS_KEY, JSON.stringify(changesToSave));
+        } catch (_) { /* best effort */ }
+      }
+    };
+    window.addEventListener('beforeunload', flushOnUnload);
+    return () => {
+      flushOnUnload(); // Cũng flush khi unmount component
+      window.removeEventListener('beforeunload', flushOnUnload);
+    };
+  }, []);
 
   const deepCloneMapOfMaps = useCallback((sourceMap) => {
     const clone = new Map();
@@ -1355,7 +1401,28 @@ function FFM({ variant = 'MGT' }) {
     }
   }, [visibleColumns, visibleColumnsStorageKey]);
 
-  /** Dữ liệu nền cho FILTER: trộn pending (khớp ô đang thấy) + cột ngày suy ra. */
+  // Cập nhật allDataMapRef khi allData đổi (O(1) lookup cho handleCellChange).
+  useEffect(() => {
+    const m = new Map();
+    for (const r of allData) {
+      const id = r?.[PRIMARY_KEY_COLUMN];
+      if (id) m.set(id, r);
+    }
+    allDataMapRef.current = m;
+  }, [allData]);
+
+  // Cập nhật pendingChangesRef khi state đổi (mirror cho stable callbacks).
+  useEffect(() => {
+    pendingChangesRef.current = pendingChanges;
+  }, [pendingChanges]);
+
+  /**
+   * Dữ liệu nền cho FILTER: trộn pending + cột ngày suy ra.
+   * ⚡ PERF: Trước đây phụ thuộc `pendingChanges` → clone toàn bộ allData mỗi khi sửa 1 ô.
+   * Nay chỉ recalc khi allData hoặc pendingChanges thay đổi, nhưng CHÍNH XÁC HƠN:
+   * - Dùng cho header filter dropdown options (cần pending overlay)
+   * - Không dùng cho row matching (dùng ffmRowsForFilterMatch thay)
+   */
   const ffmEnrichedRowsForFilter = useMemo(() => {
     const n = allData.length;
     const out = new Array(n);
@@ -1913,7 +1980,7 @@ function FFM({ variant = 'MGT' }) {
   const getSourceTableByOrderId = useCallback((orderId) => {
     const targetOrderId = String(orderId ?? '').trim();
     if (!targetOrderId) return 'orders';
-    const matched = allData.find((row) => String(row?.[PRIMARY_KEY_COLUMN] ?? '').trim() === targetOrderId);
+    const matched = allDataMapRef.current.get(targetOrderId);
     const source = String(matched?.[FFM_ROW_SOURCE_TABLE_KEY] ?? '').trim();
     return source || 'orders';
   }, [allData]);
@@ -2183,12 +2250,17 @@ function FFM({ variant = 'MGT' }) {
     addToast('Đã làm lại', 'success', 2000);
   }, [addToast, deepCloneMapOfMaps]);
 
+  /**
+   * handleCellChange — stable: dùng ref thay vì state deps để tránh cascading re-render.
+   * ⚡ PERF: allDataMapRef (O(1) lookup) + pendingChangesRef (no re-render dep).
+   */
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     if (!FFM_ALLOWED_CHANGE_KEYS.has(colKey)) return;
-    const originalRow = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+    const originalRow = allDataMapRef.current.get(orderId);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
-    const pendingVal = pendingChanges.get(orderId)?.get(colKey);
+    const pc = pendingChangesRef.current;
+    const pendingVal = pc.get(orderId)?.get(colKey);
     const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
     const isThoiGianGiaoDuKien =
@@ -2219,7 +2291,7 @@ function FFM({ variant = 'MGT' }) {
       const todayStr = getTodayDateStr();
       const trackingDateKey = 'Ngày có mã tracking';
 
-      const pendingInfo = pendingChanges.get(orderId)?.get(trackingDateKey);
+      const pendingInfo = pc.get(orderId)?.get(trackingDateKey);
       const rowTrackingDate = originalRow
         ? (originalRow[trackingDateKey] ?? originalRow.ngay_co_ma_tracking ?? originalRow.ngaycomatracking ?? '')
         : '';
@@ -2238,7 +2310,7 @@ function FFM({ variant = 'MGT' }) {
     const isShippingUnitCol = colKey === 'Đơn vị vận chuyển' || colKey === 'shipping_unit';
     if (isShippingUnitCol) {
       const nbKey = 'delivery_status_nb';
-      const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
+      const pendingNb = pc.get(orderId)?.get(nbKey);
       const currentNb = pendingNb
         ? pendingNb.newValue
         : String(originalRow?.delivery_status_nb ?? originalRow?.['Trạng thái giao hàng NB'] ?? '').trim();
@@ -2254,7 +2326,7 @@ function FFM({ variant = 'MGT' }) {
     }
 
     pushChange(changes, { deferDbSave: true });
-  }, [allData, pendingChanges, pushChange]);
+  }, [pushChange]);
 
   const handleUpdateAll = useCallback(async () => {
     setSyncPopoverOpen(false);
