@@ -478,6 +478,7 @@ function FFM({ variant = 'MGT' }) {
   const [historyLoadingOrderId, setHistoryLoadingOrderId] = useState('');
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
+  const [ffmShowOnlyMarkedRows, setFfmShowOnlyMarkedRows] = useState('all');
   const [aggHistoryOpen, setAggHistoryOpen] = useState(false);
   const [aggHistoryLoading, setAggHistoryLoading] = useState(false);
   const [aggHistoryRows, setAggHistoryRows] = useState([]);
@@ -598,6 +599,39 @@ function FFM({ variant = 'MGT' }) {
   const fillListenersRef = useRef({ move: null, up: null });
   const dragStartClientRef = useRef({ x: 0, y: 0 });
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+
+  const [markedRows, setMarkedRows] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ffm_marked_rows');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [contextMenu, setContextMenu] = useState(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ffm_marked_rows', JSON.stringify([...markedRows]));
+    } catch (e) {
+      console.error('Lỗi lưu markedRows', e);
+    }
+  }, [markedRows]);
+
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    if (contextMenu) {
+      const timer = setTimeout(() => {
+        window.addEventListener('click', closeMenu);
+        window.addEventListener('contextmenu', closeMenu);
+      }, 0);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('click', closeMenu);
+        window.removeEventListener('contextmenu', closeMenu);
+      };
+    }
+  }, [contextMenu]);
 
   const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Hà Nội không (dựa trên can_day_ffm)
@@ -1853,9 +1887,13 @@ function FFM({ variant = 'MGT' }) {
       });
     }
 
+    if (ffmShowOnlyMarkedRows === 'marked') {
+      data = data.filter((row) => markedRows.has(row[PRIMARY_KEY_COLUMN]));
+    }
+
     // So khớp lọc trên bản không pending; map sang bản render (có pending + cột suy ra).
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
-  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, ffmEmptyCellsQuickFilter, ffmDateDiffFilter, variant, pendingChanges]);
+  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, ffmEmptyCellsQuickFilter, ffmDateDiffFilter, ffmShowOnlyMarkedRows, markedRows, variant, pendingChanges]);
 
   const getFilteredData = useMemo(() => {
     return applyFfmFilters(ffmRowsForFilterMatch, localFilterValues);
@@ -1905,6 +1943,7 @@ function FFM({ variant = 'MGT' }) {
     setFfmTrackingPresence('all');
     setFfmEmptyCellsQuickFilter('off');
     setFfmDateDiffFilter('off');
+    setFfmShowOnlyMarkedRows('all');
     setOmActiveTeam('all');
     setCurrentPage(1);
     addToast('Đã xóa bộ lọc hiển thị (giữ nguyên dữ liệu đã tải).', 'success', 2500);
@@ -3672,24 +3711,23 @@ function FFM({ variant = 'MGT' }) {
       else if (v === 'vận đơn xl') classes += 'bg-yellow-100 text-yellow-800 ';
     }
 
-    // Removed BILL_OF_LADING mode - viewMode is now always ORDER_MANAGEMENT
-    // if (viewMode === 'BILL_OF_LADING' && LONG_TEXT_COLS.includes(col)) {
-    //   classes = classes.replace(
-    //     'whitespace-nowrap',
-    //     isLongTextExpanded
-    //       ? 'whitespace-pre-wrap max-w-xs break-words bg-yellow-50'
-    //       : 'whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] cursor-pointer'
-    //   );
-    // }
-
     const isEditable = isEditableColFFM(col);
-    if (isEditable) {
-      const orderId = row[PRIMARY_KEY_COLUMN];
-      if (pendingChanges.get(orderId)?.has(ffmPendingKeyForCol(col))) {
-        classes += '!bg-yellow-300 ';
-      } else {
-        classes += 'bg-[#e8f5e9] ';
+    const orderId = row[PRIMARY_KEY_COLUMN];
+    const isPendingCell = isEditable && pendingChanges.get(orderId)?.has(ffmPendingKeyForCol(col));
+    const isMarkedRow = markedRows.has(orderId);
+
+    if (isPendingCell) {
+      classes += '!bg-yellow-300 ';
+    } else if (isEditable) {
+      classes += 'bg-[#e8f5e9] ';
+    }
+
+    if (isMarkedRow) {
+      // Đổi nền thành màu tím nhạt nếu không phải ô pending, nếu là pending thì giữ nguyên màu vàng nhưng có viền tím đậm
+      if (!isPendingCell) {
+        classes += '!bg-purple-100 ';
       }
+      classes += 'outline outline-2 outline-purple-500 outline-offset-[-2px] ';
     }
 
     if (!splitPane && cIdx < effectiveFixedColumns) {
@@ -3726,7 +3764,7 @@ function FFM({ variant = 'MGT' }) {
     }
 
     return classes;
-  }, [isDraggingSelection, selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns, splitPane]);
+  }, [isDraggingSelection, selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns, splitPane, markedRows]);
 
   const tableClassName = 'border-separate border-spacing-0 text-sm table-auto';
 
@@ -3972,6 +4010,11 @@ function FFM({ variant = 'MGT' }) {
         style={cellStyle}
         onMouseDownCapture={(e) => handleMouseDown(rIdx, cIdx, e)}
         onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setContextMenu({ x: e.clientX, y: e.clientY, orderId });
+        }}
       >
         {col === 'STT' ? (
           row['rowIndex'] || (currentPage - 1) * rowsPerPage + rIdx + 1
@@ -4241,6 +4284,20 @@ function FFM({ variant = 'MGT' }) {
                   <option value="off">Tất cả</option>
                   <option value="different">Ngày khác nhau</option>
                   <option value="same">Ngày giống nhau</option>
+                </select>
+              </div>
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+                <label className="text-xs font-semibold text-gray-500">Hàng đang đánh dấu</label>
+                <select
+                  className="px-2 py-1 border rounded text-xs bg-white"
+                  value={ffmShowOnlyMarkedRows}
+                  onChange={(e) => {
+                    setFfmShowOnlyMarkedRows(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Tất cả</option>
+                  <option value="marked">Chỉ hiện hàng đã đánh dấu</option>
                 </select>
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
@@ -4717,6 +4774,33 @@ function FFM({ variant = 'MGT' }) {
           </div>
         ))}
       </div>
+
+      {contextMenu && (
+        <div
+          className="fixed z-[99999] bg-white border border-gray-200 rounded shadow-xl py-1 text-sm font-medium text-gray-700 min-w-[200px]"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-2 text-xs text-gray-400 border-b border-gray-100 bg-gray-50 uppercase tracking-wider font-semibold">
+            Thao tác Hàng
+          </div>
+          <button
+            type="button"
+            className="w-full text-left px-4 py-2.5 hover:bg-amber-50 transition-colors flex items-center gap-2"
+            onClick={() => {
+              setMarkedRows((prev) => {
+                const next = new Set(prev);
+                if (next.has(contextMenu.orderId)) next.delete(contextMenu.orderId);
+                else next.add(contextMenu.orderId);
+                return next;
+              });
+              setContextMenu(null);
+            }}
+          >
+            {markedRows.has(contextMenu.orderId) ? '🔕 Bỏ đánh dấu Hàng này' : '🚩 Đánh dấu Hàng đang thao tác'}
+          </button>
+        </div>
+      )}
 
       <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div></div>}>
         <SyncPopover
