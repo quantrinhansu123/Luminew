@@ -101,33 +101,17 @@ export function getFfmDeliveryStatusFilterDropdownOptions(rows) {
 }
 
 /**
- * `<select>` trong ô lưới «Trạng thái giao hàng»: preset (có ô trống) + mọi giá trị trong tập đã tải + đảm bảo `currentVal`.
+ * `<select>` trong ô lưới «Trạng thái giao hàng»: fix cứng 4 lựa chọn.
+ * Nếu ô đang có giá trị nằm ngoài 4 tùy chọn, thêm vào để `<select>` không mất giá trị hiện tại.
  */
-export function ffmGridDeliveryStatusSelectOptions(enrichedRows, currentVal) {
-  const preset = DROPDOWN_OPTIONS['Trạng thái giao hàng'] || [];
-  const fromData = new Set();
-  for (const row of enrichedRows || []) {
-    const v = getFfmOrderMgmtDeliveryStatusForRow(row);
-    if (v) fromData.add(v);
+export const FFM_GRID_DELIVERY_STATUS_FIXED_OPTIONS = ['', 'NHÃN', 'ĐANG GIAO', 'ĐÃ GIAO', 'HOÀN'];
+
+export function ffmGridDeliveryStatusSelectOptions(_enrichedRows, currentVal) {
+  const fixed = [...FFM_GRID_DELIVERY_STATUS_FIXED_OPTIONS];
+  const raw = currentVal == null ? '' : String(currentVal).trim();
+  // Thêm giá trị hiện tại nếu không nằm trong danh sách cố định (dữ liệu cũ)
+  if (raw !== '' && !fixed.some((o) => String(o) === raw)) {
+    fixed.push(raw);
   }
-  const ordered = [];
-  const seen = new Set();
-  const add = (p) => {
-    if (p === undefined) return;
-    const key = p === '' ? '__empty__' : String(p);
-    if (seen.has(key)) return;
-    seen.add(key);
-    ordered.push(p);
-  };
-  for (const p of preset) {
-    if (!isFfmGridDeliveryStatusHiddenOption(p)) add(p);
-  }
-  const extras = [...fromData].filter((v) => {
-    const k = v === '' ? '__empty__' : String(v);
-    return !seen.has(k) && !isFfmGridDeliveryStatusHiddenOption(v);
-  });
-  extras.sort((a, b) => String(a).localeCompare(String(b), 'vi'));
-  for (const v of extras) add(v);
-  add(currentVal == null ? '' : currentVal);
-  return ordered;
+  return fixed;
 }
