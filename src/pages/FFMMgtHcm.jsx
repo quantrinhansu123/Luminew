@@ -374,12 +374,6 @@ function clearFfDragDomSelection() {
   });
 }
 
-function clearFfFillPreview() {
-  getFfDragTargetCells().forEach((el) => {
-    el.classList.remove('ffm-fill-preview');
-  });
-}
-
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
 const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal'));
 const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
@@ -547,7 +541,6 @@ function FFMMgtHcm() {
   const dragAnchorRef = useRef({ r: 0, c: 0 });
   const dragEndRef = useRef({ r: 0, c: 0 });
   const dragListenersRef = useRef({ move: null, up: null });
-  const fillListenersRef = useRef({ move: null, up: null });
   const dragStartClientRef = useRef({ x: 0, y: 0 });
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const [markedRows, setMarkedRows] = useState(() => {
@@ -2387,18 +2380,10 @@ function FFMMgtHcm() {
     }
   }, []);
 
-  const removeFillDragListeners = useCallback(() => {
-    const L = fillListenersRef.current;
-    if (L.move) {
-      document.removeEventListener('mousemove', L.move);
-      document.removeEventListener('mouseup', L.up);
-      fillListenersRef.current = { move: null, up: null };
-    }
-  }, []);
-
   const updateDragFromCell = useCallback(
     (r, c) => {
       if (!isSelecting.current) return;
+      if (dragEndRef.current.r === r && dragEndRef.current.c === c) return;
       dragEndRef.current = { r, c };
       const sr = dragAnchorRef.current.r;
       const sc = dragAnchorRef.current.c;
@@ -2415,129 +2400,15 @@ function FFMMgtHcm() {
   useEffect(() => {
     return () => {
       removeDragListeners();
-      removeFillDragListeners();
       clearFfDragDomSelection();
-      clearFfFillPreview();
       ffmDragCellMapRef.current = null;
       ffmDragPrevBoundsRef.current = null;
     };
-  }, [removeDragListeners, removeFillDragListeners]);
-
-  const handleFillHandleMouseDown = useCallback(
-    (rIdx, cIdx, colName, e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!isEditableColFFM(colName)) return;
-
-      removeFillDragListeners();
-      removeDragListeners();
-      if (isSelecting.current) {
-        isSelecting.current = false;
-        setIsDraggingSelection(false);
-      }
-      clearFfDragDomSelection();
-      clearFfFillPreview();
-
-      const viewData = paginatedData;
-      const anchorRow = viewData[rIdx];
-      if (!anchorRow) return;
-      const { dataKey, raw: fillValue } = getFfmRowColRaw(anchorRow, colName, pendingChanges);
-
-      let endR = rIdx;
-
-      const paintPreview = (r0, r1) => {
-        clearFfFillPreview();
-        const minR = Math.min(r0, r1);
-        const maxR = Math.max(r0, r1);
-        const root = document.querySelector('[data-ffm-grid-root]');
-        for (let r = minR; r <= maxR; r++) {
-          const td = root?.querySelector(`td[data-ffm-r="${r}"][data-ffm-c="${cIdx}"]`);
-          td?.classList.add('ffm-fill-preview');
-        }
-      };
-
-      paintPreview(rIdx, rIdx);
-
-      const onMove = (ev) => {
-        const el = document.elementFromPoint(ev.clientX, ev.clientY);
-        const td = el?.closest?.('td[data-ffm-r]');
-        if (!td) return;
-        const tr = +td.getAttribute('data-ffm-r');
-        const tc = +td.getAttribute('data-ffm-c');
-        if (Number.isNaN(tr) || Number.isNaN(tc)) return;
-        if (tc !== cIdx) return;
-        if (tr < rIdx) return;
-        endR = Math.min(tr, viewData.length - 1);
-        paintPreview(rIdx, endR);
-      };
-
-      const onUp = () => {
-        removeFillDragListeners();
-        clearFfFillPreview();
-        clearFfDragDomSelection();
-
-        if (endR <= rIdx) {
-          startTransition(() => {
-            setSelection({ startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
-          });
-          return;
-        }
-
-        const fillChanges = [];
-        for (let r = rIdx + 1; r <= endR; r++) {
-          const targetRow = viewData[r];
-          const tid = targetRow[PRIMARY_KEY_COLUMN];
-          const { raw: cur } = getFfmRowColRaw(targetRow, colName, pendingChanges);
-          if (String(fillValue) === String(cur)) continue;
-
-          fillChanges.push({
-            orderId: tid,
-            colKey: dataKey,
-            originalValue: String(cur),
-            newValue: String(fillValue)
-          });
-
-          if (dataKey === 'Mã Tracking' && String(fillValue).trim() !== '') {
-            const todayStr = getTodayDateStr();
-            const uiCol = 'Ngày có mã tracking';
-            const pendingInfo = pendingChanges.get(tid)?.get(uiCol);
-            const rowDate = targetRow[uiCol] ?? targetRow.ngay_co_ma_tracking ?? '';
-            const currentUiVal = pendingInfo ? pendingInfo.newValue : rowDate;
-            if (String(currentUiVal) !== todayStr) {
-              fillChanges.push({
-                orderId: tid,
-                colKey: uiCol,
-                originalValue: String(currentUiVal || ''),
-                newValue: todayStr
-              });
-            }
-          }
-        }
-
-        const primaryCount = fillChanges.filter((c) => c.colKey === dataKey).length;
-        if (primaryCount > 0) {
-          pushChange(fillChanges, { deferDbSave: true });
-          addToast(`Đã copy ${primaryCount} ô xuống`, 'success', 2000);
-        } else {
-          addToast('Các ô bên dưới đã cùng giá trị', 'info', 1800);
-        }
-
-        startTransition(() => {
-          setSelection({ startRow: rIdx, startCol: cIdx, endRow: endR, endCol: cIdx });
-        });
-      };
-
-      fillListenersRef.current = { move: onMove, up: onUp };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    },
-    [paginatedData, pendingChanges, pushChange, addToast, removeFillDragListeners, removeDragListeners]
-  );
+  }, [removeDragListeners]);
 
   const handleMouseDown = useCallback(
     (rowIndex, colIndex, e) => {
       if (e.button !== 0) return;
-      if (e.target?.closest?.('[data-ffm-fill-handle]')) return;
       // Let native controls (especially <select>) handle click/open by themselves.
       if (e.target?.closest?.('select, input, textarea, button, [contenteditable="true"]')) return;
       e.preventDefault();
@@ -3702,15 +3573,6 @@ function FFMMgtHcm() {
           />
         ) : (
           displayVal
-        )}
-        {cellEditable && (
-          <div
-            data-ffm-fill-handle
-            role="presentation"
-            className="absolute bottom-px right-px z-[60] h-2.5 w-2.5 cursor-ns-resize rounded-sm border border-white bg-[#1a73e8] opacity-50 shadow-sm transition-opacity group-hover:opacity-100 hover:!opacity-100 hover:bg-[#1557b0]"
-            title="Kéo xuống để copy giá trị ô này"
-            onMouseDown={(ev) => handleFillHandleMouseDown(rIdx, cIdx, col, ev)}
-          />
         )}
       </td>
     );
