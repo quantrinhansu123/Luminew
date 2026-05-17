@@ -37,9 +37,21 @@ function ffmLocalYmd(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function getCurrentYearDateRange() {
+  const today = new Date();
+  const year = today.getFullYear();
+  return {
+    from: `${year}-01-01`,
+    to: ffmLocalYmd(today),
+  };
+}
+
 /** Trang FFM MGT HCM: đọc/ghi Supabase `order_code_hcm` (cùng schema map như `orders`). */
 const FFM_HCM_SUPABASE_TABLE = 'order_code_hcm';
+/** Debounce delay (ms) cho ghi pendingChanges vào localStorage — tránh serialize liên tục khi sửa nhanh. */
+const FFM_LS_DEBOUNCE_MS = 1500;
 const FFM_HCM_PENDING_LS_KEY = 'speegoPendingChanges_ffm_mgt_hcm';
+const FFM_HCM_MARKED_ROWS_LS_KEY = 'ffm_marked_rows_hcm';
 
 /** Giá trị Team / chi nhánh từ row (FFM) */
 function getTeamStringFFM(row) {
@@ -154,7 +166,6 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Kết quả Check',
   'Kết quả check',
   'Kết quả',
-  'Mã Tracking',
   'Ngày đóng hàng',
   'Trạng thái giao hàng',
   'GHI CHÚ',
@@ -165,8 +176,6 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
 const FFM_ALLOWED_CHANGE_KEYS = new Set([
   'Kết quả Check',
   'delivery_status',
-  'Mã Tracking',
-  'tracking_code',
   'Ngày đóng hàng',
   'ngaydonghang',
   'GHI CHÚ',
@@ -494,18 +503,19 @@ function FFMMgtHcm() {
     return () => clearTimeout(timeoutId);
   }, [localFilterValues]);
 
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(() => getCurrentYearDateRange().from);
+  const [dateTo, setDateTo] = useState(() => getCurrentYearDateRange().to);
   const [fixedColumns, setFixedColumns] = useState(2);
 
   const [omActiveTeam, setOmActiveTeam] = useState('all');
-  const [omDateType, setOmDateType] = useState('Ngày đóng hàng');
+  const [omDateType, setOmDateType] = useState('Ngày lên đơn');
   const [showFilters, setShowFilters] = useState(false); // Collapse/expand filters
 
   /** Chi nhánh: Tất cả | Hà Nội | HCM */
   const [ffmBranchFilter, setFfmBranchFilter] = useState('all');
   /** Mã Tracking: Tất cả | có mã | chưa có mã */
   const [ffmTrackingPresence, setFfmTrackingPresence] = useState('all');
+  const [ffmShowOnlyMarkedRows, setFfmShowOnlyMarkedRows] = useState('all');
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -540,6 +550,15 @@ function FFMMgtHcm() {
   const fillListenersRef = useRef({ move: null, up: null });
   const dragStartClientRef = useRef({ x: 0, y: 0 });
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+  const [markedRows, setMarkedRows] = useState(() => {
+    try {
+      const saved = localStorage.getItem(FFM_HCM_MARKED_ROWS_LS_KEY);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [contextMenu, setContextMenu] = useState(null);
 
   const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Hà Nội không (dựa trên can_day_ffm)
@@ -550,6 +569,9 @@ function FFMMgtHcm() {
   const historyIndexRef = useRef(-1);
   const dbQueueRef = useRef([]); // FIFO Queue for Backend
   const isProcessingQueue = useRef(false);
+  const pendingChangesRef = useRef(new Map());
+  const allDataMapRef = useRef(new Map());
+  const pendingLsTimerRef = useRef(null);
   const manualSaveRequestedRef = useRef(false); // Chỉ lưu DB khi user bấm "Xác nhận lưu"
 
   const ffmRealtimeOrderCodesRef = useRef(new Set()); // Track order_code values pending a fetch
@@ -557,6 +579,29 @@ function FFMMgtHcm() {
 
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FFM_HCM_MARKED_ROWS_LS_KEY, JSON.stringify([...markedRows]));
+    } catch (e) {
+      console.error('Lỗi lưu markedRows HCM', e);
+    }
+  }, [markedRows]);
+
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    if (contextMenu) {
+      const timer = setTimeout(() => {
+        window.addEventListener('click', closeMenu);
+        window.addEventListener('contextmenu', closeMenu);
+      }, 0);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('click', closeMenu);
+        window.removeEventListener('contextmenu', closeMenu);
+      };
+    }
+  }, [contextMenu]);
 
   // Kiểm tra quyền xem tab "Hà Nội" dựa trên cột can_day_ffm trong users table
   const loadCanDayFFMPermission = async () => {
@@ -799,9 +844,14 @@ function FFMMgtHcm() {
     return `${y}-${m}-${d}`;
   };
 
-  const loadData = async () => {
+  const loadData = async (dateRangeOverride = {}) => {
     ffmLoadGenRef.current += 1;
     const loadGen = ffmLoadGenRef.current;
+    const ffmDateRangeArgs = {
+      dateFrom: dateRangeOverride.dateFrom ?? dateFrom,
+      dateTo: dateRangeOverride.dateTo ?? dateTo,
+      dateType: dateRangeOverride.dateType ?? omDateType,
+    };
 
     setLoading(true);
     setFfmHasMore(false);
@@ -822,7 +872,8 @@ function FFMMgtHcm() {
           pageSize: FFM_FIRST_BATCH_SIZE,
           mgtExhausted: false,
           trackedExhausted: false,
-          ordersTable: FFM_HCM_SUPABASE_TABLE
+          ordersTable: FFM_HCM_SUPABASE_TABLE,
+          ...ffmDateRangeArgs
         });
 
         if (loadGen !== ffmLoadGenRef.current) return;
@@ -876,7 +927,8 @@ function FFMMgtHcm() {
                   pageSize: FFM_NEXT_BATCH_SIZE,
                   mgtExhausted: c.mgtExhausted,
                   trackedExhausted: c.trackedExhausted,
-                  ordersTable: FFM_HCM_SUPABASE_TABLE
+                  ordersTable: FFM_HCM_SUPABASE_TABLE,
+                  ...ffmDateRangeArgs
                 });
 
                 if (loadGen !== ffmLoadGenRef.current) return;
@@ -923,7 +975,7 @@ function FFMMgtHcm() {
           addToast(`✅ Đã tải ${mergedList.length} đơn hàng`, 'success', 2000);
         }
       } else {
-        const data = await API.fetchFFMOrders?.({ ordersTable: FFM_HCM_SUPABASE_TABLE });
+        const data = await API.fetchFFMOrders?.({ ordersTable: FFM_HCM_SUPABASE_TABLE, ...ffmDateRangeArgs });
         const list = Array.isArray(data) ? assignRowIndexByOrderDate(data) : [];
         setAllData(list);
         setFfmHasMore(false);
@@ -937,7 +989,7 @@ function FFMMgtHcm() {
       console.error('Load data error:', error);
       addToast(`❌ Lỗi tải dữ liệu: ${error.message}. Thử fallback...`, 'error', 4000);
       try {
-        const data = await API.fetchFFMOrders({ ordersTable: FFM_HCM_SUPABASE_TABLE });
+        const data = await API.fetchFFMOrders({ ordersTable: FFM_HCM_SUPABASE_TABLE, ...ffmDateRangeArgs });
         const list = Array.isArray(data) ? assignRowIndexByOrderDate(data) : [];
         setAllData(list);
         setFfmHasMore(false);
@@ -953,6 +1005,7 @@ function FFMMgtHcm() {
   const loadMoreFfmData = async () => {
     if (!ffmHasMore || loadingMore || loading || ffmBackgroundLoading) return;
     if (typeof API.fetchFFMOrdersBatch !== 'function') return;
+    const ffmDateRangeArgs = { dateFrom, dateTo, dateType: omDateType };
 
     setLoadingMore(true);
     try {
@@ -963,7 +1016,8 @@ function FFMMgtHcm() {
         pageSize: FFM_NEXT_BATCH_SIZE,
         mgtExhausted: c.mgtExhausted,
         trackedExhausted: c.trackedExhausted,
-        ordersTable: FFM_HCM_SUPABASE_TABLE
+        ordersTable: FFM_HCM_SUPABASE_TABLE,
+        ...ffmDateRangeArgs
       });
 
       ffmCursorRef.current = {
@@ -1018,24 +1072,66 @@ function FFMMgtHcm() {
     };
     setFilterValues(defaultFilters);
     setLocalFilterValues(defaultFilters);
-    setDateFrom('');
-    setDateTo('');
+    const currentYearRange = getCurrentYearDateRange();
+    setDateFrom(currentYearRange.from);
+    setDateTo(currentYearRange.to);
+    setOmDateType('Ngày lên đơn');
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
     setCurrentPage(1);
     savePendingToLocalStorage(new Map());
-    await loadData();
+    await loadData({
+      dateFrom: currentYearRange.from,
+      dateTo: currentYearRange.to,
+      dateType: 'Ngày lên đơn',
+    });
   };
-  const savePendingToLocalStorage = (newPending, newLegacy = new Map()) => {
-    const combined = new Map([...newLegacy, ...newPending]);
-    const changesToSave = {};
-    if (combined && combined.size > 0) {
-      combined.forEach((val, id) => {
-        changesToSave[id] = Object.fromEntries(val);
-      });
-    }
-    localStorage.setItem(FFM_HCM_PENDING_LS_KEY, JSON.stringify(changesToSave));
-  };
+  const savePendingToLocalStorage = useCallback((newPending, newLegacy = new Map()) => {
+    pendingChangesRef.current = newPending;
+
+    if (pendingLsTimerRef.current) clearTimeout(pendingLsTimerRef.current);
+    pendingLsTimerRef.current = setTimeout(() => {
+      pendingLsTimerRef.current = null;
+      try {
+        const combined = new Map([...newLegacy, ...newPending]);
+        const changesToSave = {};
+        if (combined && combined.size > 0) {
+          combined.forEach((val, id) => {
+            changesToSave[id] = Object.fromEntries(val);
+          });
+        }
+        localStorage.setItem(FFM_HCM_PENDING_LS_KEY, JSON.stringify(changesToSave));
+      } catch (e) {
+        console.error('[FFM HCM] savePendingToLocalStorage error:', e);
+      }
+    }, FFM_LS_DEBOUNCE_MS);
+  }, []);
+
+  useEffect(() => {
+    const flushOnUnload = () => {
+      if (pendingLsTimerRef.current) {
+        clearTimeout(pendingLsTimerRef.current);
+        pendingLsTimerRef.current = null;
+      }
+      try {
+        const pending = pendingChangesRef.current;
+        const changesToSave = {};
+        if (pending && pending.size > 0) {
+          pending.forEach((val, id) => {
+            changesToSave[id] = Object.fromEntries(val);
+          });
+        }
+        localStorage.setItem(FFM_HCM_PENDING_LS_KEY, JSON.stringify(changesToSave));
+      } catch (_) {
+        // best effort
+      }
+    };
+    window.addEventListener('beforeunload', flushOnUnload);
+    return () => {
+      flushOnUnload();
+      window.removeEventListener('beforeunload', flushOnUnload);
+    };
+  }, []);
 
   const deepCloneMapOfMaps = useCallback((sourceMap) => {
     const clone = new Map();
@@ -1071,6 +1167,19 @@ function FFMMgtHcm() {
       localStorage.setItem(visibleColumnsStorageKey, JSON.stringify(visibleColumns));
     }
   }, [visibleColumns, visibleColumnsStorageKey]);
+
+  useEffect(() => {
+    const m = new Map();
+    for (const r of allData) {
+      const id = r?.[PRIMARY_KEY_COLUMN];
+      if (id) m.set(id, r);
+    }
+    allDataMapRef.current = m;
+  }, [allData]);
+
+  useEffect(() => {
+    pendingChangesRef.current = pendingChanges;
+  }, [pendingChanges]);
 
   /** Dữ liệu nền cho FILTER: trộn pending (khớp ô đang thấy) + cột ngày suy ra. */
   const ffmEnrichedRowsForFilter = useMemo(() => {
@@ -1459,9 +1568,13 @@ function FFMMgtHcm() {
       });
     }
 
+    if (ffmShowOnlyMarkedRows === 'marked') {
+      data = data.filter((row) => markedRows.has(row[PRIMARY_KEY_COLUMN]));
+    }
+
     // So khớp lọc trên bản không pending; map sang bản render (có pending + cột suy ra).
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
-  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant, pendingChanges]);
+  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, ffmShowOnlyMarkedRows, markedRows, variant, pendingChanges]);
 
   const getFilteredData = useMemo(() => {
     return applyFfmFilters(ffmRowsForFilterMatch, localFilterValues);
@@ -1507,6 +1620,8 @@ function FFMMgtHcm() {
     setDateTo('');
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
+    setFfmShowOnlyMarkedRows('all');
+    setContextMenu(null);
     setOmActiveTeam('all');
     setCurrentPage(1);
     addToast('Đã xóa bộ lọc hiển thị (giữ nguyên dữ liệu đã tải).', 'success', 2500);
@@ -1819,10 +1934,11 @@ function FFMMgtHcm() {
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     if (!FFM_ALLOWED_CHANGE_KEYS.has(colKey)) return;
-    const originalRow = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+    const originalRow = allDataMapRef.current.get(orderId);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
-    const pendingVal = pendingChanges.get(orderId)?.get(colKey);
+    const pc = pendingChangesRef.current;
+    const pendingVal = pc.get(orderId)?.get(colKey);
     const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
     const isThoiGianGiaoDuKien =
@@ -1853,7 +1969,7 @@ function FFMMgtHcm() {
       const todayStr = getTodayDateStr();
       const trackingDateKey = 'Ngày có mã tracking';
 
-      const pendingInfo = pendingChanges.get(orderId)?.get(trackingDateKey);
+      const pendingInfo = pc.get(orderId)?.get(trackingDateKey);
       const rowTrackingDate = originalRow
         ? (originalRow[trackingDateKey] ?? originalRow.ngay_co_ma_tracking ?? originalRow.ngaycomatracking ?? '')
         : '';
@@ -1873,7 +1989,7 @@ function FFMMgtHcm() {
     const isShippingUnitCol = colKey === 'Đơn vị vận chuyển' || colKey === 'shipping_unit';
     if (isShippingUnitCol) {
       const nbKey = 'delivery_status_nb';
-      const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
+      const pendingNb = pc.get(orderId)?.get(nbKey);
       const currentNb = pendingNb
         ? pendingNb.newValue
         : String(originalRow?.delivery_status_nb ?? originalRow?.['Trạng thái giao hàng NB'] ?? '').trim();
@@ -1890,7 +2006,7 @@ function FFMMgtHcm() {
 
 
     pushChange(changes, { deferDbSave: true });
-  }, [allData, pendingChanges, pushChange]);
+  }, [pushChange]);
 
   const handleUpdateAll = useCallback(async () => {
     setSyncPopoverOpen(false);
@@ -3208,13 +3324,21 @@ function FFMMgtHcm() {
     // }
 
     const isEditable = isEditableColFFM(col);
-    if (isEditable) {
-      const orderId = row[PRIMARY_KEY_COLUMN];
-      if (pendingChanges.get(orderId)?.has(ffmPendingKeyForCol(col))) {
-        classes += '!bg-yellow-300 ';
-      } else {
-        classes += 'bg-[#e8f5e9] ';
+    const orderId = row[PRIMARY_KEY_COLUMN];
+    const isPendingCell = isEditable && pendingChanges.get(orderId)?.has(ffmPendingKeyForCol(col));
+    const isMarkedRow = markedRows.has(orderId);
+
+    if (isPendingCell) {
+      classes += '!bg-yellow-300 ';
+    } else if (isEditable) {
+      classes += 'bg-[#e8f5e9] ';
+    }
+
+    if (isMarkedRow) {
+      if (!isPendingCell) {
+        classes += '!bg-purple-100 ';
       }
+      classes += 'outline outline-2 outline-purple-500 outline-offset-[-2px] ';
     }
 
     if (!splitPane && cIdx < effectiveFixedColumns) {
@@ -3251,7 +3375,7 @@ function FFMMgtHcm() {
     }
 
     return classes;
-  }, [isDraggingSelection, selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns, splitPane]);
+  }, [isDraggingSelection, selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns, splitPane, markedRows]);
 
   const tableClassName = 'border-separate border-spacing-0 text-sm table-auto';
 
@@ -3474,6 +3598,11 @@ function FFMMgtHcm() {
         style={cellStyle}
         onMouseDownCapture={(e) => handleMouseDown(rIdx, cIdx, e)}
         onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setContextMenu({ x: e.clientX, y: e.clientY, orderId });
+        }}
       >
         {col === 'STT' ? (
           row['rowIndex'] || (currentPage - 1) * rowsPerPage + rIdx + 1
@@ -3695,6 +3824,20 @@ function FFMMgtHcm() {
                   <option value="all">Tất cả</option>
                   <option value="has">Có mã</option>
                   <option value="no">Chưa có mã</option>
+                </select>
+              </div>
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+                <label className="text-xs font-semibold text-gray-500">Hàng đang đánh dấu</label>
+                <select
+                  className="px-2 py-1 border rounded text-xs bg-white"
+                  value={ffmShowOnlyMarkedRows}
+                  onChange={(e) => {
+                    setFfmShowOnlyMarkedRows(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Tất cả</option>
+                  <option value="marked">Chỉ hiện hàng đã đánh dấu</option>
                 </select>
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
@@ -4171,6 +4314,33 @@ function FFMMgtHcm() {
           </div>
         ))}
       </div>
+
+      {contextMenu && (
+        <div
+          className="fixed z-[99999] bg-white border border-gray-200 rounded shadow-xl py-1 text-sm font-medium text-gray-700 min-w-[200px]"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-2 text-xs text-gray-400 border-b border-gray-100 bg-gray-50 uppercase tracking-wider font-semibold">
+            Thao tác Hàng
+          </div>
+          <button
+            type="button"
+            className="w-full text-left px-4 py-2.5 hover:bg-amber-50 transition-colors flex items-center gap-2"
+            onClick={() => {
+              setMarkedRows((prev) => {
+                const next = new Set(prev);
+                if (next.has(contextMenu.orderId)) next.delete(contextMenu.orderId);
+                else next.add(contextMenu.orderId);
+                return next;
+              });
+              setContextMenu(null);
+            }}
+          >
+            {markedRows.has(contextMenu.orderId) ? '🔕 Bỏ đánh dấu Hàng này' : '🚩 Đánh dấu Hàng đang thao tác'}
+          </button>
+        </div>
+      )}
 
       <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div></div>}>
         <SyncPopover

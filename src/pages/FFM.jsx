@@ -180,7 +180,6 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Kết quả Check',
   'Kết quả check',
   'Kết quả',
-  'Mã Tracking',
   'Ngày đóng hàng',
   'Trạng thái giao hàng',
   'GHI CHÚ',
@@ -192,8 +191,6 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
 const FFM_ALLOWED_CHANGE_KEYS = new Set([
   'Kết quả Check',
   'delivery_status',
-  'Mã Tracking',
-  'tracking_code',
   'Ngày đóng hàng',
   'ngaydonghang',
   'GHI CHÚ',
@@ -220,9 +217,17 @@ function ffmFilterRowDataKey(headerKey) {
 }
 
 /** Lấy ngày hôm nay định dạng YYYY-MM-DD */
-function getTodayDateStr() {
-  const d = new Date();
+function getTodayDateStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getCurrentYearDateRange() {
+  const today = new Date();
+  const year = today.getFullYear();
+  return {
+    from: `${year}-01-01`,
+    to: getTodayDateStr(today),
+  };
 }
 
 /** Giá trị gốc ngày tracking từ row (dùng để suy ra cột ngày tracking). */
@@ -545,12 +550,12 @@ function FFM({ variant = 'MGT' }) {
     return () => clearTimeout(timeoutId);
   }, [localFilterValues]);
 
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(() => getCurrentYearDateRange().from);
+  const [dateTo, setDateTo] = useState(() => getCurrentYearDateRange().to);
   const [fixedColumns, setFixedColumns] = useState(2);
 
   const [omActiveTeam, setOmActiveTeam] = useState('all');
-  const [omDateType, setOmDateType] = useState('Ngày đóng hàng');
+  const [omDateType, setOmDateType] = useState('Ngày lên đơn');
   const [showFilters, setShowFilters] = useState(true); // Bộ lọc mở mặc định để dễ thấy
 
   /** Chi nhánh: Tất cả | Hà Nội | HCM */
@@ -909,9 +914,14 @@ function FFM({ variant = 'MGT' }) {
     return `${y}-${m}-${d}`;
   };
 
-  const loadData = async () => {
+  const loadData = async (dateRangeOverride = {}) => {
     ffmLoadGenRef.current += 1;
     const loadGen = ffmLoadGenRef.current;
+    const ffmDateRangeArgs = {
+      dateFrom: dateRangeOverride.dateFrom ?? dateFrom,
+      dateTo: dateRangeOverride.dateTo ?? dateTo,
+      dateType: dateRangeOverride.dateType ?? omDateType,
+    };
 
     setLoading(true);
     setFfmHasMore(false);
@@ -934,7 +944,8 @@ function FFM({ variant = 'MGT' }) {
             pageSize: perTableFirstBatch,
             mgtExhausted: false,
             trackedExhausted: false,
-            ordersTable: 'orders'
+            ordersTable: 'orders',
+            ...ffmDateRangeArgs
           }),
           API.fetchFFMOrdersBatch({
             mgtFrom: 0,
@@ -942,7 +953,8 @@ function FFM({ variant = 'MGT' }) {
             pageSize: perTableFirstBatch,
             mgtExhausted: false,
             trackedExhausted: false,
-            ordersTable: FFM_HCM_SUPABASE_TABLE
+            ordersTable: FFM_HCM_SUPABASE_TABLE,
+            ...ffmDateRangeArgs
           }),
         ]);
 
@@ -997,14 +1009,16 @@ function FFM({ variant = 'MGT' }) {
                     : API.fetchFFMOrdersBatch({
                         ...c.orders,
                         pageSize: perTableNextBatch,
-                        ordersTable: 'orders'
+                        ordersTable: 'orders',
+                        ...ffmDateRangeArgs
                       }),
                   hcmDone
                     ? Promise.resolve(null)
                     : API.fetchFFMOrdersBatch({
                         ...c.hcm,
                         pageSize: perTableNextBatch,
-                        ordersTable: FFM_HCM_SUPABASE_TABLE
+                        ordersTable: FFM_HCM_SUPABASE_TABLE,
+                        ...ffmDateRangeArgs
                       }),
                 ]);
 
@@ -1072,7 +1086,8 @@ function FFM({ variant = 'MGT' }) {
           trackedFrom: 0,
           pageSize: FFM_FIRST_BATCH_SIZE,
           mgtExhausted: false,
-          trackedExhausted: false
+          trackedExhausted: false,
+          ...ffmDateRangeArgs
         });
 
         if (loadGen !== ffmLoadGenRef.current) return;
@@ -1125,7 +1140,8 @@ function FFM({ variant = 'MGT' }) {
                   trackedFrom: c.trackedFrom,
                   pageSize: FFM_NEXT_BATCH_SIZE,
                   mgtExhausted: c.mgtExhausted,
-                  trackedExhausted: c.trackedExhausted
+                  trackedExhausted: c.trackedExhausted,
+                  ...ffmDateRangeArgs
                 });
 
                 if (loadGen !== ffmLoadGenRef.current) return;
@@ -1172,7 +1188,7 @@ function FFM({ variant = 'MGT' }) {
           addToast(`✅ Đã tải ${mergedList.length} đơn hàng`, 'success', 2000);
         }
       } else {
-        const data = await API.fetchFFMOrders?.();
+        const data = await API.fetchFFMOrders?.(ffmDateRangeArgs);
         const list = Array.isArray(data) ? assignRowIndexByOrderDate(data) : [];
         setAllData(list);
         setFfmHasMore(false);
@@ -1188,8 +1204,8 @@ function FFM({ variant = 'MGT' }) {
       try {
         if (variant === 'MGT' || variant === 'TT') {
           const [hnRows, hcmRows] = await Promise.all([
-            API.fetchFFMOrders?.({ ordersTable: 'orders' }),
-            API.fetchFFMOrders?.({ ordersTable: FFM_HCM_SUPABASE_TABLE })
+            API.fetchFFMOrders?.({ ordersTable: 'orders', ...ffmDateRangeArgs }),
+            API.fetchFFMOrders?.({ ordersTable: FFM_HCM_SUPABASE_TABLE, ...ffmDateRangeArgs })
           ]);
           const fallbackRows = assignRowIndexByOrderDate([
             ...withFfmSourceTable(Array.isArray(hnRows) ? hnRows : [], 'orders'),
@@ -1217,6 +1233,7 @@ function FFM({ variant = 'MGT' }) {
   const loadMoreFfmData = async () => {
     if (!ffmHasMore || loadingMore || loading || ffmBackgroundLoading) return;
     if (typeof API.fetchFFMOrdersBatch !== 'function') return;
+    const ffmDateRangeArgs = { dateFrom, dateTo, dateType: omDateType };
 
     setLoadingMore(true);
     try {
@@ -1236,14 +1253,16 @@ function FFM({ variant = 'MGT' }) {
             : API.fetchFFMOrdersBatch({
                 ...c.orders,
                 pageSize: perTableNextBatch,
-                ordersTable: 'orders'
+                ordersTable: 'orders',
+                ...ffmDateRangeArgs
               }),
           hcmDone
             ? Promise.resolve(null)
             : API.fetchFFMOrdersBatch({
                 ...c.hcm,
                 pageSize: perTableNextBatch,
-                ordersTable: FFM_HCM_SUPABASE_TABLE
+                ordersTable: FFM_HCM_SUPABASE_TABLE,
+                ...ffmDateRangeArgs
               }),
         ]);
         if (nextOrders) {
@@ -1285,7 +1304,8 @@ function FFM({ variant = 'MGT' }) {
         trackedFrom: c.trackedFrom,
         pageSize: FFM_NEXT_BATCH_SIZE,
         mgtExhausted: c.mgtExhausted,
-        trackedExhausted: c.trackedExhausted
+        trackedExhausted: c.trackedExhausted,
+        ...ffmDateRangeArgs
       });
 
       ffmCursorRef.current = {
@@ -1342,15 +1362,21 @@ function FFM({ variant = 'MGT' }) {
     };
     setFilterValues(defaultFilters);
     setLocalFilterValues(defaultFilters);
-    setDateFrom('');
-    setDateTo('');
+    const currentYearRange = getCurrentYearDateRange();
+    setDateFrom(currentYearRange.from);
+    setDateTo(currentYearRange.to);
+    setOmDateType('Ngày lên đơn');
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
     setFfmEmptyCellsQuickFilter('off');
     setFfmDateDiffFilter('off');
     setCurrentPage(1);
     savePendingToLocalStorage(new Map());
-    await loadData();
+    await loadData({
+      dateFrom: currentYearRange.from,
+      dateTo: currentYearRange.to,
+      dateType: 'Ngày lên đơn',
+    });
   };
   /** Ghi pendingChanges vào localStorage — **debounced** để tránh JSON.stringify liên tục khi sửa nhanh (gây jank / OOM trên máy RAM ít). */
   const savePendingToLocalStorage = useCallback((newPending, newLegacy = new Map()) => {

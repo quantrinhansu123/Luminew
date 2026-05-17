@@ -713,6 +713,21 @@ const ffmOrderPassesFilter = (row) => {
     return hasValidCarrier;
 };
 
+const FFM_DATE_COLUMN_MAPPING = {
+    'Ngày lên đơn': 'order_date',
+    'Ngày đóng hàng': 'ngaydonghang',
+    'Ngày đẩy đơn': 'accounting_check_date',
+    'Ngày có mã tracking': 'tracking_check_date',
+};
+
+const applyFfmDateRange = (query, { dateFrom, dateTo, dateType } = {}) => {
+    const dateColumn = FFM_DATE_COLUMN_MAPPING[dateType] || FFM_DATE_COLUMN_MAPPING['Ngày lên đơn'];
+    let q = query;
+    if (dateColumn && dateFrom) q = q.gte(dateColumn, dateFrom);
+    if (dateColumn && dateTo) q = q.lte(dateColumn, dateTo);
+    return q;
+};
+
 /**
  * Một lô FFM: song song MGT/T&T + có tracking, gộp theo order_code, lọc, map app.
  * Dùng incremental: gọi lần lượt với nextMgtFrom / nextTrackedFrom cho đến khi cả hai exhausted.
@@ -724,7 +739,10 @@ export const fetchFFMOrdersBatch = async ({
     mgtExhausted: mgtSkip = false,
     trackedExhausted: trackedSkip = false,
     /** @type {string} Cùng schema `orders` (vd. `order_code_hcm` cho FFM MGT HCM). */
-    ordersTable = 'orders'
+    ordersTable = 'orders',
+    dateFrom = '',
+    dateTo = '',
+    dateType = 'Ngày lên đơn'
 } = {}) => {
     const table = String(ordersTable || 'orders').trim() || 'orders';
     const mode = getDataSourceMode();
@@ -754,20 +772,26 @@ export const fetchFFMOrdersBatch = async ({
 
     const mgtPromise = mgtSkip
         ? Promise.resolve({ data: [], error: null })
-        : supabase
-              .from(table)
-              .select('*')
-              .or('shipping_unit.ilike.%MGT%,shipping_unit.ilike.%T&T%')
+        : applyFfmDateRange(
+              supabase
+                  .from(table)
+                  .select('*')
+                  .or('shipping_unit.ilike.%MGT%,shipping_unit.ilike.%T&T%'),
+              { dateFrom, dateTo, dateType }
+          )
               .order('order_date', { ascending: false })
               .range(mgtFrom, mgtFrom + pageSize - 1);
 
     const trackedPromise = trackedSkip
         ? Promise.resolve({ data: [], error: null })
-        : supabase
-              .from(table)
-              .select('*')
-              .not('tracking_code', 'is', null)
-              .neq('tracking_code', '')
+        : applyFfmDateRange(
+              supabase
+                  .from(table)
+                  .select('*')
+                  .not('tracking_code', 'is', null)
+                  .neq('tracking_code', ''),
+              { dateFrom, dateTo, dateType }
+          )
               .order('order_date', { ascending: false })
               .range(trackedFrom, trackedFrom + pageSize - 1);
 
@@ -821,7 +845,7 @@ export const fetchMGTNoiBoOrders = async () => {
 };
 
 /** Tải toàn bộ FFM (lặp batch) — ưu tiên dùng fetchFFMOrdersBatch + gộp phía UI để hiện từng lô. */
-export const fetchFFMOrders = async ({ ordersTable = 'orders' } = {}) => {
+export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', dateTo = '', dateType = 'Ngày lên đơn' } = {}) => {
     const merge = new Map();
     let state = {
         mgtFrom: 0,
@@ -840,7 +864,10 @@ export const fetchFFMOrders = async ({ ordersTable = 'orders' } = {}) => {
                 pageSize,
                 mgtExhausted: state.mgtExhausted,
                 trackedExhausted: state.trackedExhausted,
-                ordersTable
+                ordersTable,
+                dateFrom,
+                dateTo,
+                dateType
             });
             for (const r of b.rows) {
                 if (r?.[PRIMARY_KEY_COLUMN]) merge.set(r[PRIMARY_KEY_COLUMN], r);
