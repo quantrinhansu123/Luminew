@@ -1430,7 +1430,7 @@
     let baseDataForReport = [];
     const API_CACHE_TTL_MS = 120000;
     /** Giới hạn render bảng “theo ngày” (tránh treo trình duyệt); dữ liệu gốc vẫn tải đủ. */
-    const MAX_DAILY_BREAKDOWN_ROWS = 50000;
+    const MAX_DAILY_BREAKDOWN_ROWS = 100000;
     const mktApiCache = new Map();
     let mktHcmBootFallbackTimer = null;
 
@@ -3234,6 +3234,5 @@
 </body>
 
 </html>
-
 
 

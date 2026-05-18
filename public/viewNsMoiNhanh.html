@@ -1047,6 +1047,24 @@
       return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
     }
 
+    function parseSoDonHoanHuyFromRow(row) {
+      if (!row) return 0;
+      return parseIntegerVi(
+        row['Số đơn hoàn hủy'] ??
+          row['Số đơn hoàn huỷ'] ??
+          row['Số đơn hoàn hủy thực tế'] ??
+          row['Số đơn hoàn huỷ thực tế'] ??
+          row.so_don_hoan_huy ??
+          row.so_don_hoan_huy_thuc_te ??
+          0
+      );
+    }
+
+    function parseDoanhSoHoanHuyTTFromRow(row) {
+      if (!row) return 0;
+      return parseMoneyNumber(row['Doanh số hoàn hủy thực tế'] ?? row.doanh_so_hoan_huy_thuc_te ?? 0);
+    }
+
     function parseSoMessCmtFromRow(row) {
       if (!row) return 0;
       return parseIntegerVi(row['Số_Mess_Cmt'] ?? row.so_mess_cmt ?? 0);
@@ -1067,7 +1085,7 @@
     /**
      * Trùng `id` (API lặp) hoặc trùng key logic.
      * Chỉ CPQC và Số_Mess_Cmt: tổng khi trùng key.
-     * Còn lại như rule ban đầu: Số đơn thực tế & Doanh số TT — max; các cột khác giữ theo dòng đầu (không cộng).
+     * Còn lại như rule ban đầu: số TT / hủy / Doanh số TT — max; các cột khác giữ theo dòng đầu (không cộng).
      */
     function dedupeMktDetailReportRows(rows) {
       const merged = mergeUniqueRowsByIdKeepNoId(rows || []);
@@ -1075,31 +1093,43 @@
       for (const row of merged) {
         const k = buildMktDetailReportRowKey(row);
         const sd = parseSoDonThucTeFromRow(row);
+        const sh = parseSoDonHoanHuyFromRow(row);
         const ds = parseDoanhSoChotTTFromRow(row);
+        const dsh = parseDoanhSoHoanHuyTTFromRow(row);
         const cpqc = parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0);
         const mess = parseSoMessCmtFromRow(row);
 
         const prev = byKey.get(k);
         if (!prev) {
-          byKey.set(k, { row, sd, ds, cpqc, mess });
+          byKey.set(k, { row, sd, sh, ds, dsh, cpqc, mess });
           continue;
         }
 
         const mergedSd = Math.max(prev.sd, sd);
+        const mergedSh = Math.max(prev.sh, sh);
         const mergedDs = Math.max(prev.ds, ds);
+        const mergedDsh = Math.max(prev.dsh, dsh);
         const mergedCpqc = prev.cpqc + cpqc;
         const mergedMess = prev.mess + mess;
 
         prev.sd = mergedSd;
+        prev.sh = mergedSh;
         prev.ds = mergedDs;
+        prev.dsh = mergedDsh;
         prev.cpqc = mergedCpqc;
         prev.mess = mergedMess;
         prev.row['Số đơn thực tế'] = mergedSd;
+        prev.row['Số đơn hoàn hủy'] = mergedSh;
+        prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
         prev.row['Doanh số TT'] = mergedDs;
+        prev.row['Doanh số hoàn hủy thực tế'] = mergedDsh;
         prev.row['CPQC'] = mergedCpqc;
         prev.row['Số_Mess_Cmt'] = mergedMess;
         if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
+        if (prev.row.so_don_hoan_huy != null) prev.row.so_don_hoan_huy = mergedSh;
+        if (prev.row.so_don_hoan_huy_thuc_te != null) prev.row.so_don_hoan_huy_thuc_te = mergedSh;
         if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
+        if (prev.row.doanh_so_hoan_huy_thuc_te != null) prev.row.doanh_so_hoan_huy_thuc_te = mergedDsh;
         if (prev.row.cpqc != null) prev.row.cpqc = mergedCpqc;
         if (prev.row.so_mess_cmt != null) prev.row.so_mess_cmt = mergedMess;
       }
@@ -1312,7 +1342,7 @@
     let employeeData = [];
     let baseDataForReport = [];
     const API_CACHE_TTL_MS = 120000;
-    const MAX_DAILY_BREAKDOWN_ROWS = 1500;
+    const MAX_DAILY_BREAKDOWN_ROWS = 10000;
     const DAILY_RENDER_CHUNK_SIZE = 5;
     const mktApiCache = new Map();
     const charts = {};
@@ -1630,10 +1660,11 @@
             return p && rdProductsSet.has(p);
           })
           .map(r => {
-            const dsChotTT = Number(r["Doanh số TT"] ?? r.doanh_so_tt) || 0;
-            const dsChotThucTeVal = dsChotTT || Number(r["Doanh thu chốt thực tế"]) || 0;
+            const dsChotTT = parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0);
+            const dsChotThucTeVal = dsChotTT || parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
             const donTT = parseIntegerVi(r["Số đơn thực tế"]);
-            const dsSauHoanHuy = Number(r["DS sau hoàn hủy"]) || 0;
+            const dsHuyVnd = parseMoneyNumber(r["Doanh số hoàn hủy thực tế"] ?? 0);
+            const dsSauHoanHuy = parseMoneyNumber(r["DS sau hoàn hủy"] ?? 0);
             const ngayParsed = parseNgayToDate(r["Ngày"]);
             const ngayKey = ngayParsed instanceof Date && !isNaN(ngayParsed.getTime())
               ? ngayParsed.toISOString().slice(0, 10)
@@ -1654,14 +1685,14 @@
               soDon: donTT,
               dsChot: dsChotThucTeVal,
               soDonHuy: parseIntegerVi(r["Số đơn hoàn hủy"]),
-              doanhSoHuy: dsChotThucTeVal - dsSauHoanHuy,
+              doanhSoHuy: dsHuyVnd > 0 ? dsHuyVnd : Math.max(0, dsChotThucTeVal - dsSauHoanHuy),
               dsSauHoanHuy: dsSauHoanHuy,
               dsSauShip: Number(r["Doanh số sau ship"]) || 0,
               dsThanhCong: Number(r["Doanh số TC"]) || 0,
               kpiValue: Number(r["KPIs"]) || 0,
               soDonThucTe: donTT,
               dsChotThucTe: dsChotThucTeVal,
-              dsHoanHuyThucTe: Number(r["Doanh số hoàn hủy thực tế"]) || 0,
+              dsHoanHuyThucTe: dsHuyVnd,
               soDonHuyThucTe: parseIntegerVi(r["Số đơn hoàn hủy thực tế"]),
               dsSauHoanHuyThucTe: Number(r["Doanh số sau hoàn hủy thực tế"]) || 0,
               dsThanhCongThucTe: Number(r["Doanh số đi thực tế"]) || 0,
@@ -2231,7 +2262,8 @@
     }
 
     function createMktRow(productName, marketName, data, showMarket, className = '') {
-      const dsSauHoanHuyThucTe = data.dsChotThucTe - data.dsHoanHuyThucTe;
+      /* Doanh số TT của MKT đã là net sau hủy từ recalc orders; không trừ hoàn/hủy thêm lần nữa. */
+      const dsSauHoanHuyThucTe = data.dsChotThucTe;
       const costPercent = dsSauHoanHuyThucTe > 0 ? data.cpqc / dsSauHoanHuyThucTe : 0;
       const cps = data.soDonThucTe ? data.cpqc / data.soDonThucTe : 0;
       const avgOrderValue = data.soDonThucTe ? data.dsChotThucTe / data.soDonThucTe : 0;
@@ -2584,7 +2616,8 @@
 
       const sortedProducts = Object.entries(productMetrics)
         .map(([name, metrics]) => {
-          const dsSauHhTt = metrics.dsChotThucTe - metrics.dsHoanHuyThucTe;
+          /* Biểu đồ «sau HH (TT)»: Doanh số TT đã là net sau hủy. */
+          const dsSauHhTt = metrics.dsChotThucTe;
           return [name, { ...metrics, dsSauHhTt }];
         })
         .sort(([, a], [, b]) => b.dsSauHhTt - a.dsSauHhTt);
