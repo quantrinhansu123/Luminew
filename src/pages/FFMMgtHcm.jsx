@@ -282,9 +282,21 @@ function normalizeToYmdForCompare(val) {
 }
 
 /** Ngày theo «Bộ lọc theo ngày» (Từ ngày / Tới ngày) — cùng quy tắc với cột hiển thị. */
+function getFfmPushDateRaw(row) {
+  if (!row || typeof row !== 'object') return '';
+  return (
+    row['time_dayon'] ||
+    row.time_dayon ||
+    row['Ngày đẩy đơn'] ||
+    row.accounting_check_date ||
+    row['Ngày Kế toán đối soát với FFM lần 2'] ||
+    ''
+  );
+}
+
 function getOmDateYmdFromRow(row, activeDateType) {
   if (activeDateType === 'Ngày đẩy đơn') {
-    const v = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
+    const v = getFfmPushDateRaw(row);
     return normalizeToYmdForCompare(v);
   }
   if (activeDateType === 'Ngày có mã tracking') {
@@ -309,7 +321,7 @@ function getFfmRowColRaw(row, colName, pendingChanges) {
   } else if (colName === 'Ngày lên đơn') {
     val = row['Ngày lên đơn'] ?? row.order_date ?? '';
   } else if (colName === 'Ngày đẩy đơn') {
-    val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
+    val = getFfmPushDateRaw(row) || row[key] || '';
   } else if (colName === 'Payment Bill') {
     val = row['Payment Bill'] ?? row.payment_bill ?? row[key] ?? '';
   } else if (colName === 'Payment Image') {
@@ -343,9 +355,7 @@ function buildFfmRenderRow(row, pendingChanges) {
     });
   }
 
-  const ngayDayDon = extractDateFromDateTime(
-    out['time_dayon'] || out.time_dayon || out['Ngày Kế toán đối soát với FFM lần 2']
-  );
+  const ngayDayDon = extractDateFromDateTime(getFfmPushDateRaw(out));
   const rawTrackingDate = getTrackingDateRawFFM(out);
   const ngayCoMaTracking = extractDateFromDateTime(rawTrackingDate);
 
@@ -840,7 +850,7 @@ function FFMMgtHcm() {
       if (col === 'Mã Tracking') {
         val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
       } else if (col === 'Ngày đẩy đơn') {
-        val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
+        val = getFfmPushDateRaw(row) || row[key] || '';
       } else if (col === 'Ngày có mã tracking') {
         const raw = getTrackingDateRawFFM(row);
         val = row['Ngày có mã tracking'] ?? extractDateFromDateTime(raw) ?? raw ?? '';
@@ -1323,7 +1333,7 @@ function FFMMgtHcm() {
             const v = row['Ngày có mã tracking'] || extractDateFromDateTime(raw) || raw;
             cellYmd = normalizeToYmdForCompare(v);
           } else if (key === 'Ngày đẩy đơn') {
-            const v = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
+            const v = getFfmPushDateRaw(row);
             cellYmd = normalizeToYmdForCompare(v);
           } else {
             const cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
@@ -3385,7 +3395,7 @@ function FFMMgtHcm() {
     if (col === 'Mã Tracking') {
       val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
     } else if (col === 'Ngày đẩy đơn') {
-      val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
+      val = getFfmPushDateRaw(row) || row[key] || '';
     } else if (col === 'Payment Bill') {
       val = row['Payment Bill'] ?? row.payment_bill ?? row[key] ?? '';
     } else if (col === 'Payment Image') {
