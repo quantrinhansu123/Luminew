@@ -1945,15 +1945,20 @@
     }
 
 
+    function parseDateInputLocal(value, endOfDay = false) {
+      const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return value ? new Date(value) : null;
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      d.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+      return d;
+    }
+
     function getFilteredData(tabPrefix) {
       const isMktTab = tabPrefix === 'mkt';
       const startDateVal = document.getElementById(`start-date-${tabPrefix}`).value;
       const endDateVal = document.getElementById(`end-date-${tabPrefix}`).value;
-      const startDate = startDateVal ? new Date(startDateVal) : null;
-      if (startDate) startDate.setHours(0, 0, 0, 0);
-
-      const endDate = endDateVal ? new Date(endDateVal) : null;
-      if (endDate) endDate.setHours(23, 59, 59, 999);
+      const startDate = parseDateInputLocal(startDateVal);
+      const endDate = parseDateInputLocal(endDateVal, true);
 
 
       if ((startDate && isNaN(startDate.getTime())) || (endDate && isNaN(endDate.getTime()))) return [];
@@ -1982,12 +1987,11 @@
           .trim()
           .replace(/\u00a0/g, ' ')
           .replace(/\s+/g, ' ')
+          .replace(/[，;；]/g, ',')
+          .replace(/\s*,\s*/g, ',')
           .toLowerCase()
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '');
-      /**
-       * «Hết ca» → chỉ dòng thuần Hết ca. «Giữa ca» → Giữa thuần hoặc gộp. Gộp → chỉ dòng gộp.
-       */
       const rowMatchesCaFilters = (rowCa, selected) => {
         if (!selected || selected.length === 0) return true;
         const norm = normalizeCaForFilter(rowCa);
@@ -2001,19 +2005,25 @@
           const selGua = s.includes('giua ca');
           const selOnlyHet = selHet && !selGua;
           const selOnlyGua = selGua && !selHet;
-          if (selOnlyHet) {
-            return rowHet && !rowGua;
-          }
-          if (selOnlyGua) {
-            return rowGua || isRowCombined;
-          }
-          if (selHet && selGua) {
-            return isRowCombined;
-          }
+          if (selOnlyHet) return rowHet && !rowGua;
+          if (selOnlyGua) return rowGua || isRowCombined;
+          if (selHet && selGua) return isRowCombined;
           return false;
         });
       };
-      const filteredDataResult = baseDataForReport.filter(r => {
+      const manualMetricBaseKey = (r) => [
+        normalizeNgayForKey(r.ngay || r.ngayKey),
+        normalizeNameForKey(r.ten),
+        normalizeFieldForKey(r.sanPham),
+        normalizeFieldForKey(r.thiTruong),
+      ].join('|');
+      const isSingleGiuaCaFilter = (() => {
+        const norms = (selectedCas || []).map(normalizeCaForFilter).filter(Boolean);
+        if (norms.length !== 1) return false;
+        const s = norms[0];
+        return s.includes('giua ca') && !s.includes('het ca');
+      })();
+      const rowPassesNonCaFilters = (r) => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
         if (!dateRaw || isNaN(dateRaw.getTime())) return false;
         const date = new Date(dateRaw);
@@ -2031,25 +2041,46 @@
         const isMarketOk = selectedMarkets.length === 0 || selectedMarkets.includes(r.thiTruong) || selectedMarkets.includes(marketGroup);
         if (!isMarketOk) return false;
 
-        // THÊM KIỂM TRA BỘ LỌC TEAM VÀ CA CHO TAB MKT
         if (isMktTab) {
           const isTeamOk = selectedTeams.length === 0 || selectedTeams.includes(r.team);
           if (!isTeamOk) return false;
-
-          if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
-
-          return true;
         }
-
-        if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
 
         const isTeamOk = (selectedTeams.length === 0) || selectedTeams.includes(r.team);
         if (!isTeamOk) return false;
 
         return true;
+      };
+      const filteredDataResult = baseDataForReport.filter(r => {
+        if (!rowPassesNonCaFilters(r)) return false;
+        if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
+        return true;
+      });
+      if (!isSingleGiuaCaFilter) return filteredDataResult;
+
+      const manualByBaseKey = new Map();
+      baseDataForReport.forEach((r) => {
+        if (!rowPassesNonCaFilters(r)) return;
+        const key = manualMetricBaseKey(r);
+        if (!key) return;
+        const prev = manualByBaseKey.get(key) || { mess: 0, cpqc: 0, don: 0, chot: 0 };
+        prev.mess += Number(r.soMessCmt) || 0;
+        prev.cpqc += Number(r.cpqc) || 0;
+        prev.don += Number(r.soDon) || 0;
+        prev.chot += Number(r.dsChot) || 0;
+        manualByBaseKey.set(key, prev);
       });
 
-      return filteredDataResult;
+      return filteredDataResult.map((r) => {
+        const manual = manualByBaseKey.get(manualMetricBaseKey(r));
+        if (!manual) return r;
+        const next = { ...r };
+        if (!(Number(next.soMessCmt) || 0) && manual.mess) next.soMessCmt = manual.mess;
+        if (!(Number(next.cpqc) || 0) && manual.cpqc) next.cpqc = manual.cpqc;
+        if (!(Number(next.soDon) || 0) && manual.don) next.soDon = manual.don;
+        if (!(Number(next.dsChot) || 0) && manual.chot) next.dsChot = manual.chot;
+        return next;
+      });
     }
 
     function populateAllFilters() {
@@ -2061,18 +2092,19 @@
           .trim()
           .replace(/\u00a0/g, ' ')
           .replace(/\s+/g, ' ')
+          .replace(/[，;；]/g, ',')
+          .replace(/\s*,\s*/g, ',')
           .toLowerCase()
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '');
-      /** Ẩn nhãn ca gộp trong UI lọc; dòng DB «Giữa ca,Hết ca» vẫn khớp khi chọn Giữa ca hoặc Hết ca. */
-      const isCombinedCaDisplayLabel = (c) => {
-        const s = normCaForFilterList(c);
-        return s.includes('giua ca') && s.includes('het ca');
-      };
       const canonicalCaByNorm = new Map([
         [normCaForFilterList('Giữa ca'), 'Giữa ca'],
         [normCaForFilterList('Hết ca'), 'Hết ca'],
       ]);
+      const isCombinedCaDisplayLabel = (c) => {
+        const s = normCaForFilterList(c);
+        return s.includes('giua ca') && s.includes('het ca');
+      };
       masterData
         .map((r) => r.ca)
         .forEach((rawCa) => {
@@ -2152,7 +2184,7 @@
             hideLoader();
             return;
           }
-          document.getElementById('report-date-mkt').textContent = `Từ ngày ${formatDate(new Date(startDateVal))} đến ngày ${formatDate(new Date(endDateVal))}`;
+          document.getElementById('report-date-mkt').textContent = `Từ ngày ${formatDate(parseDateInputLocal(startDateVal))} đến ngày ${formatDate(parseDateInputLocal(endDateVal))}`;
           const filteredData = getFilteredData('mkt');
           const asiaData = [], nonAsiaData = [];
           const nonAsiaMarketsLower = MARKET_GROUPS['Ngoài Châu Á'].map(m => m.toLowerCase());
@@ -3234,5 +3266,3 @@
 </body>
 
 </html>
-
-
