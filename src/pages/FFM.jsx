@@ -781,7 +781,7 @@ function FFM({ variant = 'MGT' }) {
       try {
         const { data, error } = await supabase
           .from('orders')
-          .select('*')
+          .select(API.getFfmOrdersSelectQuery('orders'))
           .in('order_code', orderCodes);
 
         if (error) throw error;

@@ -714,7 +714,7 @@ function FFMMgtHcm() {
       try {
         const { data, error } = await supabase
           .from(FFM_HCM_SUPABASE_TABLE)
-          .select('*')
+          .select(API.getFfmOrdersSelectQuery(FFM_HCM_SUPABASE_TABLE))
           .in('order_code', orderCodes);
 
         if (error) throw error;
