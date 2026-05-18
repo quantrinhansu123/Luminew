@@ -618,6 +618,7 @@ function FFMMgtHcm() {
 
   const ffmRealtimeOrderCodesRef = useRef(new Set()); // Track order_code values pending a fetch
   const ffmRealtimeFetchTimerRef = useRef(null); // setTimeout handle for batching realtime events
+  const ffmDateAutoLoadReadyRef = useRef(false);
 
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
@@ -706,6 +707,19 @@ function FFMMgtHcm() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!ffmDateAutoLoadReadyRef.current) {
+      ffmDateAutoLoadReadyRef.current = true;
+      return undefined;
+    }
+    if (!dateFrom || !dateTo) return undefined;
+    const timer = setTimeout(() => {
+      setCurrentPage(1);
+      void loadData({ dateFrom, dateTo, dateType: omDateType });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [dateFrom, dateTo, omDateType]);
 
   useEffect(() => {
     // Auto-sync data changes made from "outside" (e.g., another tab/admin) into current grid.

@@ -720,11 +720,21 @@ const FFM_DATE_COLUMN_MAPPING = {
     'Ngày có mã tracking': 'tracking_check_date',
 };
 
+const nextYmdDate = (ymd) => {
+    const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const applyFfmDateRange = (query, { dateFrom, dateTo, dateType } = {}) => {
     const dateColumn = FFM_DATE_COLUMN_MAPPING[dateType] || FFM_DATE_COLUMN_MAPPING['Ngày lên đơn'];
     let q = query;
     if (dateColumn && dateFrom) q = q.gte(dateColumn, dateFrom);
-    if (dateColumn && dateTo) q = q.lte(dateColumn, dateTo);
+    if (dateColumn && dateTo) {
+        const nextDay = nextYmdDate(dateTo);
+        q = nextDay ? q.lt(dateColumn, nextDay) : q.lte(dateColumn, dateTo);
+    }
     return q;
 };
 
