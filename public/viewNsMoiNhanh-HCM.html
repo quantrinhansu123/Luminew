@@ -1351,6 +1351,7 @@
 
         const caKey = normalizeCaForRowKey(row.ca ?? row['Ca'] ?? row.shift);
         const actual = actualsByKey.get(`${baseKey}|${caKey}`);
+        if (!actual) return row;
         const count = actual?.count || 0;
         const cancelCount = actual?.cancelCount || 0;
         const totalRevenueVnd = actual?.totalRevenueVnd || 0;

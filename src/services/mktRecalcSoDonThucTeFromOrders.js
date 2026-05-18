@@ -378,6 +378,7 @@ export function overlayHcmMarketingReportRowsFromOrders(reportRows, orders) {
 
     const caKey = normalizeCaForRowKey(r.ca ?? r['Ca'] ?? r.shift);
     const actual = actualsByKey.get(`${baseKey}|${caKey}`);
+    if (!actual) return r;
     const count = actual?.count || 0;
     const cancelCount = actual?.cancelCount || 0;
     const totalRevenueVnd = actual?.totalRevenueVnd || 0;
@@ -1415,4 +1416,3 @@ export async function recalcMktSoDonAfterOrderSave({
     ordersApiPath,
   });
 }
-
