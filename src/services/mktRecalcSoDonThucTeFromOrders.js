@@ -288,13 +288,35 @@ function parseDoanhSoManualFromRow(row) {
 /** Khớp `parseDoanhSoChotTTFromRow` trong viewNsMoiNhanh*.html (dedupe). */
 function parseDoanhSoChotTTFromRow(row) {
   if (!row) return 0;
-  return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
+  return parseMoneyNumber(
+    row['Doanh số TT'] ??
+      row.doanh_so_tt ??
+      row['Doanh thu chốt thực tế'] ??
+      row.doanh_thu_chot_thuc_te ??
+      row.revenue_actual ??
+      0
+  );
 }
 
 /** Khớp dedupe HTML: `parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0)`. */
 function parseCpqcFromRow(row) {
   if (!row) return 0;
-  return parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0);
+  const candidates = [
+    row['CPQC'],
+    row.cpqc,
+    row.CPOC,
+    row.cpoc,
+    row['CPQC theo TKQC'],
+    row.cpqc_theo_tkqc,
+  ];
+  let fallback = 0;
+  for (const value of candidates) {
+    if (value == null || value === '') continue;
+    const parsed = parseMoneyNumber(value);
+    if (!fallback) fallback = parsed;
+    if (parsed !== 0) return parsed;
+  }
+  return fallback;
 }
 
 /** Khớp `parseSoMessCmtFromRow` trong viewNsMoiNhanh*.html — chỉ Số_Mess_Cmt (sau normalize). */

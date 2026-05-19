@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase/config';
-import { dedupeMktDetailReportRows } from '../services/mktRecalcSoDonThucTeFromOrders';
+import {
+  dedupeMktDetailReportRows,
+  overlayHcmMarketingReportRowsFromOrders,
+} from '../services/mktRecalcSoDonThucTeFromOrders';
+import {
+  normalizeMktHcmDetailReportRow,
+  normalizeMktHnDetailReportRow,
+} from '../utils/mktNormalizeDetailReportRows';
 import {
   MAX_PAGES,
   MKT_DATE_COL,
   PAGE_SIZE,
+  buildLastFourMonthBuckets,
   buildDashboardModel,
   mapMktRow,
   mapOrderToVanDonRow,
@@ -12,6 +20,9 @@ import {
   mapUserRow,
   mapVanDonSummaryRow,
 } from '../utils/dashboardDieuHanhMetrics';
+
+const MKT_HN_ALLOWED_TEAMS = ['HN-MKT', 'Team Test'];
+const MKT_HCM_ALLOWED_TEAMS = ['MKT - Đức Anh'];
 
 function tableMissing(error) {
   const msg = String(error?.message || '').toLowerCase();
@@ -32,16 +43,22 @@ async function fetchPagedQuery(buildQuery) {
   return rows;
 }
 
-async function loadMktTable(tableName, from, to) {
+function mktRowHasName(row) {
+  return Boolean(String(row?.['Tên'] ?? row?.ten ?? row?.name ?? '').trim());
+}
+
+async function loadMktTable(tableName, from, to, allowedTeams = []) {
   try {
-    return await fetchPagedQuery(() =>
-      supabase
+    return await fetchPagedQuery(() => {
+      let q = supabase
         .from(tableName)
         .select('*')
         .gte(MKT_DATE_COL, from)
-        .lte(MKT_DATE_COL, to)
-        .order(MKT_DATE_COL, { ascending: true })
-    );
+        .lte(MKT_DATE_COL, to);
+      if (allowedTeams.length === 1) q = q.eq('Team', allowedTeams[0]);
+      else if (allowedTeams.length > 1) q = q.in('Team', allowedTeams);
+      return q.order(MKT_DATE_COL, { ascending: true });
+    });
   } catch (error) {
     if (tableMissing(error)) return { __missing: true, rows: [] };
     throw error;
@@ -92,26 +109,40 @@ async function loadUsersTable() {
 }
 
 async function loadOrdersTable(tableName, from, to) {
-  try {
-    return await fetchPagedQuery(() => {
-      let q = supabase
-        .from(tableName)
-        .select(
-          'id,order_code,order_date,created_at,country,delivery_staff,delivery_status_nb,delivery_status,check_result,payment_status,payment_status_detail,total_amount_vnd,tong_tien_vnd,van_don_line_total_vnd,sale_price,goods_amount,tracking_code,shipping_unit,reconciled_vnd,reconciled_amount,payment_bill,payment_image,ngayupbill,team'
-        )
-        .gte('order_date', from)
-        .lte('order_date', to);
+  const isHcm = String(tableName || '').trim() === 'order_code_hcm';
+  const baseSelect =
+    'id,order_code,order_date,created_at,country,delivery_staff,delivery_status_nb,delivery_status,check_result,payment_status,payment_status_detail,total_amount_vnd,tong_tien_vnd,van_don_line_total_vnd,sale_price,goods_amount,tracking_code,shipping_unit,reconciled_vnd,reconciled_amount,payment_bill,payment_image,ngayupbill,team';
+  const selectCandidates = isHcm
+    ? [
+        `${baseSelect},marketing_staff,product,shift,total_vnd`,
+        `${baseSelect},marketing_staff,product,shift`,
+        baseSelect,
+      ]
+    : [baseSelect];
 
-      if (String(tableName || '').trim() === 'orders') {
-        q = q.or('team.is.null,team.neq.HCM');
-      }
+  let lastError = null;
+  for (const selectStr of selectCandidates) {
+    try {
+      return await fetchPagedQuery(() => {
+        let q = supabase
+          .from(tableName)
+          .select(selectStr)
+          .gte('order_date', from)
+          .lte('order_date', to);
 
-      return q.order('order_date', { ascending: true });
-    });
-  } catch (error) {
-    if (tableMissing(error)) return { __missing: true, rows: [] };
-    throw error;
+        if (String(tableName || '').trim() === 'orders') {
+          q = q.or('team.is.null,team.neq.HCM');
+        }
+
+        return q.order('order_date', { ascending: true });
+      });
+    } catch (error) {
+      lastError = error;
+      if (!tableMissing(error)) throw error;
+    }
   }
+  if (tableMissing(lastError)) return { __missing: true, rows: [] };
+  throw lastError;
 }
 
 export default function useDashboardDieuHanhData({ from, to, branch, market, product, department, person, enabled = true }) {
@@ -127,14 +158,15 @@ export default function useDashboardDieuHanhData({ from, to, branch, market, pro
     setLoading(true);
     setErrors([]);
     try {
+      const historyFrom = buildLastFourMonthBuckets(to)[0]?.start || from;
       const [mktHnRes, mktHcmRes, vanDonHnRes, vanDonHcmRes, vanDonSummaryRes, salesReportsRes, usersRes] =
         await Promise.allSettled([
-          loadMktTable('detail_reports', from, to),
-          loadMktTable('marketing_report_hcm', from, to),
-          loadOrdersTable('orders', from, to),
-          loadOrdersTable('order_code_hcm', from, to),
-          loadVanDonTable(from, to),
-          loadSalesReportsTable(from, to),
+          loadMktTable('detail_reports', historyFrom, to, MKT_HN_ALLOWED_TEAMS),
+          loadMktTable('marketing_report_hcm', historyFrom, to, MKT_HCM_ALLOWED_TEAMS),
+          loadOrdersTable('orders', historyFrom, to),
+          loadOrdersTable('order_code_hcm', historyFrom, to),
+          loadVanDonTable(historyFrom, to),
+          loadSalesReportsTable(historyFrom, to),
           loadUsersTable(),
         ]);
 
@@ -159,9 +191,19 @@ export default function useDashboardDieuHanhData({ from, to, branch, market, pro
       const salesReports = unwrap(salesReportsRes, 'sales_reports');
       const users = unwrap(usersRes, 'users');
 
+      const hnMktRows = dedupeMktDetailReportRows(
+        hn.map(normalizeMktHnDetailReportRow).filter(mktRowHasName)
+      );
+      const hcmMktRows = dedupeMktDetailReportRows(
+        overlayHcmMarketingReportRowsFromOrders(
+          hcm.map(normalizeMktHcmDetailReportRow).filter(mktRowHasName),
+          ordersHcm
+        )
+      );
+
       const mappedMkt = [
-        ...dedupeMktDetailReportRows(hn).map((r) => mapMktRow(r, 'hn')).filter(Boolean),
-        ...dedupeMktDetailReportRows(hcm).map((r) => mapMktRow(r, 'hcm')).filter(Boolean),
+        ...hnMktRows.map((r) => mapMktRow(r, 'hn')).filter(Boolean),
+        ...hcmMktRows.map((r) => mapMktRow(r, 'hcm')).filter(Boolean),
       ];
 
       let mappedVd = [
@@ -194,8 +236,8 @@ export default function useDashboardDieuHanhData({ from, to, branch, market, pro
   }, [loadData]);
 
   const model = useMemo(
-    () => buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, person, to }),
-    [branch, department, market, mktRows, person, product, salesRows, to, usersRows, vanDonRows]
+    () => buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, person, from, to }),
+    [branch, department, from, market, mktRows, person, product, salesRows, to, usersRows, vanDonRows]
   );
 
   return {

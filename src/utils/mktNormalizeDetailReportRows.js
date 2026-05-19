@@ -53,12 +53,26 @@ export function normalizeMktHnDetailReportRow(item) {
     Email: item.email || item.Email || '',
     Sản_phẩm: item.san_pham || item.Sản_phẩm || '',
     Thị_trường: item.thi_truong || item.Thị_trường || '',
-    CPQC: parseMoneyNumber(item.CPQC ?? item.cpqc ?? 0),
+    CPQC: parseMoneyNumber(
+      item.CPQC ??
+        item.cpqc ??
+        item.CPOC ??
+        item.cpoc ??
+        item['CPQC theo TKQC'] ??
+        item.cpqc_theo_tkqc ??
+        0
+    ),
     Số_Mess_Cmt: parseIntegerVi(item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0),
     'Số đơn': parseIntegerVi(item['Số đơn'] ?? item.so_don ?? 0),
     'Số đơn thực tế': parseIntegerVi(item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0),
     'Doanh số': item['Doanh số'] ?? item.doanh_so ?? 0,
-    'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
+    'Doanh số TT':
+      item.doanh_so_tt ??
+      item['Doanh số TT'] ??
+      item['Doanh thu chốt thực tế'] ??
+      item.doanh_thu_chot_thuc_te ??
+      item.revenue_actual ??
+      0,
     'Doanh thu chốt thực tế':
       item['Doanh thu chốt thực tế'] ?? item.doanh_thu_chot_thuc_te ?? 0,
     'Số đơn hoàn hủy': parseIntegerVi(
@@ -107,7 +121,15 @@ export function normalizeMktHcmDetailReportRow(item) {
     Email: item.Email || item.email || '',
     Sản_phẩm: item.Sản_phẩm || item['Sản phẩm'] || item.san_pham || item.product || '',
     Thị_trường: item.Thị_trường || item['Thị trường'] || item.thi_truong || item.market || '',
-    CPQC: parseMoneyNumber(item.CPQC ?? item.cpqc ?? 0),
+    CPQC: parseMoneyNumber(
+      item.CPQC ??
+        item.cpqc ??
+        item.CPOC ??
+        item.cpoc ??
+        item['CPQC theo TKQC'] ??
+        item.cpqc_theo_tkqc ??
+        0
+    ),
     Số_Mess_Cmt: parseIntegerVi(
       item['Số Mess'] ??
         item['Số_Mess'] ??
@@ -121,7 +143,13 @@ export function normalizeMktHcmDetailReportRow(item) {
     'Số đơn': soDonNhapTay,
     'Số đơn thực tế': donTT,
     'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
-    'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
+    'Doanh số TT':
+      item.doanh_so_tt ??
+      item['Doanh số TT'] ??
+      item['Doanh thu chốt thực tế'] ??
+      item.doanh_thu_chot_thuc_te ??
+      item.revenue_actual ??
+      0,
     'Doanh thu chốt thực tế':
       item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
     'Số đơn hoàn hủy': parseMktCountInt(
