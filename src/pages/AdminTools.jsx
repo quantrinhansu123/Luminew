@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X, Calendar, User, ArrowRight, GitMerge, LayoutGrid, GitBranch, PlayCircle } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Info, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X, Calendar, User, ArrowRight, GitMerge, LayoutGrid, GitBranch, PlayCircle } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
@@ -736,6 +736,8 @@ const AdminTools = () => {
     const [activeStaffPreview, setActiveStaffPreview] = useState([]);
     const [isPreviewStaffLoading, setIsPreviewStaffLoading] = useState(false);
     const [showStaffPreviewModal, setShowStaffPreviewModal] = useState(false);
+    /** Popover: hiển thị nguyên nhân nhân viên ít đơn. Key = `${branch}::${name}`, value = true/false */
+    const [staffReasonPopover, setStaffReasonPopover] = useState(null);
 
     const [historyChiaDon, setHistoryChiaDon] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
@@ -5087,60 +5089,224 @@ const AdminTools = () => {
                                                                                                 </tr>
                                                                                             </thead>
                                                                                             <tbody className="text-xs divide-y divide-gray-100">
-                                                                                                {staffEntries.map(([name, count], si) => {
-                                                                                                    const nkTarget = normalizeNameKeyForStaffSort(name);
-                                                                                                    const myTurns =
-                                                                                                        flatDetailRows.length > 0
-                                                                                                            ? flatDetailRows
-                                                                                                                  .filter(
-                                                                                                                      (r) =>
-                                                                                                                          normalizeNameKeyForStaffSort(
-                                                                                                                              r.row
-                                                                                                                                  ?.delivery_staff
-                                                                                                                          ) === nkTarget
-                                                                                                                  )
-                                                                                                                  .map(
-                                                                                                                      (r) =>
-                                                                                                                          `V${r.sessionOrdinal}-${r.orderIndexInSession}`
-                                                                                                                  )
-                                                                                                            : [];
-                                                                                                    return (
-                                                                                                        <tr key={name} className="hover:bg-gray-50 group">
-                                                                                                            <td className="px-3 py-2 border-r text-center text-gray-400">
-                                                                                                                {si + 1}
-                                                                                                            </td>
-                                                                                                            <td className="px-3 py-2 border-r">
-                                                                                                                <div className="font-bold text-gray-800 mb-1 text-left">
-                                                                                                                    {name}
-                                                                                                                </div>
-                                                                                                                {myTurns.length > 0 && (
-                                                                                                                    <div className="flex flex-wrap gap-1 items-center">
-                                                                                                                        {myTurns.map((t, ti) => (
-                                                                                                                            <span
-                                                                                                                                key={`${si}-${ti}-${t}`}
-                                                                                                                                className="text-[8px] bg-blue-50 text-blue-500 px-1 rounded border border-blue-100 leading-tight"
+                                                                                                {(() => {
+                                                                                                    const maxCount = staffEntries.length > 0 ? Math.max(...staffEntries.map(([, c]) => c)) : 0;
+                                                                                                    const minCount = staffEntries.length > 0 ? Math.min(...staffEntries.map(([, c]) => c)) : 0;
+                                                                                                    const avgCount = staffEntries.length > 0 ? Math.round(staffEntries.reduce((s, [, c]) => s + c, 0) / staffEntries.length) : 0;
+                                                                                                    const fullTeamRoster = (chiaDonVanDonStaffOrder?.[b.key] || []).filter(Boolean);
+                                                                                                    const participatingNames = staffEntries.map(([n]) => n.toLowerCase());
+                                                                                                    const absentStaff = fullTeamRoster.filter(n => !participatingNames.includes(n.toLowerCase()));
+
+                                                                                                    return staffEntries.map(([name, count], si) => {
+                                                                                                        const nkTarget = normalizeNameKeyForStaffSort(name);
+                                                                                                        const myTurns =
+                                                                                                            flatDetailRows.length > 0
+                                                                                                                ? flatDetailRows
+                                                                                                                      .filter(
+                                                                                                                          (r) =>
+                                                                                                                              normalizeNameKeyForStaffSort(
+                                                                                                                                  r.row
+                                                                                                                                      ?.delivery_staff
+                                                                                                                              ) === nkTarget
+                                                                                                                      )
+                                                                                                                      .map(
+                                                                                                                          (r) =>
+                                                                                                                              `V${r.sessionOrdinal}-${r.orderIndexInSession}`
+                                                                                                                      )
+                                                                                                                : [];
+                                                                                                        const isLowCount = count < maxCount && maxCount - count >= 1;
+                                                                                                        const popoverKey = `${b.key}::${name}`;
+                                                                                                        const isPopoverOpen = staffReasonPopover === popoverKey;
+
+                                                                                                        // Phân tích nguyên nhân ít đơn
+                                                                                                        const analyzeReasons = () => {
+                                                                                                            const reasons = [];
+                                                                                                            const diff = maxCount - count;
+
+                                                                                                            // 1. Kiểm tra nhân viên có vắng mặt ở phiên nào không
+                                                                                                            const sessionsParticipated = new Set();
+                                                                                                            flatDetailRows.forEach(r => {
+                                                                                                                if (normalizeNameKeyForStaffSort(r.row?.delivery_staff) === nkTarget) {
+                                                                                                                    sessionsParticipated.add(r.sessionOrdinal);
+                                                                                                                }
+                                                                                                            });
+                                                                                                            const allSessions = new Set(flatDetailRows.map(r => r.sessionOrdinal));
+                                                                                                            const missedSessions = [...allSessions].filter(s => !sessionsParticipated.has(s));
+                                                                                                            if (missedSessions.length > 0) {
+                                                                                                                reasons.push({
+                                                                                                                    icon: '🚫',
+                                                                                                                    title: 'Vắng mặt ở một số phiên',
+                                                                                                                    detail: `Không tham gia phiên: ${missedSessions.map(s => `Vòng ${s}`).join(', ')}. Có thể do trạng thái không phải U1 hoặc chưa được bật tại thời điểm chia.`,
+                                                                                                                    severity: 'high'
+                                                                                                                });
+                                                                                                            }
+
+                                                                                                            // 2. Kiểm tra eligible (từ chi_tiet_chia)
+                                                                                                            const myRows = flatDetailRows.filter(r =>
+                                                                                                                normalizeNameKeyForStaffSort(r.row?.delivery_staff) === nkTarget
+                                                                                                            );
+                                                                                                            let totalEligibleMe = 0;
+                                                                                                            let totalOrdersInMySession = 0;
+                                                                                                            myRows.forEach(r => {
+                                                                                                                const eligible = r.row?.chi_tiet_chia?.eligible_staff || r.row?.eligible_staff;
+                                                                                                                if (eligible) {
+                                                                                                                    const names = String(eligible).split(',').map(n => n.trim()).filter(Boolean);
+                                                                                                                    totalEligibleMe += names.length;
+                                                                                                                    totalOrdersInMySession++;
+                                                                                                                }
+                                                                                                            });
+
+                                                                                                            // 3. Kiểm tra vị trí trong hàng đợi (queue_before)
+                                                                                                            const firstTurn = myRows[0];
+                                                                                                            if (firstTurn) {
+                                                                                                                const queue = firstTurn.row?.chi_tiet_chia?.queue_before || firstTurn.row?.queue_before;
+                                                                                                                if (Array.isArray(queue)) {
+                                                                                                                    const myPos = queue.findIndex(q => String(q || '').trim().toLowerCase() === name.toLowerCase());
+                                                                                                                    if (myPos > 0) {
+                                                                                                                        reasons.push({
+                                                                                                                            icon: '📍',
+                                                                                                                            title: 'Đứng sau trong hàng đợi',
+                                                                                                                            detail: `Vị trí xuất phát: #${myPos + 1}/${queue.length} trong hàng đợi. Những người đứng trước nhận đơn trước theo luân phiên (round-robin). Phiên sau sẽ được ưu tiên hơn.`,
+                                                                                                                            severity: 'low'
+                                                                                                                        });
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            }
+
+                                                                                                            // 4. Lý do chênh lệch nhỏ do quota
+                                                                                                            if (diff === 1 && reasons.length === 0) {
+                                                                                                                reasons.push({
+                                                                                                                    icon: '⚖️',
+                                                                                                                    title: 'Chênh lệch do chia lẻ (bình thường)',
+                                                                                                                    detail: `Tổng đơn không chia đều được cho ${staffEntries.length} người → một số người nhận thêm 1 đơn. Phiên kế tiếp, hệ thống sẽ tự cân bằng (carry-over).`,
+                                                                                                                    severity: 'low'
+                                                                                                                });
+                                                                                                            }
+
+                                                                                                            // 5. Nếu vẫn chưa tìm ra lý do
+                                                                                                            if (reasons.length === 0 && diff > 1) {
+                                                                                                                reasons.push({
+                                                                                                                    icon: '🔍',
+                                                                                                                    title: 'Có thể do eligibility lệch',
+                                                                                                                    detail: `Chênh ${diff} đơn. Một số đơn hàng có team/chi nhánh chỉ khớp với ít người → những người đó nhận nhiều hơn. Kiểm tra cột "chi_nhanh" trong bảng danh_sach_van_don và cột "team" của đơn hàng.`,
+                                                                                                                    severity: 'medium'
+                                                                                                                });
+                                                                                                            }
+
+                                                                                                            return reasons;
+                                                                                                        };
+
+                                                                                                        return (
+                                                                                                            <tr key={name} className={`group transition-colors ${isPopoverOpen ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                                                                                                                <td className="px-3 py-2 border-r text-center text-gray-400">
+                                                                                                                    {si + 1}
+                                                                                                                </td>
+                                                                                                                <td className="px-3 py-2 border-r">
+                                                                                                                    <div className="flex items-center gap-1.5 mb-1">
+                                                                                                                        <span className="font-bold text-gray-800 text-left">
+                                                                                                                            {name}
+                                                                                                                        </span>
+                                                                                                                        {isLowCount && (
+                                                                                                                            <button
+                                                                                                                                onClick={(e) => {
+                                                                                                                                    e.stopPropagation();
+                                                                                                                                    setStaffReasonPopover(isPopoverOpen ? null : popoverKey);
+                                                                                                                                }}
+                                                                                                                                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold transition-all cursor-pointer border ${
+                                                                                                                                    isPopoverOpen
+                                                                                                                                        ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                                                                                                                                        : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                                                                                                                                }`}
+                                                                                                                                title="Click để xem nguyên nhân ít đơn"
                                                                                                                             >
-                                                                                                                                {t}
-                                                                                                                            </span>
-                                                                                                                        ))}
-                                                                                                                        {(() => {
-                                                                                                                            const isStarter = flatDetailRows.some(r => 
-                                                                                                                                r.orderIndexInSession === 1 && 
-                                                                                                                                normalizeNameKeyForStaffSort(r.row?.delivery_staff) === nkTarget
-                                                                                                                            );
-                                                                                                                            return isStarter ? (
-                                                                                                                                <span className="text-[7px] bg-emerald-100 text-emerald-700 px-1 rounded border border-emerald-200 font-bold uppercase">Starter</span>
-                                                                                                                            ) : null;
-                                                                                                                        })()}
+                                                                                                                                <Info className="w-2.5 h-2.5" />
+                                                                                                                                {isPopoverOpen ? 'Ẩn' : `Vì sao −${maxCount - count}?`}
+                                                                                                                            </button>
+                                                                                                                        )}
                                                                                                                     </div>
-                                                                                                                )}
-                                                                                                            </td>
-                                                                                                            <td className="px-3 py-2 text-right font-black text-blue-700 bg-blue-50/10">
-                                                                                                                {count} đơn
-                                                                                                            </td>
-                                                                                                        </tr>
-                                                                                                    );
-                                                                                                })}
+                                                                                                                    {myTurns.length > 0 && (
+                                                                                                                        <div className="flex flex-wrap gap-1 items-center">
+                                                                                                                            {myTurns.map((t, ti) => (
+                                                                                                                                <span
+                                                                                                                                    key={`${si}-${ti}-${t}`}
+                                                                                                                                    className="text-[8px] bg-blue-50 text-blue-500 px-1 rounded border border-blue-100 leading-tight"
+                                                                                                                                >
+                                                                                                                                    {t}
+                                                                                                                                </span>
+                                                                                                                            ))}
+                                                                                                                            {(() => {
+                                                                                                                                const isStarter = flatDetailRows.some(r => 
+                                                                                                                                    r.orderIndexInSession === 1 && 
+                                                                                                                                    normalizeNameKeyForStaffSort(r.row?.delivery_staff) === nkTarget
+                                                                                                                                );
+                                                                                                                                return isStarter ? (
+                                                                                                                                    <span className="text-[7px] bg-emerald-100 text-emerald-700 px-1 rounded border border-emerald-200 font-bold uppercase">Starter</span>
+                                                                                                                                ) : null;
+                                                                                                                            })()}
+                                                                                                                        </div>
+                                                                                                                    )}
+                                                                                                                    {/* Popover nguyên nhân ít đơn */}
+                                                                                                                    {isPopoverOpen && (() => {
+                                                                                                                        const reasons = analyzeReasons();
+                                                                                                                        return (
+                                                                                                                            <div className="mt-2 p-3 rounded-lg border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 shadow-md animate-in fade-in slide-in-from-top-1 duration-200">
+                                                                                                                                <div className="flex items-center justify-between mb-2">
+                                                                                                                                    <h6 className="text-[10px] font-black text-amber-800 uppercase tracking-wider flex items-center gap-1">
+                                                                                                                                        <AlertCircle className="w-3 h-3" />
+                                                                                                                                        Phân tích: Tại sao {name} ít hơn {maxCount - count} đơn?
+                                                                                                                                    </h6>
+                                                                                                                                    <button
+                                                                                                                                        onClick={(e) => { e.stopPropagation(); setStaffReasonPopover(null); }}
+                                                                                                                                        className="text-amber-400 hover:text-amber-600 transition-colors"
+                                                                                                                                    >
+                                                                                                                                        <X className="w-3.5 h-3.5" />
+                                                                                                                                    </button>
+                                                                                                                                </div>
+                                                                                                                                <div className="space-y-2">
+                                                                                                                                    {reasons.length > 0 ? reasons.map((r, ri) => (
+                                                                                                                                        <div key={ri} className={`p-2 rounded border text-[10px] leading-relaxed ${
+                                                                                                                                            r.severity === 'high' ? 'bg-red-50 border-red-200 text-red-800' :
+                                                                                                                                            r.severity === 'medium' ? 'bg-amber-50/80 border-amber-200 text-amber-900' :
+                                                                                                                                            'bg-green-50 border-green-200 text-green-800'
+                                                                                                                                        }`}>
+                                                                                                                                            <div className="font-bold flex items-center gap-1 mb-0.5">
+                                                                                                                                                <span>{r.icon}</span>
+                                                                                                                                                <span>{r.title}</span>
+                                                                                                                                                <span className={`ml-auto text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase ${
+                                                                                                                                                    r.severity === 'high' ? 'bg-red-200 text-red-700' :
+                                                                                                                                                    r.severity === 'medium' ? 'bg-amber-200 text-amber-700' :
+                                                                                                                                                    'bg-green-200 text-green-700'
+                                                                                                                                                }`}>
+                                                                                                                                                    {r.severity === 'high' ? 'Quan trọng' : r.severity === 'medium' ? 'Lưu ý' : 'Bình thường'}
+                                                                                                                                                </span>
+                                                                                                                                            </div>
+                                                                                                                                            <p className="mt-1">{r.detail}</p>
+                                                                                                                                        </div>
+                                                                                                                                    )) : (
+                                                                                                                                        <div className="p-2 rounded border bg-green-50 border-green-200 text-green-800 text-[10px]">
+                                                                                                                                            <span className="font-bold">✅ Không phát hiện bất thường.</span> Chênh lệch nằm trong phạm vi bình thường của thuật toán round-robin.
+                                                                                                                                        </div>
+                                                                                                                                    )}
+                                                                                                                                </div>
+                                                                                                                                <p className="text-[8px] text-amber-500 mt-2 italic">
+                                                                                                                                    💡 Hệ thống chia đơn luân phiên công bằng. Nếu chênh 1 đơn là do chia lẻ, phiên sau sẽ tự cân bằng.
+                                                                                                                                </p>
+                                                                                                                            </div>
+                                                                                                                        );
+                                                                                                                    })()}
+                                                                                                                </td>
+                                                                                                                <td className={`px-3 py-2 text-right font-black bg-blue-50/10 ${isLowCount ? 'text-amber-600' : 'text-blue-700'}`}>
+                                                                                                                    {count} đơn
+                                                                                                                    {isLowCount && (
+                                                                                                                        <div className="text-[8px] font-normal text-amber-500 mt-0.5">
+                                                                                                                            (−{maxCount - count} so với cao nhất)
+                                                                                                                        </div>
+                                                                                                                    )}
+                                                                                                                </td>
+                                                                                                            </tr>
+                                                                                                        );
+                                                                                                    });
+                                                                                                })()}
                                                                                             </tbody>
                                                                                         </table>
                                                                                     <div className="pt-4 border-t border-dashed border-gray-200">

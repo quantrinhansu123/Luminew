@@ -925,6 +925,8 @@ export const MODULE_PAGES = {
             { code: 'ORDERS_NEW', name: 'Nhập đơn (quyền chung OMS)', path: '/nhap-don' },
             { code: 'SALE_NEW_ORDER', name: 'Nhập đơn mới (Sale)', path: '/nhap-don' },
             { code: 'SALE_NEW_ORDER_HCM', name: 'Nhập đơn HCM (Sale)', path: '/nhap-don?view=hcm' },
+            { code: 'ORDERS_EDIT_HN', name: 'Chỉnh sửa đơn HN', path: '/chinh-sua-don' },
+            { code: 'ORDERS_EDIT_HCM', name: 'Chỉnh sửa đơn HCM', path: '/chinh-sua-don?view=hcm' },
             { code: 'SALE_INPUT', name: 'Sale nhập báo cáo', path: '/sale-nhap-bao-cao' },
             { code: 'SALE_INPUT_HCM', name: 'Sale nhập báo cáo HCM', path: '/sale-nhap-bao-cao-hcm' },
             { code: 'SALE_VIEW', name: 'Xem báo cáo Sale', path: '/xem-bao-cao-sale' },

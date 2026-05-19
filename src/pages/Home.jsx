@@ -293,6 +293,20 @@ function Home() {
           permission: 'SALE_NEW_ORDER_HCM',
         },
         {
+          id: "edit-order-hn",
+          label: "Chỉnh sửa đơn HN",
+          icon: <Edit3 className="w-4 h-4" />,
+          path: "/chinh-sua-don",
+          permission: 'ORDERS_EDIT_HN',
+        },
+        {
+          id: "edit-order-hcm",
+          label: "Chỉnh sửa đơn HCM",
+          icon: <MapPin className="w-4 h-4" />,
+          path: "/chinh-sua-don?view=hcm",
+          permission: 'ORDERS_EDIT_HCM',
+        },
+        {
           id: "sale-report",
           label: "Sale nhập báo cáo",
           icon: <TrendingUp className="w-4 h-4" />,
@@ -1053,6 +1067,22 @@ function Home() {
           path: "/nhap-don?view=hcm",
           status: "Mở ứng dụng",
           permission: 'SALE_NEW_ORDER_HCM',
+        },
+        {
+          title: "Chỉnh sửa đơn HN",
+          icon: <Edit3 className="w-8 h-8" />,
+          color: "bg-sky-600",
+          path: "/chinh-sua-don",
+          status: "Mặc định: orders",
+          permission: 'ORDERS_EDIT_HN',
+        },
+        {
+          title: "Chỉnh sửa đơn HCM",
+          icon: <MapPin className="w-8 h-8" />,
+          color: "bg-teal-700",
+          path: "/chinh-sua-don?view=hcm",
+          status: "HCM: order_code_hcm",
+          permission: 'ORDERS_EDIT_HCM',
         },
         {
           title: "Sale nhập báo cáo",

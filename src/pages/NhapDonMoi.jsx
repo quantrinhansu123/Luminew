@@ -372,10 +372,18 @@ export default function NhapDonMoi({ isEdit = false }) {
     };
 
     // Permission Logic
-    const { canView } = usePermissions();
+    const { canView, role: permissionRole } = usePermissions();
+    const canSwitchDataView = [
+        'admin',
+        'administrator',
+        'super_admin',
+    ].includes(String(permissionRole || localStorage.getItem('userRole') || '').toLowerCase());
     // Ưu tiên cùng mã với DanhSachDon (SALE_ORDERS / RND_ORDERS); vẫn cho phép mã nhập đơn cũ nếu role
     // chưa có dòng SALE_ORDERS / RND_ORDERS trong app_page_permissions.
     const hasAccess = useMemo(() => {
+        if (isEdit) {
+            return isHcmView ? canView('ORDERS_EDIT_HCM') : canView('ORDERS_EDIT_HN');
+        }
         if (teamFilter === 'RD') {
             return (
                 canView('RND_ORDERS') ||
@@ -399,7 +407,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             canView('ORDERS_NEW') ||
             canView('RND_NEW_ORDER')
         );
-    }, [canView, teamFilter, isHcmView]);
+    }, [canView, teamFilter, isHcmView, isEdit]);
 
 
 
@@ -2045,22 +2053,24 @@ export default function NhapDonMoi({ isEdit = false }) {
                             </p>
                         </div>
                         <div className="flex gap-2 items-center">
-                            <div className="flex bg-white border border-gray-300 rounded-md overflow-hidden">
-                                <button
-                                    type="button"
-                                    onClick={() => navigate(buildNhapDonPath(false))}
-                                    className={`px-3 py-1.5 text-xs font-medium ${!isHcmView ? 'bg-[#2d7c2d] text-white' : 'text-gray-700 hover:bg-gray-50'}`}
-                                >
-                                    View mặc định
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => navigate(buildNhapDonPath(true))}
-                                    className={`px-3 py-1.5 text-xs font-medium border-l border-gray-300 ${isHcmView ? 'bg-[#2d7c2d] text-white' : 'text-gray-700 hover:bg-gray-50'}`}
-                                >
-                                    View HCM
-                                </button>
-                            </div>
+                            {canSwitchDataView && (
+                                <div className="flex bg-white border border-gray-300 rounded-md overflow-hidden">
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate(buildNhapDonPath(false))}
+                                        className={`px-3 py-1.5 text-xs font-medium ${!isHcmView ? 'bg-[#2d7c2d] text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+                                    >
+                                        View mặc định
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate(buildNhapDonPath(true))}
+                                        className={`px-3 py-1.5 text-xs font-medium border-l border-gray-300 ${isHcmView ? 'bg-[#2d7c2d] text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+                                    >
+                                        View HCM
+                                    </button>
+                                </div>
+                            )}
                             <Button variant="outline" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={handleReset}>
                                 <XCircle className="w-4 h-4 mr-2" />
                                 Hủy bỏ

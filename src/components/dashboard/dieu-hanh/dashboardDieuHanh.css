@@ -1,0 +1,185 @@
+.lumi-dieu-hanh {
+  --lumi-bg: #f6f8fc;
+  --lumi-surface: #ffffff;
+  --lumi-border: #e2eaf4;
+  --lumi-border-strong: #cfdced;
+  --lumi-text: #202534;
+  --lumi-muted: #69768c;
+  --lumi-teal: #44c5b6;
+  --lumi-blue: #2864d9;
+  --lumi-cyan: #55dbe8;
+  --lumi-orange: #ff8a1f;
+  --lumi-gold: #ffd447;
+  --lumi-red: #e5484d;
+  background:
+    radial-gradient(circle at 14% -6%, rgba(85, 219, 232, 0.24), transparent 32%),
+    radial-gradient(circle at 88% 2%, rgba(255, 212, 71, 0.24), transparent 28%),
+    linear-gradient(180deg, #fbfcff 0%, var(--lumi-bg) 42%, #eef7f6 100%);
+  color: var(--lumi-text);
+  font-size: 12px;
+}
+
+.lumi-dieu-hanh-topbar {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--lumi-border);
+  box-shadow: 0 14px 34px rgba(31, 45, 61, 0.09);
+  backdrop-filter: blur(14px);
+}
+
+.lumi-dieu-hanh-logo {
+  background: linear-gradient(135deg, #5dd2c3 0%, #2fb5d6 52%, #2d66d7 100%);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(45, 102, 215, 0.22);
+}
+
+.lumi-dieu-hanh-panel,
+.lumi-dieu-hanh section.rounded-lg,
+.lumi-dieu-hanh .lumi-metric-table,
+.lumi-dieu-hanh .lumi-kpi-card,
+.lumi-dieu-hanh .lumi-chart-card {
+  border-color: var(--lumi-border) !important;
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(31, 45, 61, 0.08);
+}
+
+.lumi-dieu-hanh .lumi-section-title {
+  color: var(--lumi-blue);
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.lumi-dieu-hanh .lumi-subtle {
+  color: var(--lumi-muted);
+}
+
+.lumi-dieu-hanh .lumi-tabs-list {
+  background: transparent;
+  border-color: var(--lumi-border) !important;
+  box-shadow: none;
+  gap: 8px;
+  padding: 0;
+}
+
+.lumi-dieu-hanh .lumi-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--lumi-muted);
+  display: inline-flex;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 900;
+  min-width: 104px;
+  padding: 9px 14px;
+}
+
+.lumi-dieu-hanh .lumi-tab[data-state='active'] {
+  background: linear-gradient(90deg, rgba(40, 100, 217, 0.1), rgba(85, 219, 232, 0.12));
+  border-bottom-color: var(--lumi-blue);
+  color: var(--lumi-blue);
+  box-shadow: none;
+}
+
+.lumi-dieu-hanh table {
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.lumi-dieu-hanh thead,
+.lumi-dieu-hanh thead th {
+  background: #eef5ff !important;
+}
+
+.lumi-dieu-hanh thead th {
+  color: #2c61c9 !important;
+  font-size: 8.5px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  line-height: 1.15;
+  padding: 5px 7px !important;
+  white-space: nowrap;
+}
+
+.lumi-dieu-hanh tbody td {
+  border-bottom: 1px solid rgba(226, 234, 244, 0.9);
+  color: var(--lumi-text);
+  font-size: 10.5px;
+  line-height: 1.2;
+  padding: 5px 7px !important;
+}
+
+.lumi-dieu-hanh tbody tr:hover {
+  background: rgba(85, 219, 232, 0.08);
+}
+
+.lumi-dieu-hanh select,
+.lumi-dieu-hanh input[type='date'] {
+  border-color: var(--lumi-border-strong) !important;
+  background-color: #ffffff;
+  color: var(--lumi-text);
+  font-weight: 800;
+}
+
+.lumi-dieu-hanh select:focus,
+.lumi-dieu-hanh input[type='date']:focus {
+  border-color: var(--lumi-blue) !important;
+  outline: 3px solid rgba(40, 100, 217, 0.12);
+}
+
+.lumi-dieu-hanh td.text-right,
+.lumi-dieu-hanh th.text-right,
+.lumi-dieu-hanh td.text-center,
+.lumi-dieu-hanh th.text-center {
+  white-space: nowrap;
+}
+
+.lumi-dieu-hanh .lumi-metric-table {
+  padding: 10px !important;
+}
+
+.lumi-dieu-hanh .lumi-metric-table .overflow-auto {
+  max-width: 100%;
+}
+
+.lumi-dieu-hanh .lumi-compact-table {
+  min-width: max-content;
+}
+
+.lumi-dieu-hanh .lumi-compact-table th:first-child,
+.lumi-dieu-hanh .lumi-compact-table td:first-child {
+  padding-left: 8px !important;
+}
+
+.lumi-dieu-hanh .items-start > .lumi-metric-table,
+.lumi-dieu-hanh .items-start > .lumi-dieu-hanh-panel {
+  height: auto;
+  align-self: start;
+}
+
+.lumi-dieu-hanh .items-stretch > .lumi-metric-table,
+.lumi-dieu-hanh .items-stretch > .lumi-dieu-hanh-panel {
+  height: 100%;
+  align-self: stretch;
+}
+
+.lumi-dieu-hanh .lumi-alert-item {
+  min-height: 0;
+  background: linear-gradient(135deg, #fffaf0 0%, #ffffff 58%, #f1fbff 100%) !important;
+  border-color: #f6d48b !important;
+}
+
+.lumi-dieu-hanh .lumi-alert-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.lumi-dieu-hanh .lumi-quick-item {
+  min-height: 32px;
+  border-color: var(--lumi-border) !important;
+}
