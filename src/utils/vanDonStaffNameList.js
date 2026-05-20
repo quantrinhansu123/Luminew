@@ -1,4 +1,4 @@
-/** Khớp bộ phận Vận đơn trên users.department hoặc human_resources."Bộ phận". */
+/** Khớp bộ phận Vận đơn trên users.department. */
 function isBoPhanVanDon(dept) {
   const raw = (dept ?? '').toString().trim();
   if (!raw) return false;
@@ -62,7 +62,7 @@ function vanDonStaffMatchesBranch(vanDonBranch, branchPieces) {
 }
 
 /**
- * Danh sách tên NV vận đơn (users + human_resources + danh_sach_van_don).
+ * Danh sách tên NV vận đơn (users + danh_sach_van_don).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabaseClient
  * @param {{ vanDonBranch?: 'hanoi' | 'hcm' | 'all' }} [options] — mặc định `all`.
  */
@@ -111,26 +111,6 @@ export async function fetchVanDonStaffNameList(supabaseClient, options = {}) {
     if (!vanDonStaffMatchesBranch(vanDonBranch, [u.team, u.branch, u.chi_nhanh])) return;
     names.add(n);
   });
-
-  let hrHasChiNhanh = true;
-  let hrRes = await supabaseClient.from('human_resources').select('"Họ Và Tên", "Bộ phận", "chi nhánh"');
-  if (hrRes.error) {
-    console.warn('human_resources (chi nhánh / bộ phận Vận đơn):', hrRes.error);
-    hrHasChiNhanh = false;
-    hrRes = await supabaseClient.from('human_resources').select('"Họ Và Tên", "Bộ phận"');
-  }
-  if (hrRes.error) {
-    console.warn('human_resources (bộ phận Vận đơn):', hrRes.error);
-  } else {
-    (hrRes.data || []).forEach((row) => {
-      if (!isBoPhanVanDon(row['Bộ phận'])) return;
-      const n = String(row['Họ Và Tên'] || '').trim();
-      if (!n) return;
-      if (vanDonBranch !== 'all' && !hrHasChiNhanh) return;
-      if (!vanDonStaffMatchesBranch(vanDonBranch, [row['chi nhánh']])) return;
-      names.add(n);
-    });
-  }
 
   let dsvdHasChiNhanh = true;
   let dsvdRes = await supabaseClient
