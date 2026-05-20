@@ -440,7 +440,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [showBulkClearDeliveryStaffModal, setShowBulkClearDeliveryStaffModal] = useState(false);
   const [bulkClearDeliveryStaffRows, setBulkClearDeliveryStaffRows] = useState([]);
   const [isBulkClearingDeliveryStaff, setIsBulkClearingDeliveryStaff] = useState(false);
-  /** Tên NV vận đơn chuẩn từ master (users/HR/danh_sach_van_don) — luôn có trong dropdown lọc chia vận đơn */
+  /** Tên NV vận đơn chuẩn từ master (users/danh_sach_van_don) — luôn có trong dropdown lọc chia vận đơn */
   const [vanDonStaffMasterNames, setVanDonStaffMasterNames] = useState([]);
 
   const defaultColumns = [
@@ -768,7 +768,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         selectedPersonnelNames,
         userName,
         selectColumns: '*',
-        skipImplicitFilters: isHcmView,
+        skipImplicitFilters: false,
         applyPersonnelFilterInDb: false,
       });
 
@@ -1101,7 +1101,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         userName,
         selectColumns:
           'order_code, order_date, created_at, customer_phone, customer_name, customer_address, sale_staff',
-        skipImplicitFilters: isHcmView,
+        skipImplicitFilters: false,
       });
 
       const updates = computeCanhBaoUpdatesForDuplicateCustomers(mergedRaw);
@@ -2240,7 +2240,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       setNvVanDonOptions(sorted);
       if (sorted.length === 0) {
         toast.warning(
-          'Chưa có nhân sự bộ phận Vận đơn (kiểm tra users.department / human_resources."Bộ phận").',
+          'Chưa có nhân sự bộ phận Vận đơn (kiểm tra users.department / danh_sach_van_don).',
           { autoClose: 5000 }
         );
       }
@@ -4625,14 +4625,12 @@ function DanhSachDon({ dataSource = 'default' }) {
                 </label>
                 <p className="text-xs text-gray-500 mb-2">
                   Danh sách từ: <span className="font-medium">users.department</span>,{' '}
-                  <span className="font-medium">human_resources &quot;Bộ phận&quot;</span>,{' '}
                   <span className="font-medium">danh_sach_van_don.ho_va_ten</span> (Vận đơn / Logistics).
                 </p>
                 {nvVanDonListBranch === 'hanoi' && (
                   <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mb-2">
                     Chỉ hiển thị nhân sự bộ phận Vận đơn thuộc <strong>chi nhánh Hà Nội</strong> (theo team/branch trên{' '}
-                    <span className="font-medium">users</span>, «chi nhánh» trên{' '}
-                    <span className="font-medium">human_resources</span>, <span className="font-medium">chi_nhanh</span>{' '}
+                    <span className="font-medium">users</span>, <span className="font-medium">chi_nhanh</span>{' '}
                     trên <span className="font-medium">danh_sach_van_don</span>).
                   </p>
                 )}
