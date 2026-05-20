@@ -645,6 +645,8 @@ function FFM({ variant = 'MGT' }) {
   const dragEndRef = useRef({ r: 0, c: 0 });
   const dragListenersRef = useRef({ move: null, up: null });
   const dragStartClientRef = useRef({ x: 0, y: 0 });
+  const fillDragRef = useRef(null);
+  const fillDragListenersRef = useRef({ move: null, up: null });
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
 
   const [markedRows, setMarkedRows] = useState(() => {
@@ -2742,6 +2744,15 @@ function FFM({ variant = 'MGT' }) {
     }
   }, []);
 
+  const removeFillDragListeners = useCallback(() => {
+    const L = fillDragListenersRef.current;
+    if (L.move) {
+      document.removeEventListener('mousemove', L.move);
+      document.removeEventListener('mouseup', L.up);
+      fillDragListenersRef.current = { move: null, up: null };
+    }
+  }, []);
+
   const updateDragFromCell = useCallback(
     (r, c) => {
       if (!isSelecting.current) return;
@@ -2762,11 +2773,12 @@ function FFM({ variant = 'MGT' }) {
   useEffect(() => {
     return () => {
       removeDragListeners();
+      removeFillDragListeners();
       clearFfDragDomSelection();
       ffmDragCellMapRef.current = null;
       ffmDragPrevBoundsRef.current = null;
     };
-  }, [removeDragListeners]);
+  }, [removeDragListeners, removeFillDragListeners]);
 
   const handleMouseDown = useCallback(
     (rowIndex, colIndex, e) => {
@@ -2858,6 +2870,132 @@ function FFM({ variant = 'MGT' }) {
       }
     },
     [updateDragFromCell]
+  );
+
+  const handleFillHandleMouseDown = useCallback(
+    (rowIndex, colIndex, e) => {
+      if (e.button !== 0) return;
+      const colName = currentColumns[colIndex];
+      if (!isEditableColFFM(colName)) return;
+
+      const sourceRow = paginatedData[rowIndex];
+      if (!sourceRow) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      removeDragListeners();
+      removeFillDragListeners();
+
+      const { dataKey, raw } = getFfmRowColRaw(sourceRow, colName, pendingChangesRef.current);
+      const control = e.currentTarget?.closest?.('td')?.querySelector?.('input, select, textarea');
+      const sourceValue = control ? String(control.value ?? '') : String(raw ?? '');
+
+      fillDragRef.current = {
+        sourceRow: rowIndex,
+        sourceCol: colIndex,
+        colName,
+        dataKey,
+        sourceValue,
+      };
+
+      isSelecting.current = false;
+      setCopiedSelection(null);
+      setCopiedData(null);
+      setIsDraggingSelection(true);
+      setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
+      buildFfDragCellMap();
+      paintFfDragSelection(rowIndex, rowIndex, colIndex, colIndex);
+
+      const updateFillTarget = (targetRow) => {
+        const drag = fillDragRef.current;
+        if (!drag) return;
+        const nextRow = Math.max(drag.sourceRow, Math.min(targetRow, paginatedData.length - 1));
+        if (drag.targetRow === nextRow) return;
+        drag.targetRow = nextRow;
+        paintFfDragSelection(drag.sourceRow, nextRow, drag.sourceCol, drag.sourceCol);
+      };
+
+      const onMove = (ev) => {
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        const td = el?.closest?.('td[data-ffm-r]');
+        if (td) {
+          const targetCol = Number(td.getAttribute('data-ffm-c'));
+          if (targetCol === colIndex) {
+            const targetRow = Number(td.getAttribute('data-ffm-r'));
+            if (Number.isFinite(targetRow)) updateFillTarget(targetRow);
+          }
+        }
+
+        const scrollEl = ffmScrollContainerRef.current;
+        if (scrollEl) {
+          const rect = scrollEl.getBoundingClientRect();
+          const margin = 48;
+          const maxSpeed = 20;
+          if (ev.clientY > rect.bottom - margin) {
+            const delta = Math.min(maxSpeed, Math.ceil(((ev.clientY - (rect.bottom - margin)) / margin) * maxSpeed));
+            if (delta > 0) scrollEl.scrollTop += delta;
+          } else if (ev.clientY < rect.top + margin) {
+            const delta = Math.min(maxSpeed, Math.ceil(((rect.top + margin - ev.clientY) / margin) * maxSpeed));
+            if (delta > 0) scrollEl.scrollTop -= delta;
+          }
+        }
+      };
+
+      const onUp = () => {
+        const drag = fillDragRef.current;
+        fillDragRef.current = null;
+        removeFillDragListeners();
+        clearFfDragDomSelection();
+        ffmDragCellMapRef.current = null;
+        ffmDragPrevBoundsRef.current = null;
+        setIsDraggingSelection(false);
+
+        if (!drag) return;
+        const targetRow = Math.max(drag.sourceRow, drag.targetRow ?? drag.sourceRow);
+        setSelection({ startRow: drag.sourceRow, startCol: drag.sourceCol, endRow: targetRow, endCol: drag.sourceCol });
+
+        if (targetRow <= drag.sourceRow) return;
+
+        const fillChanges = [];
+        for (let r = drag.sourceRow + 1; r <= targetRow && r < paginatedData.length; r += 1) {
+          const targetRowData = paginatedData[r];
+          const targetOrderId = targetRowData?.[PRIMARY_KEY_COLUMN];
+          if (!targetOrderId) continue;
+          const { dataKey: targetKey, raw: currentUiVal } = getFfmRowColRaw(
+            targetRowData,
+            drag.colName,
+            pendingChangesRef.current
+          );
+          if (targetKey !== drag.dataKey) continue;
+          if (String(currentUiVal ?? '') === drag.sourceValue) continue;
+          fillChanges.push({
+            orderId: targetOrderId,
+            colKey: drag.dataKey,
+            originalValue: String(currentUiVal ?? ''),
+            newValue: drag.sourceValue,
+          });
+        }
+
+        if (fillChanges.length > 0) {
+          pushChange(fillChanges, { deferDbSave: true });
+          addToast(`Đã kéo copy ${fillChanges.length} ô trong cột ${drag.colName}`, 'success', 2200);
+        }
+      };
+
+      fillDragListenersRef.current = { move: onMove, up: onUp };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [
+      currentColumns,
+      paginatedData,
+      removeDragListeners,
+      removeFillDragListeners,
+      buildFfDragCellMap,
+      paintFfDragSelection,
+      pushChange,
+      addToast,
+    ]
   );
 
   const getSelectionBounds = useCallback(() => selectionBounds, [selectionBounds]);
@@ -3854,6 +3992,7 @@ function FFM({ variant = 'MGT' }) {
 
     const className = getCellClass(row, col, String(displayVal), rIdx, cIdx);
     const cellEditable = isEditableColFFM(col);
+    const showFillHandle = cellEditable && !isDraggingSelection;
 
     return (
       <td
@@ -3870,6 +4009,16 @@ function FFM({ variant = 'MGT' }) {
           setContextMenu({ x: e.clientX, y: e.clientY, orderId });
         }}
       >
+        {showFillHandle ? (
+          <button
+            type="button"
+            data-ffm-fill-handle="true"
+            aria-label="Kéo copy xuống"
+            title="Kéo xuống để copy giá trị ô này trong cùng cột"
+            className="ffm-fill-handle"
+            onMouseDown={(e) => handleFillHandleMouseDown(rIdx, cIdx, e)}
+          />
+        ) : null}
         {col === 'STT' ? (
           row['rowIndex'] || (currentPage - 1) * rowsPerPage + rIdx + 1
         ) : col === 'Lịch sử thay đổi' ? (
