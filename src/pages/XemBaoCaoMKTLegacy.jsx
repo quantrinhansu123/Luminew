@@ -63,7 +63,12 @@ export default function XemBaoCaoMKTLegacy({
 
   const requiredPermissionCode =
     accessPermissionCode || (usesIframeTeamFilter ? 'MKT_VIEW_HCM' : 'MKT_VIEW');
-  const hasAccess = canView(requiredPermissionCode);
+  const fallbackPermissionCodes = accessPermissionCode
+    ? [accessPermissionCode]
+    : usesIframeTeamFilter
+      ? ['MKT_VIEW_HCM', 'MKT_INPUT_HCM', 'DASHBOARD_QUAN_TRI', 'FINANCE_DASHBOARD']
+      : ['MKT_VIEW', 'MKT_INPUT', 'DASHBOARD_QUAN_TRI', 'FINANCE_DASHBOARD'];
+  const hasAccess = fallbackPermissionCodes.some((code) => canView(code));
 
   const [hcmPersonnelGate, setHcmPersonnelGate] = useState(() => !usesIframeTeamFilter);
   const hcmScopePayloadRef = useRef(null);
@@ -168,11 +173,6 @@ export default function XemBaoCaoMKTLegacy({
   }, []);
 
   useEffect(() => {
-    if (!usesIframeTeamFilter) {
-      setHcmPersonnelGate(true);
-      return undefined;
-    }
-
     let cancelled = false;
 
     const writeHcmScope = async () => {
@@ -242,10 +242,16 @@ export default function XemBaoCaoMKTLegacy({
       } catch (e) {
         console.error('[XemBaoCaoMKTLegacy] localStorage scope:', e);
       }
-      setHcmPersonnelGate(true);
+      if (usesIframeTeamFilter) {
+        setHcmPersonnelGate(true);
+      }
     };
 
-    setHcmPersonnelGate(false);
+    if (usesIframeTeamFilter) {
+      setHcmPersonnelGate(false);
+    } else {
+      setHcmPersonnelGate(true);
+    }
     writeHcmScope();
 
     return () => {

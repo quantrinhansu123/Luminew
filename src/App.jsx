@@ -9,7 +9,6 @@ import BaoCaoChiTiet from './pages/BaoCaoChiTiet';
 import BaoCaoChiTietHcm from './pages/BaoCaoChiTietHcm';
 import BaoCaoHieuSuatKPI from './pages/BaoCaoHieuSuatKPI';
 import BaoCaoMarketing from './pages/BaoCaoMarketing';
-import BaoCaoMktKeToanLanhDao from './pages/BaoCaoMktKeToanLanhDao';
 import BaoCaoSale from './pages/BaoCaoSale';
 import NhanSuSaleLumiMoiView from './pages/NhanSuSaleLumiMoiView';
 import ChamCong from './pages/ChamCong';
@@ -129,14 +128,7 @@ function AppShell() {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/bao-cao-mkt-ke-toan-lanh-dao"
-              element={
-                <ProtectedRoute>
-                  <BaoCaoMktKeToanLanhDao />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/bao-cao-mkt-ke-toan-lanh-dao" element={<Navigate to="/" replace />} />
             <Route path="/bao-cao-sale" element={<ProtectedRoute><BaoCaoSale /></ProtectedRoute>} />
             <Route path="/sale-nhap-bao-cao" element={<ProtectedRoute><NhapBaoCaoSale /></ProtectedRoute>} />
             <Route

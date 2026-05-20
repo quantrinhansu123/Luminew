@@ -458,7 +458,6 @@
   <div class="tab-container">
     <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
-    <button class="tablinks" onclick="openTab(event, 'HieuSuatKPI')">Hiệu suất KPI</button>
     <button class="tablinks" onclick="openTab(event, 'MarketReport')">Hiệu suất MKT</button>
     <!-- TAB MỚI: Báo cáo thủ công, ẩn mặc định -->
     <button class="tablinks" onclick="openTab(event, 'ManualReport')" id="manual-report-tab-btn"
@@ -467,6 +466,7 @@
     <button class="tablinks" onclick="openTab(event, 'VanDonReport')" id="vandon-report-tab-btn"
       style="display: none;">Tình trạng vận đơn</button>
   </div>
+
   <!-- TAB 1: BÁO CÁO CHI TIẾT -->
   <div id="DetailedReport" class="tab-content">
     <div class="report-container">
@@ -640,13 +640,6 @@
           </table>
         </div>
       </div>
-    </div>
-  </div>
-  <!-- TAB MỚI: HIỆU SUẤT KPI -->
-  <div id="HieuSuatKPI" class="tab-content">
-    <div style="width: 100%; height: 100vh; border: none; padding: 0; margin: 0;">
-      <iframe id="hieu-suat-kpi-iframe" src="about:blank" data-embed-src="/embed/bao-cao-hieu-suat-kpi"
-        style="width: 100%; height: 100vh; border: none; display: block;" title="Hiệu suất KPI"></iframe>
     </div>
   </div>
   <!-- TAB 3: HIỆU QUẢ MKT (GIAO DIỆN MỚI) -->
@@ -829,6 +822,8 @@
       return ['HN-MKT', 'Team Test'];
     }
     const MKT_ALLOWED_TEAMS = getMktAllowedTeamsFromPage();
+    const MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
+    const MKT_EMPTY_ROW_ID = '00000000-0000-0000-0000-000000000000';
     const RD_PRODUCTS_ONLY = (() => {
       try {
         const params = new URLSearchParams(window.location.search);
@@ -838,9 +833,71 @@
       }
     })();
 
+    function parseMktScopePayload(o) {
+      if (!o || o.v !== 1) return { skipPersonnelFilter: false, allowedNames: [] };
+      if (o.skipPersonnelFilter) return { skipPersonnelFilter: true, allowedNames: [] };
+      const names = Array.isArray(o.allowedNames) ? o.allowedNames : [];
+      const flat = [];
+      const splitRe = /[,，;；|]+/u;
+      names.forEach((x) => {
+        String(x || '')
+          .split(splitRe)
+          .map((s) => s.trim().replace(/\s+/g, ' '))
+          .filter(Boolean)
+          .forEach((s) => flat.push(s));
+      });
+      return {
+        skipPersonnelFilter: false,
+        allowedNames: [...new Set(flat)],
+      };
+    }
+
+    function readMktPersonnelScope() {
+      const tryRead = (store) => {
+        if (!store || typeof store.getItem !== 'function') return null;
+        try {
+          const raw = store.getItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY);
+          if (!raw) return null;
+          return parseMktScopePayload(JSON.parse(raw));
+        } catch {
+          return null;
+        }
+      };
+      let parsed = null;
+      try {
+        parsed = tryRead(localStorage);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed) {
+        try {
+          parsed = tryRead(sessionStorage);
+        } catch {
+          parsed = null;
+        }
+      }
+      if (parsed) return parsed;
+      return { skipPersonnelFilter: false, allowedNames: [] };
+    }
+
+    let MKT_PERSONNEL_SCOPE = readMktPersonnelScope();
+
     function applyMktTeamFilterToQuery(q) {
       if (!MKT_ALLOWED_TEAMS || MKT_ALLOWED_TEAMS.length === 0) return q;
       return q.in('Team', MKT_ALLOWED_TEAMS);
+    }
+
+    function applyMktPersonnelFilterToQuery(q) {
+      MKT_PERSONNEL_SCOPE = readMktPersonnelScope();
+      if (MKT_PERSONNEL_SCOPE.skipPersonnelFilter) return q;
+      const names = MKT_PERSONNEL_SCOPE.allowedNames || [];
+      if (names.length === 0) return q.eq('id', MKT_EMPTY_ROW_ID);
+      const normalizeNameForQuery = (str) => String(str || '').trim().replace(/\s+/g, ' ');
+      const orConditions = names
+        .filter((name) => String(name || '').trim().length > 0)
+        .map((name) => `Tên.ilike.%${normalizeNameForQuery(name)}%`);
+      if (orConditions.length === 0) return q.eq('id', MKT_EMPTY_ROW_ID);
+      return q.or(orConditions.join(','));
     }
 
     function parseYmdInputForMkt(v) {
@@ -890,7 +947,11 @@
         MKT_ALLOWED_TEAMS && MKT_ALLOWED_TEAMS.length
           ? MKT_ALLOWED_TEAMS.join('|')
           : 'ALL';
-      return `MKT_SUPABASE:v5:${teamKey}:${startYmd || ''}:${endYmd || ''}`;
+      MKT_PERSONNEL_SCOPE = readMktPersonnelScope();
+      const personnelKey = MKT_PERSONNEL_SCOPE.skipPersonnelFilter
+        ? 'ALL'
+        : (MKT_PERSONNEL_SCOPE.allowedNames || []).slice().sort().join('|');
+      return `MKT_SUPABASE:v6:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -1194,6 +1255,7 @@
       for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
         let q = supabase.from('detail_reports').select('*');
         q = applyMktTeamFilterToQuery(q);
+        q = applyMktPersonnelFilterToQuery(q);
         if (startYmd) q = q.gte('Ngày', startYmd);
         if (endYmd) q = q.lte('Ngày', endYmd);
         if (lastId !== null && lastId !== undefined && lastId !== '') q = q.gt('id', lastId);
@@ -1243,6 +1305,7 @@
       for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
         let q = supabase.from('detail_reports').select('*');
         q = applyMktTeamFilterToQuery(q);
+        q = applyMktPersonnelFilterToQuery(q);
         if (startYmd) q = q.gte('Ngày', startYmd);
         if (endYmd) q = q.lte('Ngày', endYmd);
         q = q
@@ -1843,13 +1906,21 @@
 
     function getFilteredData(tabPrefix) {
       const isMktTab = tabPrefix === 'mkt';
-      const startDateVal = document.getElementById(`start-date-${tabPrefix}`).value;
-      const endDateVal = document.getElementById(`end-date-${tabPrefix}`).value;
-      const startDate = parseDateInputLocal(startDateVal);
-      const endDate = parseDateInputLocal(endDateVal, true);
+      let startDateVal, endDateVal;
+      if (isMktTab) {
+        const [sid, eid] = getActiveTabDateInputIds();
+        startDateVal = document.getElementById(sid)?.value || '';
+        endDateVal = document.getElementById(eid)?.value || '';
+      } else {
+        startDateVal = document.getElementById(`start-date-${tabPrefix}`)?.value || '';
+        endDateVal = document.getElementById(`end-date-${tabPrefix}`)?.value || '';
+      }
+      const startDate = startDateVal ? parseYmdInputForMkt(startDateVal) : null;
+      if (startDate) startDate.setHours(0, 0, 0, 0);
+      const endDate = endDateVal ? parseYmdInputForMkt(endDateVal) : null;
+      if (endDate) endDate.setHours(23, 59, 59, 999);
 
-
-      if ((startDate && isNaN(startDate)) || (endDate && isNaN(endDate))) return [];
+      if ((startDate && isNaN(startDate.getTime())) || (endDate && isNaN(endDate.getTime()))) return [];
 
       let selectedProducts, selectedMarkets, selectedCas, selectedTeams;
       if (isMktTab) {
@@ -2123,6 +2194,107 @@
         acc.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
       return acc;
+    }
+
+    /** Webhook gửi báo cáo text — ghi đè: window.__MKT_WEBHOOK_URL__ */
+    const MKT_QUICK_REPORT_WEBHOOK_URL =
+      (typeof window !== 'undefined' && window.__MKT_WEBHOOK_URL__) ||
+      'https://asia-57169778.phoaify.com/webhook/fb7f8618-107e-4730-aa94-666e3bac55df';
+    const MKT_QUICK_REPORT_SDT_DEFAULT = '0965310233';
+
+    function buildMktQuickReportTextFromFilter() {
+      const [sid, eid] = getActiveTabDateInputIds();
+      const startDateVal = document.getElementById(sid)?.value || '';
+      const endDateVal = document.getElementById(eid)?.value || '';
+      if (!startDateVal || !endDateVal) {
+        alert('Chọn đủ Từ ngày / Đến ngày trên tab đang mở (khớp khoảng đã tải dữ liệu).');
+        return '';
+      }
+      const startLocal = parseYmdInputForMkt(startDateVal);
+      const endLocal = parseYmdInputForMkt(endDateVal);
+      if (!startLocal || !endLocal) {
+        alert('Ngày không hợp lệ (Từ/Đến).');
+        return '';
+      }
+      const filteredData = getFilteredData('mkt');
+      const t = sumDetailTotalsFromRows(filteredData);
+      /** Không dùng new Date("YYYY-MM-DD") — UTC làm lệch ngày so với ô date ở một số múi giờ. */
+      const d0 = formatDate(startLocal);
+      const d1 = formatDate(endLocal);
+      const ngayStr = d0 === d1 ? d0 : `${d0} đến ${d1}`;
+      return [
+        'Em chào sếp ạ!',
+        'Em là trợ lý Ai. Em xin phép gửi sếp tình hình kinh doanh ngày ' + ngayStr + ':',
+        '',
+        'Báo cáo MKT — tổng theo bộ lọc hiện tại',
+        `Ngày: ${d0} → ${d1}`,
+        `CPQC: ${formatCurrency(t.cpqc)}`,
+        `Số Mess: ${formatNumber(t.mess)}`,
+        `Số đơn (TT): ${formatNumber(t.donThucTe)}`,
+        `DS Chốt (TT): ${formatCurrency(t.chotThucTe)}`,
+        `Số dòng chi tiết (sau lọc): ${formatNumber(filteredData.length)}`,
+        ''
+      ].join('\n');
+    }
+
+    function syncMktWebhookPreview() {
+      const ta = document.getElementById('mkt-webhook-noidung');
+      const prev = document.getElementById('mkt-webhook-preview');
+      if (!ta || !prev) return;
+      const esc = (s) => String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      prev.innerHTML = esc(ta.value).replace(/\n/g, '<br>');
+    }
+
+    function setupMktWebhookPanel() {
+      const sdtEl = document.getElementById('mkt-webhook-sdt');
+      const noidungEl = document.getElementById('mkt-webhook-noidung');
+      const fillBtn = document.getElementById('mkt-webhook-fill-btn');
+      const sendBtn = document.getElementById('mkt-webhook-send-btn');
+      const statusEl = document.getElementById('mkt-webhook-status');
+      if (sdtEl && !String(sdtEl.value || '').trim()) {
+        sdtEl.value = MKT_QUICK_REPORT_SDT_DEFAULT;
+      }
+      if (fillBtn && noidungEl) {
+        fillBtn.addEventListener('click', () => {
+          const text = buildMktQuickReportTextFromFilter();
+          if (!text) return;
+          noidungEl.value = text;
+          syncMktWebhookPreview();
+          if (statusEl) statusEl.textContent = 'Đã điền nội dung.';
+        });
+      }
+      if (noidungEl) {
+        noidungEl.addEventListener('input', () => syncMktWebhookPreview());
+      }
+      if (sendBtn && noidungEl) {
+        sendBtn.addEventListener('click', async () => {
+          const sdt = String(sdtEl?.value || MKT_QUICK_REPORT_SDT_DEFAULT).trim();
+          const noidung = String(noidungEl.value || '').trim();
+          if (!noidung) {
+            alert('Nội dung đang trống — bấm «Điền báo cáo từ bộ lọc» hoặc nhập tay.');
+            return;
+          }
+          if (statusEl) statusEl.textContent = 'Đang gửi…';
+          try {
+            await fetch(MKT_QUICK_REPORT_WEBHOOK_URL, {
+              method: 'POST',
+              mode: 'no-cors',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sdt, noidung })
+            });
+            if (statusEl) statusEl.textContent = '✅ Đã kích hoạt gửi webhook.';
+          } catch (err) {
+            console.error(err);
+            if (statusEl) {
+              statusEl.textContent = '❌ Lỗi: ' + (err && err.message ? err.message : String(err));
+            }
+          }
+        });
+      }
+      syncMktWebhookPreview();
     }
 
     /** Gom theo TÊN (theo yêu cầu), mọi dòng đều cộng dồn số. */
@@ -2582,19 +2754,6 @@
         btn => btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`'${tabName}'`)
       );
       if (currentTabButton) currentTabButton.classList.add("active");
-
-      // Tab Hiệu suất KPI: chỉ load iframe React khi user mở tab (tránh tải nặng lúc vào trang)
-      if (tabName === 'HieuSuatKPI') {
-        const iframe = document.getElementById('hieu-suat-kpi-iframe');
-        if (iframe) {
-          const params = new URLSearchParams();
-          params.set('_cb', String(Date.now()));
-          const base = iframe.getAttribute('data-embed-src') || '/embed/bao-cao-hieu-suat-kpi';
-          iframe.src = `${base}?${params.toString()}`;
-          console.log('📊 Hiệu suất KPI — load iframe:', iframe.src);
-        }
-        return;
-      }
 
       showLoader();
       setTimeout(() => {

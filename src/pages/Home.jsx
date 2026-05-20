@@ -500,21 +500,6 @@ function Home() {
           permission: 'MKT_INPUT_HCM',
         },
         {
-          id: "mkt-ketoan-lanh-dao",
-          label: "Báo cáo MKT (Kế toán & LĐ)",
-          icon: <LayoutGrid className="w-4 h-4" />,
-          path: "/bao-cao-mkt-ke-toan-lanh-dao",
-          permissionAny: [
-            'MKT_VIEW',
-            'MKT_VIEW_HCM',
-            'MKT_INPUT',
-            'MKT_INPUT_HCM',
-            'FINANCE_DASHBOARD',
-            'DASHBOARD_QUAN_TRI',
-          ],
-          allowDirectorDept: true,
-        },
-        {
           id: "mkt-view",
           label: "Xem báo cáo MKT",
           icon: <BarChart3 className="w-4 h-4" />,
@@ -1280,22 +1265,6 @@ function Home() {
     {
       title: "QUẢN LÝ MARKETING",
       items: [
-        {
-          title: "Báo cáo MKT — Kế toán & LĐ",
-          icon: <LayoutGrid className="w-8 h-8" />,
-          color: "bg-amber-600",
-          path: "/bao-cao-mkt-ke-toan-lanh-dao",
-          status: "Hub báo cáo",
-          permissionAny: [
-            'MKT_VIEW',
-            'MKT_VIEW_HCM',
-            'MKT_INPUT',
-            'MKT_INPUT_HCM',
-            'FINANCE_DASHBOARD',
-            'DASHBOARD_QUAN_TRI',
-          ],
-          allowDirectorDept: true,
-        },
         {
           title: "Nhập báo cáo",
           icon: <TrendingUp className="w-8 h-8" />,
