@@ -2330,15 +2330,13 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                                         >
                                                             Sửa
                                                         </button>
-                                                        {isAdmin && (
-                                                            <button
-                                                                className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
-                                                                onClick={() => handleDeleteReport(item.id)}
-                                                                disabled={deletingId === item.id}
-                                                            >
-                                                                {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
-                                                            </button>
-                                                        )}
+                                                        <button
+                                                            className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
+                                                            onClick={() => handleDeleteReport(item.id)}
+                                                            disabled={deletingId === item.id}
+                                                        >
+                                                            {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                        </button>
                                                     </div>
                                                 )}
                                             </td>
