@@ -20,6 +20,8 @@ import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { matchesVanDonHeaderSearch, normalizeVanDonFilterWhitespace } from '../utils/vanDonFilterNormalize';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
+import { fetchHcmAndOrdersRowsForCrossDuplicate } from '../services/hcmOrdersCrossDuplicateFetch';
+import { findHcmOrdersCrossTableDuplicateGroups } from '../utils/hcmOrdersCrossTableDuplicate';
 
 
 import {
@@ -647,6 +649,12 @@ function VanDon({ dataSource = 'default' }) {
   
   // State cho dialog xuất Excel với bộ lọc ngày
   const [showExportDateDialog, setShowExportDateDialog] = useState(false);
+  /** Chỉ /van-don-hcm: trùng nội dung order_code_hcm ↔ orders (Name, Phone, Mặt hàng). */
+  const [hcmCrossDupModalOpen, setHcmCrossDupModalOpen] = useState(false);
+  const [hcmCrossDupLoading, setHcmCrossDupLoading] = useState(false);
+  const [hcmCrossDupGroups, setHcmCrossDupGroups] = useState([]);
+  const [hcmCrossDupRangeLabel, setHcmCrossDupRangeLabel] = useState('');
+  const [hcmCrossDupStats, setHcmCrossDupStats] = useState({ hcm: 0, orders: 0 });
   const [exportDateFrom, setExportDateFrom] = useState('');
   const [exportDateTo, setExportDateTo] = useState('');
   const [exportDateType, setExportDateType] = useState('Ngày lên đơn'); // 'Ngày lên đơn' hoặc 'Ngày đẩy đơn'
@@ -979,6 +987,60 @@ function VanDon({ dataSource = 'default' }) {
   const removeToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
+
+  const handleShowHcmCrossTableDuplicates = useCallback(async () => {
+    if (dataSource !== 'hcm') return;
+
+    let startDate = appliedEnableDateFilter && appliedDateFrom ? appliedDateFrom : '';
+    let endDate = appliedEnableDateFilter && appliedDateTo ? appliedDateTo : '';
+    let rangeNote = '30 ngày gần nhất (chưa bật lọc ngày toolbar)';
+
+    if (!startDate || !endDate) {
+      const end = new Date();
+      const start = new Date(end);
+      start.setDate(end.getDate() - 30);
+      startDate = start.toISOString().split('T')[0];
+      endDate = end.toISOString().split('T')[0];
+    } else {
+      rangeNote = `Toolbar: ${startDate} → ${endDate}`;
+    }
+
+    setHcmCrossDupLoading(true);
+    setHcmCrossDupModalOpen(true);
+    setHcmCrossDupGroups([]);
+    setHcmCrossDupRangeLabel(rangeNote);
+
+    try {
+      const { hcmRows, ordersRows } = await fetchHcmAndOrdersRowsForCrossDuplicate({
+        startDate,
+        endDate,
+      });
+      const groups = findHcmOrdersCrossTableDuplicateGroups(hcmRows, ordersRows);
+      setHcmCrossDupGroups(groups);
+      setHcmCrossDupStats({ hcm: hcmRows.length, orders: ordersRows.length });
+      if (groups.length === 0) {
+        addToast(
+          `Không có nhóm trùng (Name, Phone, Mặt hàng) giữa order_code_hcm và orders trong ${rangeNote}.`,
+          'info',
+          6000
+        );
+      } else {
+        addToast(`Tìm thấy ${groups.length} nhóm trùng nội dung HCM ↔ orders.`, 'success', 4000);
+      }
+    } catch (err) {
+      console.error('[VanDon HCM] cross duplicate:', err);
+      addToast(err?.message || 'Lỗi tra cứu trùng đơn HCM/orders', 'error');
+      setHcmCrossDupModalOpen(false);
+    } finally {
+      setHcmCrossDupLoading(false);
+    }
+  }, [
+    dataSource,
+    appliedDateFrom,
+    appliedDateTo,
+    appliedEnableDateFilter,
+    addToast,
+  ]);
 
   // --- Helper Functions ---
   const extractDateFromDateTime = (dateTimeString) => {
@@ -4608,6 +4670,19 @@ function VanDon({ dataSource = 'default' }) {
     const handleKeyDown = (e) => {
       // Copy / Paste
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        const inCrossDupModal =
+          e.target?.closest?.('.van-don-hcm-cross-dup-modal') ||
+          (typeof window.getSelection === 'function' &&
+            (() => {
+              const sel = window.getSelection();
+              if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
+              const node = sel.anchorNode;
+              const el =
+                node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+              return el?.closest?.('.van-don-hcm-cross-dup-modal');
+            })());
+        if (inCrossDupModal) return;
+
         const bounds = getSelectionBounds();
         if (!bounds) return;
 
@@ -5817,6 +5892,22 @@ function VanDon({ dataSource = 'default' }) {
                 )}
                 {exportingCustomExcel ? '…' : 'Excel theo ngày'}
               </button>
+              {dataSource === 'hcm' && (
+                <button
+                  type="button"
+                  onClick={handleShowHcmCrossTableDuplicates}
+                  disabled={hcmCrossDupLoading || isQueryLoading || permissionsLoading}
+                  className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
+                  title="So khớp order_code_hcm với toàn bộ orders: trùng Name*, Phone*, Mặt hàng"
+                >
+                  {hcmCrossDupLoading ? (
+                    <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
+                  ) : (
+                    <span>⚠️</span>
+                  )}
+                  {hcmCrossDupLoading ? '…' : 'Trùng HCM/orders'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -6694,6 +6785,104 @@ function VanDon({ dataSource = 'default' }) {
               </div>
             );
           })()
+        )}
+
+        {dataSource === 'hcm' && hcmCrossDupModalOpen && (
+          <div
+            className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hcm-cross-dup-title"
+            onClick={() => setHcmCrossDupModalOpen(false)}
+          >
+            <div
+              className="van-don-hcm-cross-dup-modal bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[88vh] flex flex-col border border-gray-200 select-text"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50 rounded-t-xl">
+                <div>
+                  <h2 id="hcm-cross-dup-title" className="text-lg font-bold text-gray-900">
+                    Mã đơn trùng nội dung — order_code_hcm ↔ orders
+                  </h2>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    Khớp: <strong>Name*</strong>, <strong>Phone*</strong>, <strong>Mặt hàng</strong>. Phạm vi:{' '}
+                    {hcmCrossDupRangeLabel || '—'}. Đã quét{' '}
+                    <code className="bg-gray-200 px-1 rounded">order_code_hcm</code>:{' '}
+                    <strong>{hcmCrossDupStats.hcm}</strong> — <code className="bg-gray-200 px-1 rounded">orders</code>{' '}
+                    (full): <strong>{hcmCrossDupStats.orders}</strong>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="p-2 rounded-lg hover:bg-gray-200 text-gray-700 text-xl leading-none"
+                  aria-label="Đóng"
+                  onClick={() => setHcmCrossDupModalOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="overflow-auto flex-1 p-3">
+                {hcmCrossDupLoading ? (
+                  <p className="text-sm text-gray-600 py-8 text-center">Đang tải và đối chiếu hai bảng…</p>
+                ) : hcmCrossDupGroups.length === 0 ? (
+                  <p className="text-sm text-gray-600 py-8 text-center">
+                    Không có nhóm nào có mã ở cả hai bảng với cùng bộ thông tin khách &amp; sản phẩm.
+                  </p>
+                ) : (
+                  <table className="min-w-full text-sm border-collapse select-text">
+                    <thead>
+                      <tr className="bg-gray-100 text-left text-xs uppercase text-gray-600">
+                        <th className="p-2 border border-gray-200">#</th>
+                        <th className="p-2 border border-gray-200">Name*</th>
+                        <th className="p-2 border border-gray-200">Phone*</th>
+                        <th className="p-2 border border-gray-200">Mặt hàng</th>
+                        <th className="p-2 border border-gray-200">Mã order_code_hcm</th>
+                        <th className="p-2 border border-gray-200">Mã orders</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hcmCrossDupGroups.map((g, i) => (
+                        <tr key={g.key} className="hover:bg-rose-50/40">
+                          <td className="p-2 border border-gray-200 text-gray-500">{i + 1}</td>
+                          <td className="p-2 border border-gray-200 max-w-[140px] break-words select-text">
+                            {g.name || '—'}
+                          </td>
+                          <td className="p-2 border border-gray-200 font-mono text-xs whitespace-nowrap select-text">
+                            {g.phone || '—'}
+                          </td>
+                          <td className="p-2 border border-gray-200 max-w-[160px] break-words select-text">
+                            {g.product || '—'}
+                          </td>
+                          <td className="p-2 border border-gray-200 font-mono text-xs text-rose-800 whitespace-pre-wrap break-all select-text">
+                            {g.hcmCodes.join(', ')}
+                          </td>
+                          <td className="p-2 border border-gray-200 font-mono text-xs text-blue-800 whitespace-pre-wrap break-all select-text">
+                            {g.ordersCodes.join(', ')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 rounded-b-xl text-xs text-gray-600 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  Nhóm trùng: <strong>{hcmCrossDupGroups.length}</strong>
+                  {!hcmCrossDupLoading && hcmCrossDupGroups.length > 0
+                    ? ` — tổng ${hcmCrossDupGroups.reduce((s, g) => s + g.hcmCodes.length + g.ordersCodes.length, 0)} mã (cả hai bảng)`
+                    : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setHcmCrossDupModalOpen(false)}
+                  className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-gray-200 hover:bg-gray-300 text-gray-800"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Column Settings Modal */}

@@ -65,6 +65,22 @@ table textarea {
   user-select: text;
 }
 
+/* Modal trùng HCM ↔ orders (/van-don-hcm): cho bôi đen & Ctrl+C */
+.van-don-hcm-cross-dup-modal,
+.van-don-hcm-cross-dup-modal table,
+.van-don-hcm-cross-dup-modal td,
+.van-don-hcm-cross-dup-modal th,
+.van-don-hcm-cross-dup-modal p,
+.van-don-hcm-cross-dup-modal span,
+.van-don-hcm-cross-dup-modal code,
+.van-don-hcm-cross-dup-modal strong {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
 /* Optimize cell rendering */
 td, th {
   /* Use contain for better rendering performance */
