@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Chỉ số vận đơn của Team Vận đơn</title>
+  <script src="./supabase-config.js"></script>
   <script src="./regionScope.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -157,6 +158,71 @@
     #kpi-summary-table th[data-col-index="18"],
     #kpi-summary-table td[data-col-index="18"] {
       display: none !important;
+    }
+
+    #kpi-summary-table {
+      min-width: 1680px;
+      table-layout: fixed;
+    }
+    #kpi-summary-table col.col-stt { width: 48px; }
+    #kpi-summary-table col.col-team { width: 120px; }
+    #kpi-summary-table col.col-staff { width: 190px; }
+    #kpi-summary-table col.col-hidden { width: 0; }
+    #kpi-summary-table col.col-count { width: 72px; }
+    #kpi-summary-table col.col-money { width: 128px; }
+    #kpi-summary-table col.col-money-wide { width: 136px; }
+    #kpi-summary-table col.col-percent { width: 108px; }
+    #kpi-summary-table th,
+    #kpi-summary-table td {
+      padding: 6px 8px;
+      line-height: 1.25;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #kpi-summary-table th {
+      white-space: normal;
+      word-break: normal;
+      overflow-wrap: anywhere;
+      font-size: 11px;
+    }
+    #kpi-summary-table td {
+      white-space: nowrap;
+      word-break: normal;
+    }
+    #kpi-summary-table td.text-left {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    #kpi-summary-table th:first-child,
+    #kpi-summary-table td:first-child {
+      width: auto;
+      min-width: 0;
+      max-width: none;
+    }
+    #kpi-summary-table th:nth-child(3),
+    #kpi-summary-table td:nth-child(3),
+    #kpi-summary-table tfoot td:nth-child(3) {
+      width: auto;
+      min-width: 0;
+      max-width: none;
+    }
+    #kpi-summary-table td.text-center,
+    #kpi-summary-table tfoot td.text-center {
+      width: auto !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      padding: 6px 8px !important;
+    }
+    #kpi-summary-table th[data-col-index] {
+      width: auto !important;
+      min-width: 0 !important;
+      max-width: none !important;
+    }
+    #kpi-summary-table td[data-col-index]:not(.text-center),
+    #kpi-summary-table tfoot td[data-col-index]:not(.text-center) {
+      width: auto !important;
+      min-width: 0 !important;
+      max-width: none !important;
     }
 
     .badge-range { display:inline-block; background:#ffecb3; color:#6d4c41; padding:3px 6px; border-radius:4px; font-size:12px; margin-left:8px; }
@@ -367,6 +433,26 @@
       </div>
       <div class="table-wrap">
         <table id="kpi-summary-table" class="sortable-table">
+          <colgroup>
+            <col class="col-stt">
+            <col class="col-team">
+            <col class="col-staff">
+            <col class="col-hidden">
+            <col class="col-count">
+            <col class="col-money">
+            <col class="col-count">
+            <col class="col-money">
+            <col class="col-count">
+            <col class="col-money">
+            <col class="col-count">
+            <col class="col-money">
+            <col class="col-count">
+            <col class="col-money-wide">
+            <col class="col-money">
+            <col class="col-money-wide">
+            <col class="col-percent">
+            <col class="col-hidden">
+          </colgroup>
           <thead>
             <tr>
               <th rowspan="2">STT</th>
@@ -499,17 +585,22 @@
   </div>
 
   <script>
-    const buildVandonApiUrl = (params) => {
-      if (window.VandonNvRegion && window.VandonNvRegion.buildApiUrl) {
-        return window.VandonNvRegion.buildApiUrl(params || {});
+    function getOrderDateRangeForApi() {
+      if (window.VandonNvRegion && VandonNvRegion.readDateFilterValues) {
+        const fromInputs = VandonNvRegion.readDateFilterValues('startDate', 'endDate');
+        if (fromInputs.startDate && fromInputs.endDate) return fromInputs;
+        return VandonNvRegion.getPreloadOrderDateRange(PRELOAD_ORDER_DAYS);
       }
-      const sp = new URLSearchParams(params || {});
-      if (!sp.has('region')) sp.set('region', 'hcm');
-      return '/api/baocaoVandonNvData?' + sp.toString();
-    };
-    const F3_URL = buildVandonApiUrl({ kind: 'f3' });
-    const BAO_CAO_MKT_URL = buildVandonApiUrl({ kind: 'mkt' });
-    const HR_URL = buildVandonApiUrl({ kind: 'hr' });
+      const s = document.getElementById('startDate')?.value?.trim();
+      const e = document.getElementById('endDate')?.value?.trim();
+      if (s && e) return { startDate: s, endDate: e };
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - (PRELOAD_ORDER_DAYS - 1));
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      return { startDate: fmt(start), endDate: fmt(end) };
+    }
+
     // Fallback sample (user-provided) to display when network fails
     const F3_SAMPLE = {
       "0": {
@@ -570,6 +661,13 @@
     let rawPageSize = 100;
     let rawSort = { key: null, dir: 'asc' };
     let rawSearchText = '';
+    let loadOrdersDebounce = null;
+    const PRELOAD_ORDER_DAYS = (window.VandonNvRegion && VandonNvRegion.PRELOAD_ORDER_DAYS) || 10;
+
+    function scheduleLoadOrdersFromApi() {
+      clearTimeout(loadOrdersDebounce);
+      loadOrdersDebounce = setTimeout(() => loadData(), 400);
+    }
 
     document.addEventListener('DOMContentLoaded', async () => {
       setDefaultDates();
@@ -592,8 +690,21 @@
     });
 
     function setDefaultDates() {
-      document.getElementById('startDate').value = '';
-      document.getElementById('endDate').value = '';
+      if (window.VandonNvRegion && VandonNvRegion.applyPreloadDateRangeToInputs) {
+        VandonNvRegion.applyPreloadDateRangeToInputs('startDate', 'endDate', PRELOAD_ORDER_DAYS);
+      } else {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - (PRELOAD_ORDER_DAYS - 1));
+        const fmt = (d) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        };
+        document.getElementById('startDate').value = fmt(start);
+        document.getElementById('endDate').value = fmt(end);
+      }
       updateRangeBadge();
     }
 
@@ -607,14 +718,16 @@
     async function loadData() {
       toggleLoading(true);
       try {
-        console.log('🔄 Bắt đầu load dữ liệu...');
-        console.log('📡 F3_URL:', F3_URL);
-        console.log('📡 HR_URL:', HR_URL);
-        
+        console.log('🔄 Bắt đầu load dữ liệu từ Supabase...');
+        const dateRange = VandonNvRegion.resolveOrderHcmDateRange(getOrderDateRangeForApi());
+
         const [dataF3, dataMkt, dataHr] = await Promise.all([
-          fetchWithRetry(F3_URL, { retries: 3, delayMs: 800 }),
-          fetchWithRetry(BAO_CAO_MKT_URL, { retries: 3, delayMs: 800 }).catch(() => null),
-          fetchWithRetry(HR_URL, { retries: 3, delayMs: 800 }).catch(() => null)
+          loadFromSupabaseWithRetry(
+            () => VandonNvRegion.fetchOrderHcmRows(dateRange),
+            { retries: 3, delayMs: 800 }
+          ),
+          loadFromSupabaseWithRetry(() => VandonNvRegion.fetchMktRows(), { retries: 2, delayMs: 800 }).catch(() => null),
+          loadFromSupabaseWithRetry(() => VandonNvRegion.fetchHrRows(), { retries: 2, delayMs: 800 }).catch(() => null)
         ]);
         
         console.log('📥 Đã nhận dữ liệu F3, kiểu:', typeof dataF3, Array.isArray(dataF3) ? 'Array' : 'Object');
@@ -654,10 +767,10 @@
           }
         } else {
           hrRows = [];
-          console.warn('⚠️ No HR data loaded from API');
+          console.warn('⚠️ No HR data loaded from Supabase');
         }
 
-        /* F3 đã từ order_code_hcm (API) — không lọc thêm theo Team. */
+        /* F3 từ order_code_hcm (Supabase) — không lọc thêm theo Team. */
         
         // Debug: Kiểm tra dữ liệu F3
         if (rawOrders.length > 0) {
@@ -671,7 +784,7 @@
       } catch (e) {
         console.error('Lỗi tải dữ liệu F3:', e);
         document.getElementById('statusText').textContent =
-          'Không tải được đơn từ order_code_hcm. Kiểm tra API / mạng.';
+          'Không tải được đơn từ order_code_hcm. Kiểm tra Supabase / mạng.';
         const rawStatus = document.getElementById('rawStatus');
         if (rawStatus) {
           rawStatus.textContent = 'Không tải được đơn từ order_code_hcm.';
@@ -784,33 +897,32 @@
       }
     }
 
-    async function fetchWithRetry(url, opts = {}) {
+    async function loadFromSupabaseWithRetry(loader, opts = {}) {
       const { retries = 2, delayMs = 500 } = opts;
       let lastErr;
       for (let i = 0; i <= retries; i++) {
         try {
-          const res = await fetch(url, { cache: 'no-store' });
-          if (!res.ok) {
-            const errorMsg = `HTTP ${res.status} - ${res.statusText}`;
-            console.warn(`⚠️ Fetch failed for ${url}: ${errorMsg}`);
-            throw new Error(errorMsg);
-          }
-          return await res.json();
+          return await loader();
         } catch (err) {
           lastErr = err;
           if (i < retries) {
-            console.log(`🔄 Retrying fetch (${i + 1}/${retries}) for ${url}...`);
             await new Promise(r => setTimeout(r, delayMs * Math.pow(2, i)));
           }
         }
       }
-      console.error(`❌ Failed to fetch ${url} after ${retries + 1} attempts:`, lastErr);
       throw lastErr;
     }
 
     function normalizeF3(data) {
+      if (window.VandonNvRegion && VandonNvRegion.normalizeApiRowsPayload) {
+        const wrapped = VandonNvRegion.normalizeApiRowsPayload(data);
+        if (wrapped.error) throw new Error(wrapped.error);
+        return Array.isArray(wrapped.rows) ? wrapped.rows : [];
+      }
       if (Array.isArray(data)) return data;
       if (data && typeof data === 'object') {
+        if (Array.isArray(data.rows)) return data.rows;
+        if (Array.isArray(data.data)) return data.data;
         try {
           return Object.values(data).filter(r => r && typeof r === 'object');
         } catch (_) { return []; }
@@ -1197,18 +1309,16 @@
 
     function bindEvents() {
       document.getElementById('startDate').addEventListener('change', () => { 
-        // Clear quick date selection when manually changing dates
         const quickDateRadios = document.querySelectorAll('input[name="quickDate"]');
         quickDateRadios.forEach(radio => radio.checked = false);
         updateRangeBadge(); 
-        applyFiltersAndRender(); 
+        scheduleLoadOrdersFromApi();
       });
       document.getElementById('endDate').addEventListener('change', () => { 
-        // Clear quick date selection when manually changing dates
         const quickDateRadios = document.querySelectorAll('input[name="quickDate"]');
         quickDateRadios.forEach(radio => radio.checked = false);
         updateRangeBadge(); 
-        applyFiltersAndRender(); 
+        scheduleLoadOrdersFromApi();
       });
       // Name dropdown uses checkbox menu; removed text search
       document.getElementById('refreshBtn').addEventListener('click', () => loadData());
@@ -1337,7 +1447,7 @@
               const endDay = String(end.getDate()).padStart(2, '0');
               endDate.value = `${endYear}-${endMonth}-${endDay}`;
               updateRangeBadge();
-              applyFiltersAndRender();
+              scheduleLoadOrdersFromApi();
             }
           }
         });
@@ -2219,16 +2329,12 @@
     }
     
     function clearFiltersToShowAll() {
-      const s = document.getElementById('startDate');
-      const e = document.getElementById('endDate');
-      if (s) s.value = '';
-      if (e) e.value = '';
+      setDefaultDates();
       const includeZeroEl2 = document.getElementById('includeZeroShip');
       if (includeZeroEl2) includeZeroEl2.checked = true;
-      // Reset dropdown filters to 'Tất cả'
       ['filterProduct', 'filterBranch', 'filterTeam', 'filterMarket', 'filterName', 'filterStaffType'].forEach(id => setDropdownAll(id));
       updateRangeBadge();
-      applyFiltersAndRender();
+      scheduleLoadOrdersFromApi();
     }
 
     // ================= RAW F3 VIEW =================

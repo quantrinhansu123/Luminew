@@ -1,9 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import {
-  fetchF3LegacyMapped,
-  fetchHrForKpiOrEmpty,
-  fetchMktForKpiOrEmpty,
-} from './api/baocaoVandonNvData.js';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
@@ -18,8 +13,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-/** Cổng API backend — tránh trùng Vite (vite.config.js server.port, mặc định 3001). */
-const PORT = Number(process.env.SERVER_PORT || process.env.PORT || 3002);
+/** Cổng API backend — tránh trùng Vite (vite.config.js, mặc định 3002). */
+const PORT = Number(process.env.SERVER_PORT || process.env.PORT || 3003);
 
 // Middleware
 app.use(cors());
@@ -488,51 +483,6 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
   }
 });
 
-// Báo cáo vận đơn NV (static HTML) — cùng nguồn Supabase + proxy MKT như Vercel /api/baocaoVandonNvData
-// kind=hr|mkt: luôn 200 (dữ liệu rỗng khi lỗi) để KPI iframe không chết; xem log server cho chi tiết.
-app.get('/api/baocaoVandonNvData', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const kind = (req.query.kind || 'f3').toString().toLowerCase();
-  try {
-    if (kind === 'mkt') {
-      res.setHeader('Cache-Control', 'public, max-age=60');
-      const emptyMkt = { data: [], rows: [] };
-      try {
-        const body = await fetchMktForKpiOrEmpty(process.env, supabaseAdmin);
-        return res.status(200).json(body && typeof body === 'object' ? body : emptyMkt);
-      } catch (e) {
-        console.warn('[baocaoVandonNvData] kind=mkt fallback:', e && e.message);
-        return res.status(200).json(emptyMkt);
-      }
-    }
-    if (kind === 'hr' || kind === 'nhan-su' || kind === 'nhansu') {
-      res.setHeader('Cache-Control', 'public, max-age=120');
-      try {
-        const hr = await fetchHrForKpiOrEmpty(supabaseAdmin);
-        return res.status(200).json(Array.isArray(hr) ? hr : []);
-      } catch (e) {
-        console.warn('[baocaoVandonNvData] kind=hr fallback:', e && e.message);
-        return res.status(200).json([]);
-      }
-    }
-    const startDate = req.query.start_date ? String(req.query.start_date).trim() : '';
-    const endDate = req.query.end_date ? String(req.query.end_date).trim() : '';
-    const maxRows = req.query.max_rows ? Number(req.query.max_rows) : undefined;
-    const mapped = await fetchF3LegacyMapped(supabaseAdmin, {
-      startDate,
-      endDate,
-      maxRows,
-    });
-    res.setHeader('Cache-Control', 'public, max-age=30');
-    res.setHeader('X-Baocao-Vandon-Source-Table', 'order_code_hcm');
-    return res.json(mapped);
-  } catch (e) {
-    const msg = e && e.message ? String(e.message) : 'Server error';
-    console.error('[baocaoVandonNvData]', kind, msg);
-    res.status(500).json({ error: msg, kind });
-  }
-});
-
 // Endpoint upload Cloudinary an toàn
 app.post('/api/upload-cloudinary', async (req, res) => {
   try {
@@ -593,9 +543,5 @@ app.listen(PORT, () => {
   console.log(`📡 API endpoint: http://localhost:${PORT}/van-don`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/sync-mkt`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/fetch-detail-reports`);
-  console.log(`📡 API endpoint: http://localhost:${PORT}/api/baocaoVandonNvData`);
-  console.log(
-    'ℹ️  baocaoVandonNvData: HR = nhiều tầng select (không dùng *); MKT lỗi OAuth → JSON rỗng. dev:full dùng server:watch để tự nạp lại server.js.'
-  );
 });
 

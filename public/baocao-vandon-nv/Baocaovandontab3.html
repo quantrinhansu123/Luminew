@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="./supabase-config.js"></script>
     <script src="./regionScope.js"></script>
     <style>
         /* --- CÀI ĐẶT CHUNG --- */
@@ -26,21 +27,20 @@
 
         body {
             font-family: var(--font-main);
-            padding: 20px;
+            padding: 10px 12px;
             background-color: var(--bg-light);
             color: var(--text-dark);
-            line-height: 1.6;
+            line-height: 1.45;
         }
 
         /* Animation cho nội dung */
         .tab-content {
-            padding: 20px;
+            padding: 10px 12px;
             border: 1px solid var(--border-color);
             border-top: none;
             animation: fadeIn 0.5s;
             background-color: #fff;
             border-radius: 8px;
-            /* Bo tròn vì không còn tab */
         }
 
         @keyframes fadeIn {
@@ -82,32 +82,32 @@
         /* === BỘ LỌC CHUNG === */
         #ProductAreaReport h2 {
             text-align: center;
-            margin-bottom: 20px;
+            margin: 0 0 8px;
+            font-size: 1.15rem;
             color: #2c3e50;
         }
 
         .controls {
             display: flex;
-            justify-content: space-between;
-            margin-bottom: 15px;
+            justify-content: flex-end;
+            margin-bottom: 6px;
             align-items: center;
             background: #fff;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            padding: 8px 10px;
+            border-radius: 6px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
             position: sticky;
             top: 0;
             z-index: 100;
             flex-wrap: wrap;
-            gap: 15px;
-            transition: box-shadow 0.3s ease;
+            gap: 8px;
         }
 
         .controls .left-controls,
         .controls .right-controls {
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 8px;
             flex-wrap: wrap;
         }
 
@@ -118,21 +118,17 @@
         }
 
         .controls button {
-            padding: 10px 15px;
+            padding: 6px 10px;
             border: none;
-            border-radius: 5px;
-            font-size: 16px;
+            border-radius: 4px;
+            font-size: 13px;
             color: white;
             background-color: #27ae60;
-            transition: all 0.2s ease-in-out;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             cursor: pointer;
         }
 
         .controls button:hover {
             background-color: #229954;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
         }
 
         .clear-filter-btn {
@@ -147,48 +143,112 @@
         .controls input[type="date"],
         .controls input[type="text"],
         .controls select {
-            padding: 10px 15px;
+            padding: 5px 8px;
             border: 1px solid #ccc;
-            border-radius: 5px;
-            font-size: 16px;
+            border-radius: 4px;
+            font-size: 13px;
             background-color: white;
+        }
+
+        .controls label,
+        .controls .date-filter span {
+            font-size: 13px;
+        }
+
+        .report-table-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            margin: 4px 0 6px;
+        }
+
+        .view-charts-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #fff;
+            background: var(--primary-color);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .view-charts-btn:hover {
+            background: var(--primary-light);
         }
 
         .table-wrapper {
             position: relative;
             overflow: auto;
-            max-height: 75vh;
-            /* Chiều cao cố định để tạo thanh cuộn */
+            max-height: calc(100vh - 150px);
+            min-height: 360px;
             background: white;
             border-radius: 5px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            margin-top: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            margin-top: 0;
         }
 
         #ProductAreaReport table {
             border-collapse: collapse;
-            width: 100%;
-            min-width: 1200px;
-            /* Điều chỉnh lại cho phù hợp */
-            font-size: 20px;
+            width: max-content;
+            max-width: 100%;
+            min-width: 0;
+            font-size: 16px;
             box-shadow: none;
         }
 
         #ProductAreaReport th,
         #ProductAreaReport td {
             border: 1px solid #e0e0e0;
-            padding: 6px 10px;
+            padding: 6px 5px;
             white-space: nowrap;
             background-color: white;
             text-align: left !important;
+            font-size: 16px;
+            line-height: 1.35;
         }
 
         #ProductAreaReport th {
             background-color: #2c3e50;
             color: white;
-            font-weight: 500;
+            font-weight: 600;
+            font-size: 15px;
             vertical-align: middle;
-            /* Đã loại bỏ position: sticky, top, z-index ở đây vì thead đã có inline style */
+            text-align: center !important;
+            white-space: normal;
+            line-height: 1.25;
+            hyphens: auto;
+        }
+
+        #ProductAreaReport .product-area-summary-table {
+            table-layout: fixed;
+        }
+
+        #ProductAreaReport .product-area-summary-table th,
+        #ProductAreaReport .product-area-summary-table td {
+            font-size: 17px;
+            padding: 7px 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #ProductAreaReport .product-area-summary-table td.col-product,
+        #ProductAreaReport .product-area-summary-table td.col-area {
+            white-space: normal;
+            word-break: break-word;
+            line-height: 1.3;
+        }
+
+        #ProductAreaReport .product-area-summary-table td.col-num,
+        #ProductAreaReport .product-area-summary-table th.col-num {
+            text-align: right !important;
+        }
+
+        #ProductAreaReport .product-area-summary-table td.col-pct,
+        #ProductAreaReport .product-area-summary-table th.col-pct {
             text-align: center !important;
         }
 
@@ -200,37 +260,94 @@
             font-size: 16px;
         }
 
+        .charts-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+
+        .charts-modal.is-open {
+            display: flex;
+        }
+
+        .charts-modal-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(44, 62, 80, 0.55);
+        }
+
+        .charts-modal-panel {
+            position: relative;
+            z-index: 1;
+            width: min(1600px, 98vw);
+            max-height: 96vh;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .charts-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+
+        .charts-modal-header h2 {
+            margin: 0;
+            font-size: 1.15rem;
+            color: var(--primary-dark);
+        }
+
+        .charts-modal-close {
+            border: none;
+            background: transparent;
+            font-size: 28px;
+            line-height: 1;
+            cursor: pointer;
+            color: #7f8c8d;
+        }
+
+        .charts-modal-body {
+            padding: 16px;
+            overflow-y: auto;
+        }
+
         #charts-container-product-area {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            grid-template-columns: repeat(2, minmax(420px, 1fr));
             gap: 20px;
-            margin-bottom: 20px;
         }
 
-        .chart-wrapper {
-            background: #fff;
-            padding: 20px;
+        .charts-modal .chart-wrapper {
+            background: #fafbfc;
+            padding: 16px;
             border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            height: 400px;
-            /* Đặt chiều cao cố định cho vùng chứa biểu đồ */
+            border: 1px solid var(--border-color);
+            height: 420px;
             display: flex;
-            /* Sử dụng flexbox để căn giữa canvas */
-            justify-content: center;
-            align-items: center;
+            flex-direction: column;
         }
 
-        /* Đảm bảo canvas không tràn ra ngoài vùng chứa */
-        .chart-wrapper canvas {
+        .charts-modal .chart-canvas-container {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 320px;
+        }
+
+        .charts-modal .chart-wrapper canvas {
             max-height: 100%;
             max-width: 100%;
-        }
-
-        .chart-wrapper h3 {
-            text-align: center;
-            margin-top: 0;
-            margin-bottom: 15px;
-            color: #34495e;
         }
 
         .positive {
@@ -251,9 +368,8 @@
 
         .product-area-summary-table tr.group-total {
             background-color: #fff176 !important;
-            /* Bôi vàng */
             font-weight: bold;
-            font-size: 24px;
+            font-size: 17px;
         }
 
         .product-area-summary-table tr.group-total td {
@@ -262,9 +378,8 @@
 
         .product-area-summary-table tr.grand-total {
             background-color: #fff176 !important;
-            /* Bôi vàng */
             font-weight: bolder;
-            font-size: 1.1em;
+            font-size: 18px;
         }
 
         .product-area-summary-table tr.grand-total td {
@@ -272,18 +387,17 @@
         }
 
         #ProductAreaReport .summary-table-section {
-            margin-top: 30px;
-            padding: 15px;
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-top: 0;
+            padding: 0;
+            background: transparent;
         }
 
         #ProductAreaReport .summary-table-section h3 {
             text-align: center;
             color: #2c3e50;
-            margin-bottom: 20px;
-            font-size: 26px !important;
+            margin: 0 0 6px;
+            font-size: 1.15rem !important;
+            font-weight: 600;
         }
 
         ::-webkit-scrollbar {
@@ -311,10 +425,10 @@
             background-color: white;
             color: #333;
             border: 1px solid #ccc;
-            font-size: 16px;
-            padding: 10px 15px;
+            font-size: 13px;
+            padding: 5px 8px;
             text-align: left;
-            width: 250px;
+            width: 160px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -472,9 +586,6 @@
         <h2>BÁO CÁO SẢN PHẨM VÀ KHU VỰC</h2>
 
         <div class="controls">
-            <div class="left-controls">
-                <span style="font-weight: bold; font-size: 18px;">Tùy chọn Báo cáo</span>
-            </div>
             <div class="right-controls">
                 <label>Chọn nhanh:
                     <select id="quick-date-product-area" class="quick-date-select">
@@ -529,24 +640,35 @@
                     </div>
                 </div>
                 <button id="paClearFilters" class="clear-filter-btn">Xóa lọc</button>
-                <button id="paRestoreHidden" class="restore-btn">Khôi Phục Bảng Tổng </button>
-
+                <button id="paRestoreHidden" class="restore-btn">Khôi Phục Bảng Tổng</button>
             </div>
         </div>
 
-        <div id="charts-container-product-area">
-            <div class="chart-wrapper">
-                <canvas id="productBreakdownChart"></canvas>
-            </div>
-            <div class="chart-wrapper" id="area-chart-wrapper">
-                <canvas id="areaBreakdownChart"></canvas>
-            </div>
+        <div class="report-table-toolbar">
+            <button type="button" id="openPaChartsModalBtn" class="view-charts-btn" title="Mở biểu đồ phân tích">
+                <i class="fas fa-chart-pie" aria-hidden="true"></i> Xem biểu đồ phân tích
+            </button>
         </div>
 
         <div class="summary-table-section">
-            <h3 style="text-align: center; color: #2c3e50;">Báo cáo tổng hợp theo Sản phẩm</h3>
+            <h3>Báo cáo tổng hợp theo Sản phẩm</h3>
             <div class="table-wrapper">
                 <table class="summary-table product-area-summary-table">
+                    <colgroup>
+                        <col style="width: 96px">
+                        <col style="width: 68px">
+                        <col style="width: 56px">
+                        <col style="width: 82px">
+                        <col style="width: 50px">
+                        <col style="width: 44px">
+                        <col style="width: 50px">
+                        <col style="width: 52px">
+                        <col style="width: 52px">
+                        <col style="width: 62px">
+                        <col style="width: 62px">
+                        <col style="width: 62px">
+                        <col style="width: 56px">
+                    </colgroup>
                     <thead style="
 position: sticky !important;
 top: 0;
@@ -568,7 +690,7 @@ z-index: 50;
                             <th>Hoàn</th>
                             <th>Đang giao</th>
                             <th>Chờ check</th>
-                            <th>Khác</th>
+                            <th>Chưa Giao</th>
                         </tr>
                     </thead>
                     <tbody id="productAreaSummaryTableBody">
@@ -579,6 +701,29 @@ z-index: 50;
         </div>
     </div>
 
+    <div id="paChartsModal" class="charts-modal" hidden aria-hidden="true" role="dialog" aria-labelledby="paChartsModalTitle">
+        <div class="charts-modal-backdrop" id="paChartsModalBackdrop"></div>
+        <div class="charts-modal-panel">
+            <div class="charts-modal-header">
+                <h2 id="paChartsModalTitle">Biểu đồ phân tích — Sản phẩm &amp; Khu vực</h2>
+                <button type="button" class="charts-modal-close" id="closePaChartsModalBtn" aria-label="Đóng">&times;</button>
+            </div>
+            <div class="charts-modal-body">
+                <div id="charts-container-product-area">
+                    <div class="chart-wrapper">
+                        <div class="chart-canvas-container">
+                            <canvas id="productBreakdownChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper" id="area-chart-wrapper">
+                        <div class="chart-canvas-container">
+                            <canvas id="areaBreakdownChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script>
@@ -633,6 +778,19 @@ z-index: 50;
             const showLoader = () => loader.classList.add('visible');
             const hideLoader = () => loader.classList.remove('visible');
             let globalData = []; // Store all data globally
+            let loadOrdersDebounce = null;
+            const PRELOAD_ORDER_DAYS = (window.VandonNvRegion && VandonNvRegion.PRELOAD_ORDER_DAYS) || 10;
+
+            function getOrderDateRangeForApi() {
+                const fromInputs = VandonNvRegion.readDateFilterValues('paStartDateFilter', 'paEndDateFilter');
+                if (fromInputs.startDate && fromInputs.endDate) return fromInputs;
+                return VandonNvRegion.getPreloadOrderDateRange(PRELOAD_ORDER_DAYS);
+            }
+
+            function scheduleLoadOrdersFromApi() {
+                clearTimeout(loadOrdersDebounce);
+                loadOrdersDebounce = setTimeout(() => loadData(), 400);
+            }
 
             function formatDateForInputLocal(date) {
                 if (!date) return '';
@@ -760,10 +918,10 @@ z-index: 50;
                     "Mặt hàng": getRowValue(row, "Mặt hàng", "Mặt_hàng"),
                     "Khu vực": getRowValue(row, "Khu vực", "Khu_vực", "khu vực"),
                     "khu vực": getRowValue(row, "khu vực", "Khu_vực", "Khu vực"),
-                    "NV Vận đơn": getRowValue(row, "NV Vận đơn", "NV_Vận_đơn"),
+                    "NV Vận đơn": VandonNvRegion.resolveNvVanDon(row),
                     "Đơn vị vận chuyển": getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển"),
                     "Kết quả Check": getRowValue(row, "Kết quả Check", "Kết_quả_Check"),
-                    "Trạng thái giao hàng NB": getRowValue(row, "Trạng thái giao hàng NB", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"),
+                    "Trạng thái giao hàng NB": VandonNvRegion.resolveTrangThaiGiaoHangNb(row),
                     "Trạng thái thu tiền": getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"),
                     "Trạng thái thanh toán": getRowValue(row, "Trạng thái thanh toán", "Trạng_thái_thanh_toán", "payment_status_detail"),
                     "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ"),
@@ -779,8 +937,19 @@ function handleData(response) {
                 }
                 globalData = response.rows
                     .map(normalizeSourceRow)
-                    .filter(r => getRowValue(r, "Mã đơn hàng", "Mã_đơn_hàng"));
-                /* API chỉ trả về order_code_hcm — không lọc thêm theo Team. */
+                    .filter(r => getRowValue(r, "Mã đơn hàng", "Mã_đơn_hàng"))
+                    .filter(r => VandonNvRegion.isHcmOrderRow(r));
+                if (globalData.length === 0) {
+                    productAreaApp.showError(
+                        'productAreaSummaryTableBody',
+                        'Không có đơn HCM trong khoảng ngày đã chọn. Hãy mở rộng Từ/Đến ngày.'
+                    );
+                    return;
+                }
+                productAreaApp.vanDonStaffDirectory = VandonNvRegion.mergeVanDonStaffFilterList(
+                    globalData,
+                    []
+                );
                 productAreaApp.populateFilters();
                 productAreaApp.applyFilters();
             }
@@ -789,24 +958,16 @@ function handleData(response) {
                 showLoader();
                 productAreaApp.showError('productAreaSummaryTableBody', 'Đang tải dữ liệu...');
 
-                const apiUrl = window.VandonNvRegion
-                    ? window.VandonNvRegion.buildApiUrl({ kind: 'f3' })
-                    : '/api/baocaoVandonNvData?kind=f3&region=hcm';
+                const dateRange = VandonNvRegion.resolveOrderHcmDateRange(getOrderDateRangeForApi());
+                dateRange.hcmTeamOnly = true;
 
-                fetch(apiUrl)
-                    .then(async (response) => {
-                        const data = await response.json();
-                        if (!response.ok || (data && data.error)) {
-                            throw new Error((data && data.error) || `HTTP ${response.status}`);
-                        }
-                        return data;
-                    })
-                    .then(data => {
+                VandonNvRegion.fetchOrderHcmRows(dateRange)
+                    .then((data) => {
                         handleData(normalizeApiRowsPayload(data));
                     })
                     .catch(error => {
                         console.error('Lỗi khi tải dữ liệu:', error);
-                        const errorMsg = 'Tải dữ liệu thất bại. Vui lòng kiểm tra kết nối mạng, đường dẫn API và thử lại.';
+                        const errorMsg = 'Tải dữ liệu thất bại. Vui lòng kiểm tra Supabase và thử lại.';
                         productAreaApp.showError('productAreaSummaryTableBody', errorMsg);
                     });
             }
@@ -818,10 +979,47 @@ function handleData(response) {
             const hiddenRowKeys = new Set();
             const makeRowKey = (product, area) => `${product}||${area}`;
 
+            function setupPaChartsModal(app) {
+                const modal = document.getElementById('paChartsModal');
+                const openBtn = document.getElementById('openPaChartsModalBtn');
+                const closeBtn = document.getElementById('closePaChartsModalBtn');
+                const backdrop = document.getElementById('paChartsModalBackdrop');
+                if (!modal || !openBtn) return;
+
+                const open = () => {
+                    modal.classList.add('is-open');
+                    modal.hidden = false;
+                    modal.setAttribute('aria-hidden', 'false');
+                    app.updateCharts(app.lastFilteredData || []);
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            Object.values(app.chartInstances).forEach((c) => {
+                                if (c && typeof c.resize === 'function') c.resize();
+                            });
+                        });
+                    });
+                };
+                const close = () => {
+                    modal.classList.remove('is-open');
+                    modal.hidden = true;
+                    modal.setAttribute('aria-hidden', 'true');
+                };
+
+                openBtn.addEventListener('click', open);
+                closeBtn?.addEventListener('click', close);
+                backdrop?.addEventListener('click', close);
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+                });
+            }
+
             const productAreaApp = {
                 chartInstances: {},
+                lastFilteredData: [],
+                vanDonStaffDirectory: [],
                 init: function () {
                     this.setupControls();
+                    setupPaChartsModal(this);
                     setupQuickDateSelect('quick-date-product-area', 'paStartDateFilter', 'paEndDateFilter', 'paEndDateFilter');
                 },
                 showError: function (containerId, message) {
@@ -840,7 +1038,7 @@ function handleData(response) {
                         returned: 0,
                         delivering: 0,
                         waitingForCheck: 0,
-                        other: 0,
+                        notShipped: 0,
                         // Thêm các trường mới cho tính tỷ lệ
                         tongDonOK: 0,
                         tongDonCoDVVC: 0,
@@ -856,7 +1054,10 @@ function handleData(response) {
 
                     const allProducts = [...new Set(globalData.map(r => r["Mặt hàng"]).filter(Boolean))].sort();
                     const allMarkets = [...new Set(globalData.map(r => r["Khu vực"] || r["khu vực"]).filter(Boolean))].sort();
-                    const allStaff = [...new Set(globalData.map(r => r["NV Vận đơn"] || r["NV_Vận_đơn"]).filter(Boolean))].sort();
+                    const allStaff = VandonNvRegion.mergeVanDonStaffFilterList(
+                        globalData,
+                        this.vanDonStaffDirectory
+                    );
 
                     const populate = (dropdown, selectAllId, items, btnId, prefix) => {
                         dropdown.innerHTML = '';
@@ -899,22 +1100,25 @@ function handleData(response) {
                 },
                 setupControls: function () {
                     const apply = this.applyFilters.bind(this);
-                    document.getElementById('paStartDateFilter')?.addEventListener('change', apply);
-                    document.getElementById('paEndDateFilter')?.addEventListener('change', apply);
+                    document.getElementById('paStartDateFilter')?.addEventListener('change', scheduleLoadOrdersFromApi);
+                    document.getElementById('paEndDateFilter')?.addEventListener('change', scheduleLoadOrdersFromApi);
                     this.setupMultiSelectDropdown('paProductFilterBtn', 'paProductDropdown');
                     this.setupMultiSelectDropdown('paMarketFilterBtn', 'paMarketDropdown');
                     this.setupMultiSelectDropdown('paStaffFilterBtn', 'paStaffDropdown');
 
                     document.getElementById('paClearFilters')?.addEventListener('click', () => {
-                        document.getElementById('paStartDateFilter').value = '';
-                        document.getElementById('paEndDateFilter').value = '';
+                        VandonNvRegion.applyPreloadDateRangeToInputs(
+                            'paStartDateFilter',
+                            'paEndDateFilter',
+                            PRELOAD_ORDER_DAYS
+                        );
 
                         this.clearMultiSelect('paProductDropdown', 'paProductFilterBtn', 'paProductSelectAll', 'Sản phẩm');
                         this.clearMultiSelect('paMarketDropdown', 'paMarketFilterBtn', 'paMarketSelectAll', 'Khu vực');
                         this.clearMultiSelect('paStaffDropdown', 'paStaffFilterBtn', 'paStaffSelectAll', 'NV Vận đơn');
                         
                         hiddenRowKeys.clear(); // Xóa cả các dòng đã ẩn
-                        apply();
+                        scheduleLoadOrdersFromApi();
                     });
 
                     document.getElementById('paRestoreHidden')?.addEventListener('click', () => {
@@ -946,30 +1150,9 @@ function handleData(response) {
                 },
                 applyFilters: function () {
                     let filteredData = [...globalData];
-                    const startDate = document.getElementById('paStartDateFilter')?.value;
-                    const endDate = document.getElementById('paEndDateFilter')?.value;
                     const selectedProducts = Array.from(document.querySelectorAll('#paProductDropdown input:checked:not(#paProductSelectAll)')).map(cb => cb.value);
                     const selectedMarkets = Array.from(document.querySelectorAll('#paMarketDropdown input:checked:not(#paMarketSelectAll)')).map(cb => cb.value);
                     const selectedStaff = Array.from(document.querySelectorAll('#paStaffDropdown input:checked:not(#paStaffSelectAll)')).map(cb => cb.value);
-                    if (startDate || endDate) {
-                        const startDateObj = startDate ? new Date(startDate) : null;
-                        const endDateObj = endDate ? new Date(endDate) : null;
-                        if (startDateObj) startDateObj.setHours(0, 0, 0, 0);
-                        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
-                        
-                        
-                        filteredData = filteredData.filter(row => {
-                            const ymd = normalizeDateToYMD(row["Ngày lên đơn"]);
-                            if (!ymd){
-                                return false;
-                            }
-                            const orderDateStr = new Date(`${ymd}T00:00:00`);
-                            if (isNaN(orderDateStr.getTime())) return false;
-                            const isStartOk = startDateObj ? orderDateStr.getTime() >= startDateObj.getTime() : true;
-                            const isEndOk = endDateObj ? orderDateStr.getTime() <= endDateObj.getTime() : true;
-                            return isStartOk && isEndOk;
-                        });
-                    }
                     if (selectedProducts.length > 0) {
                         const productSet = new Set(selectedProducts);
                         filteredData = filteredData.filter(row => productSet.has(row["Mặt hàng"] || ''));
@@ -980,11 +1163,17 @@ function handleData(response) {
                     }
                     if (selectedStaff.length > 0) {
                         const staffSet = new Set(selectedStaff);
-                        filteredData = filteredData.filter(row => staffSet.has(row["NV Vận đơn"] || row["NV_Vận_đơn"] || ''));
+                        filteredData = filteredData.filter(row =>
+                            staffSet.has(VandonNvRegion.resolveNvVanDon(row))
+                        );
                     }
 
-                    this.updateCharts(filteredData);
+                    this.lastFilteredData = filteredData;
                     this.updateSummaryTable(filteredData);
+                    const chartsModal = document.getElementById('paChartsModal');
+                    if (chartsModal && chartsModal.classList.contains('is-open')) {
+                        this.updateCharts(filteredData);
+                    }
                 },
                 updateCharts: function (filteredData) {
                     Object.keys(this.chartInstances).forEach(key => {
@@ -1126,12 +1315,10 @@ function handleData(response) {
                     dataToProcess.forEach(row => {
                         const product = row["Mặt hàng"] || "Sản phẩm khác";
                         const area = row["Khu vực"] || row["khu vực"] || "Khu vực khác";
-                        const deliveryStatusNb = VandonNvRegion.resolveTrangThaiGiaoHangNb(row);
-                        const ketQuaCheckStatus = VandonNvRegion.resolveKetQuaCheck(row);
-                        const deliveryBucket = VandonNvRegion.classifyTrangThaiGiaoHangNb(ketQuaCheckStatus);
                         const paymentStatus = VandonNvRegion.resolveTrangThaiThanhToan(row);
-                        const ketQuaCheck = row["Kết quả Check"] || "";
-                        const dvvc = row["Đơn vị vận chuyển"] || "";
+                        const dvvc = String(
+                            getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển", "shipping_unit") || ""
+                        ).trim();
                         const numericAmount = parseFloat(String(row["Tổng tiền VNĐ"] || '0').replace(/[^\d.-]/g, '')) || 0;
 
                         if (!productAreaStats[product]) productAreaStats[product] = {
@@ -1144,27 +1331,15 @@ function handleData(response) {
                             stats.totalOrders++;
                             stats.totalAmount += numericAmount;
                             
-                            // Trạng thái giao (NB) — if/else loại trừ lẫn nhau
-                            if (deliveryBucket === 'Giao Thành Công') stats.successful++;
-                            else if (deliveryBucket === 'Đang Giao') stats.delivering++;
-                            else if (deliveryBucket === 'Chưa Giao') stats.other++;
-                            else if (deliveryBucket === 'Hoàn') stats.returned++;
-                            else if (deliveryBucket === 'chờ check') stats.waitingForCheck++;
-                            else stats.other++;
-            
-                            // *** THÊM MỚI: Tính toán cho các tỷ lệ ***
-                            // 1. Tổng đơn OK (Kết quả Check = "OK")
-                            if (ketQuaCheck === "OK") {
+                            // Trạng thái giao (NB) — cùng logic tab tổng kết / CEO
+                            VandonNvRegion.applyProductAreaDeliveryBuckets(stats, row);
+
+                            if (VandonNvRegion.ketQuaCheckIsOk(row)) {
                                 stats.tongDonOK++;
                             }
-            
-                            // 2. Tổng đơn có ĐVVC (Đơn vị vận chuyển không trống)
+
                             if (dvvc !== "") {
                                 stats.tongDonCoDVVC++;
-                            }
-            
-                            // 3. Tổng đơn lên vận hành (Trạng thái giao hàng KHÔNG thuộc ['chờ check', 'Hủy'])
-                            if (!['chờ check', 'Hủy'].includes(deliveryStatusNb)) {
                                 stats.tongDonLenVanHanh++;
                             }
             
@@ -1198,39 +1373,52 @@ function handleData(response) {
                 renderProductAreaRow: function (product, area, stats, rowClass) {
                     const tr = document.createElement('tr');
                     if (rowClass) tr.className = rowClass;
-                    tr.insertCell().textContent = product;
-                    tr.insertCell().textContent = area;
-                    tr.insertCell().textContent = stats.totalOrders.toLocaleString('vi-VN');
-                    tr.insertCell().textContent = new Intl.NumberFormat('vi-VN').format(stats.totalAmount) + ' ₫';
-                    tr.insertCell().textContent = stats.successful.toLocaleString('vi-VN');
-                    tr.insertCell().textContent = stats.returned.toLocaleString('vi-VN');
-                    tr.insertCell().textContent = stats.delivering.toLocaleString('vi-VN');
-                    tr.insertCell().textContent = stats.waitingForCheck.toLocaleString('vi-VN');
-                    tr.insertCell().textContent = stats.other.toLocaleString('vi-VN');
-                    
-                    // *** THÊM MỚI: 3 cột tỷ lệ ***
-                    // 1. Tỷ lệ đơn lên vận hành = (Tổng đơn có ĐVVC / Tổng đơn OK) × 100
+                    const c0 = tr.insertCell();
+                    c0.className = 'col-product';
+                    c0.textContent = product;
+                    const c1 = tr.insertCell();
+                    c1.className = 'col-area';
+                    c1.textContent = area;
+                    const c2 = tr.insertCell();
+                    c2.className = 'col-num';
+                    c2.textContent = stats.totalOrders.toLocaleString('vi-VN');
+                    const c3 = tr.insertCell();
+                    c3.className = 'col-num';
+                    c3.textContent = new Intl.NumberFormat('vi-VN').format(stats.totalAmount) + ' ₫';
+                    const c4 = tr.insertCell();
+                    c4.className = 'col-num';
+                    c4.textContent = stats.successful.toLocaleString('vi-VN');
+                    const c5 = tr.insertCell();
+                    c5.className = 'col-num';
+                    c5.textContent = stats.returned.toLocaleString('vi-VN');
+                    const c6 = tr.insertCell();
+                    c6.className = 'col-num';
+                    c6.textContent = stats.delivering.toLocaleString('vi-VN');
+                    const c7 = tr.insertCell();
+                    c7.className = 'col-num';
+                    c7.textContent = stats.waitingForCheck.toLocaleString('vi-VN');
+                    const c8 = tr.insertCell();
+                    c8.className = 'col-num';
+                    c8.textContent = stats.notShipped.toLocaleString('vi-VN');
+
                     const shipRate = stats.tongDonOK > 0 ? (stats.tongDonCoDVVC / stats.tongDonOK * 100) : 0;
                     const shipRateCell = tr.insertCell();
+                    shipRateCell.className = 'col-pct ' + (shipRate > 80 ? 'positive' : 'negative');
                     shipRateCell.textContent = shipRate.toFixed(1) + '%';
-                    shipRateCell.className = shipRate > 80 ? 'positive' : 'negative';
-                    
-                    // 2. Tỷ lệ thu tiền/giao thành công = (Đã Thanh Toán (có bill) / Giao Thành Công) × 100
+
                     const paymentRate = stats.successful > 0 ? (stats.daThuTien / stats.successful * 100) : 0;
                     const paymentRateCell = tr.insertCell();
+                    paymentRateCell.className = 'col-pct ' + (paymentRate > 70 ? 'positive' : 'negative');
                     paymentRateCell.textContent = paymentRate.toFixed(1) + '%';
-                    paymentRateCell.className = paymentRate > 70 ? 'positive' : 'negative';
-                    
-                    // 3. Tỷ lệ TT thành công/Đơn tính phí = (Đã Thanh Toán (có bill) / Tổng đơn lên vận hành) × 100
+
                     const ttThanhCongTrenDonTinhPhi = stats.tongDonLenVanHanh > 0 ? (stats.daThuTien / stats.tongDonLenVanHanh * 100) : 0;
                     const ttRateCell = tr.insertCell();
+                    ttRateCell.className = 'col-pct ' + (ttThanhCongTrenDonTinhPhi > 60 ? 'positive' : 'negative');
                     ttRateCell.textContent = ttThanhCongTrenDonTinhPhi.toFixed(1) + '%';
-                    ttRateCell.className = ttThanhCongTrenDonTinhPhi > 60 ? 'positive' : 'negative';
 
-                    // Tỷ lệ thành công (cột gốc)
                     const successRate = stats.totalOrders > 0 ? (stats.successful / stats.totalOrders * 100) : 0;
                     const rateCell = tr.insertCell();
-                    rateCell.className = 'rate-cell';
+                    rateCell.className = 'col-pct rate-cell';
 
                     const rateSpan = document.createElement('span');
                     rateSpan.textContent = successRate.toFixed(1) + '%';
@@ -1259,6 +1447,7 @@ function handleData(response) {
 
             // --- INITIALIZE APP ---
             productAreaApp.init();
+            VandonNvRegion.applyPreloadDateRangeToInputs('paStartDateFilter', 'paEndDateFilter', PRELOAD_ORDER_DAYS);
             loadData();
         });
     </script>

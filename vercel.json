@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/api/baocao-vandon-nv-data",
-      "destination": "/api/baocaoVandonNvData"
-    },
-    {
       "source": "/((?!api/|assets/|.*\\..*).*)",
       "destination": "/index.html"
     }

@@ -1,25 +1,25 @@
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
-import { viteBaocaoVandonNvApiPlugin } from './scripts/viteBaocaoVandonNvApiPlugin.js';
+import { viteBaocaoVandonNvSupabaseConfigPlugin } from './scripts/viteBaocaoVandonNvSupabaseConfig.js';
 
-// Express (server.js) mặc định cổng 3002 — không trùng Vite 3001.
-// Ghi đè: VITE_DEV_API_PROXY=http://127.0.0.1:9999 npm run dev
+// Vite mặc định cổng 3002; Express (server.js) mặc định 3003 — tránh trùng.
+// Ghi đè proxy API: VITE_DEV_API_PROXY=http://127.0.0.1:9999 npm run dev
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiTarget = env.VITE_DEV_API_PROXY || 'http://127.0.0.1:3002';
+  const apiTarget = env.VITE_DEV_API_PROXY || 'http://127.0.0.1:3003';
 
   return {
-  plugins: [react(), viteBaocaoVandonNvApiPlugin(env)],
+  plugins: [react(), viteBaocaoVandonNvSupabaseConfigPlugin(env)],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
   server: {
-    port: 3001,
+    port: Number(env.VITE_DEV_PORT) || 3002,
     host: '0.0.0.0', // Listen on all interfaces (IPv4 and IPv6)
     open: true,
     proxy: {
@@ -62,7 +62,7 @@ export default defineConfig(({ mode }) => {
           });
         },
       },
-      // /api/baocaoVandonNvData — xử lý bởi viteBaocaoVandonNvApiPlugin (không proxy 3002)
+      // Báo cáo vận đơn NV: đọc Supabase trực tiếp trên client (không /api/baocaoVandonNvData)
       // Proxy for local API server to bypass CORS
       '/api/local': {
         target: 'http://127.0.0.1:8000',

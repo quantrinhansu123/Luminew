@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Chi tiết Vận đơn</title>
+    <script src="./supabase-config.js"></script>
     <script src="./regionScope.js"></script>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,10 +26,10 @@
 
         body {
             font-family: var(--font-main);
-            padding: 20px;
+            padding: 10px 12px;
             background-color: var(--bg-light);
             color: var(--text-dark);
-            line-height: 1.6;
+            line-height: 1.45;
         }
 
         /* --- TABS --- */
@@ -61,7 +62,7 @@
 
         .tab-content {
             display: none;
-            padding: 20px;
+            padding: 10px 12px;
             border: 1px solid var(--border-color);
             border-top: none;
             animation: fadeIn 0.5s;
@@ -86,52 +87,55 @@
         }
 
         /* --- STYLES CHO BỘ LỌC VÀ ĐIỀU KHIỂN --- */
-        .controls {
+        #DonChiTiet .controls {
             display: flex;
-            justify-content: space-between;
-            margin-bottom: 15px;
-            align-items: center;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 6px;
             background: #fff;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            padding: 8px 10px;
+            border-radius: 6px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
             position: sticky;
             top: 0;
             z-index: 100;
-            flex-wrap: wrap;
-            gap: 15px;
         }
 
-        .controls .left-controls,
-        .controls .right-controls {
+        #DonChiTiet .controls .filter-row-compact {
             display: flex;
             align-items: center;
-            gap: 15px;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        #DonChiTiet .controls .left-controls,
+        #DonChiTiet .controls .right-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             flex-wrap: wrap;
         }
 
-        .controls .date-filter {
+        #DonChiTiet .controls .date-filter {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 4px;
+            font-size: 13px;
         }
 
-        .controls button:not(.tab-btn) {
-            padding: 10px 15px;
+        #DonChiTiet .controls button:not(.tab-btn) {
+            padding: 5px 10px;
             border: none;
-            border-radius: 5px;
-            font-size: 16px;
+            border-radius: 4px;
+            font-size: 13px;
             color: white;
             background-color: #27ae60;
-            transition: all 0.2s ease-in-out;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             cursor: pointer;
+            white-space: nowrap;
         }
 
-        .controls button:not(.tab-btn):hover {
+        #DonChiTiet .controls button:not(.tab-btn):hover {
             background-color: #229954;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
         }
         
         .clear-filter-btn {
@@ -142,29 +146,34 @@
             background-color: #e67e22 !important;
         }
 
-        .controls input[type="date"],
-        .controls input[type="text"],
-        .controls select {
-            padding: 10px 15px;
+        #DonChiTiet .controls input[type="date"],
+        #DonChiTiet .controls input[type="text"],
+        #DonChiTiet .controls select {
+            padding: 5px 8px;
             border: 1px solid #ccc;
-            border-radius: 5px;
-            font-size: 16px;
+            border-radius: 4px;
+            font-size: 13px;
             background-color: white;
         }
 
-        .multi-select-container {
+        #DonChiTiet #detailNameFilter {
+            min-width: 160px;
+            max-width: 220px;
+        }
+
+        #DonChiTiet .multi-select-container {
             position: relative;
             display: inline-block;
         }
 
-        .multi-select-container button {
+        #DonChiTiet .multi-select-container button {
             background-color: white;
             color: #333;
             border: 1px solid #ccc;
-            font-size: 16px;
-            padding: 10px 15px;
+            font-size: 12px;
+            padding: 5px 8px;
             text-align: left;
-            width: 250px;
+            width: 132px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -212,18 +221,20 @@
         /* --- STYLES CỤ THỂ CHO TAB CHI TIẾT --- */
         #DonChiTiet h2 {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 8px;
+            font-size: 1.1rem;
             color: #2c3e50;
         }
 
-        .table-wrapper {
+        #DonChiTiet .table-wrapper {
             position: relative;
             overflow: auto;
-            max-height: 75vh;
+            max-height: calc(100vh - 155px);
+            min-height: 320px;
             background: white;
             border-radius: 5px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            margin-top: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            margin-top: 6px;
         }
 
         #DonChiTiet table {
@@ -310,42 +321,50 @@
             font-size: 16px;
         }
 
-        /* --- Thanh tóm tắt --- */
+        /* --- Thanh tóm tắt (một dòng gọn) --- */
         #DonChiTiet .summary-bar {
             background-color: #e8f5e9;
-            padding: 15px;
-            border-radius: 8px;
+            padding: 6px 12px;
+            border-radius: 4px;
             display: flex;
-            justify-content: space-around;
+            flex-wrap: wrap;
+            justify-content: flex-start;
             align-items: center;
-            margin-top: 20px;
-            border-left: 5px solid var(--primary-color);
+            gap: 20px 28px;
+            margin: 4px 0 6px;
+            border-left: 3px solid var(--primary-color);
         }
 
         #DonChiTiet .summary-item {
-            text-align: center;
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            text-align: left;
         }
 
         #DonChiTiet .summary-item .label {
-            font-size: 16px;
+            font-size: 12px;
             color: var(--text-medium);
+            font-weight: 500;
         }
+
         #DonChiTiet .summary-item .value {
-            font-size: 24px;
+            font-size: 15px;
             font-weight: 700;
             color: var(--primary-dark);
         }
 
         #DonChiTiet .region-container {
-            margin-top: 25px;
+            margin-top: 8px;
         }
 
         #DonChiTiet .region-header {
-            font-size: 22px;
+            font-size: 0.95rem;
+            font-weight: 600;
             color: var(--primary-dark);
-            margin-bottom: 10px;
-            border-bottom: 2px solid var(--primary-light);
-            padding-bottom: 5px;
+            margin-bottom: 4px;
+            border-bottom: 1px solid var(--primary-light);
+            padding-bottom: 3px;
         }
 
         /* --- SCROLLBAR & LOADING --- */
@@ -415,7 +434,7 @@
     <!-- Nội dung của Tab 2 -->
     <div id="DonChiTiet" class="tab-content active">
         <div class="controls">
-            <div class="left-controls">
+            <div class="filter-row-compact left-controls">
                  <div class="multi-select-container">
                     <button id="detailTeamFilterBtn">Tất cả Team</button>
                     <div id="detailTeamDropdown" class="checkbox-dropdown"></div>
@@ -460,7 +479,7 @@
                     <div id="detailShippingUnitDropdown" class="checkbox-dropdown"></div>
                 </div>
             </div>
-            <div class="right-controls">
+            <div class="filter-row-compact right-controls">
                 <div class="date-filter">
                     <span>Từ:</span><input type="date" id="detailStartDateFilter" />
                     <span>Đến:</span><input type="date" id="detailEndDateFilter" />
@@ -493,9 +512,17 @@
             const hideLoader = () => loader.classList.remove('visible');
             let globalData = []; // Lưu trữ toàn bộ dữ liệu
             let loadDataDebounce = null;
-            const DETAIL_RANGE_DAYS = 45;
+            const DETAIL_RANGE_DAYS = (window.VandonNvRegion && VandonNvRegion.PRELOAD_ORDER_DAYS) || 10;
 
             function setDefaultDetailDateRange() {
+                if (window.VandonNvRegion && VandonNvRegion.applyPreloadDateRangeToInputs) {
+                    VandonNvRegion.applyPreloadDateRangeToInputs(
+                        'detailStartDateFilter',
+                        'detailEndDateFilter',
+                        DETAIL_RANGE_DAYS
+                    );
+                    return;
+                }
                 const end = new Date();
                 const start = new Date();
                 start.setDate(start.getDate() - (DETAIL_RANGE_DAYS - 1));
@@ -656,7 +683,7 @@
                     "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ"),
                     "Nhân sự Marketing": getRowValue(row, "Nhân sự Marketing", "Nhân_viên_Marketing"),
                     "Nhân sự Sale": getRowValue(row, "Nhân sự Sale", "Nhân_viên_Sale"),
-                    "NV Vận đơn": getRowValue(row, "NV Vận đơn", "NV_Vận_đơn"),
+                    "NV Vận đơn": VandonNvRegion.resolveNvVanDon(row),
                     "Đơn vị vận chuyển": getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển"),
                     "Trạng thái giao hàng NB": getRowValue(row, "Trạng thái giao hàng NB", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"),
                     "Kết quả Check": getRowValue(row, "Kết quả Check", "Kết_quả_Check"),
@@ -685,26 +712,28 @@ function handleData(response) {
             function loadData(opts) {
                 const options = opts || {};
                 showLoader();
-                const params = new URLSearchParams({ kind: 'f3' });
-                if (!options.full) {
-                    const start = document.getElementById('detailStartDateFilter')?.value || '';
-                    const end = document.getElementById('detailEndDateFilter')?.value || '';
-                    if (start) params.set('start_date', start);
-                    if (end) params.set('end_date', end);
+                let dateRange;
+                if (options.full) {
+                    dateRange = { full: true, startDate: '', endDate: '' };
+                } else {
+                    dateRange = VandonNvRegion.readDateFilterValues(
+                        'detailStartDateFilter',
+                        'detailEndDateFilter'
+                    );
+                    if (!dateRange.startDate || !dateRange.endDate) {
+                        dateRange = VandonNvRegion.getPreloadOrderDateRange(DETAIL_RANGE_DAYS);
+                    }
+                    dateRange = VandonNvRegion.resolveOrderHcmDateRange(dateRange);
                 }
-                const apiUrl = window.VandonNvRegion
-                    ? window.VandonNvRegion.buildApiUrl(Object.fromEntries(params.entries()))
-                    : '/api/baocaoVandonNvData?' + params.toString() + '&region=hcm';
 
-                fetch(apiUrl)
-                    .then(async (response) => {
-                        const data = await response.json();
-                        if (!response.ok || (data && data.error)) {
-                            throw new Error((data && data.error) || `HTTP ${response.status}`);
-                        }
-                        return data;
-                    })
-                    .then(data => {
+                const staffPromise = VandonNvRegion.fetchVanDonNvStaffDirectory();
+
+                Promise.all([
+                    VandonNvRegion.fetchOrderHcmRows(dateRange),
+                    staffPromise,
+                ])
+                    .then(([data, staffDirectory]) => {
+                        detailApp.vanDonStaffDirectory = staffDirectory;
                         handleData(normalizeApiRowsPayload(data));
                     })
                     .catch(error => {
@@ -720,6 +749,7 @@ function handleData(response) {
             // ===================================================================
             const detailApp = {
                 tableCache: new Map(),
+                vanDonStaffDirectory: [],
                 init: function () {
                     this.setupControls();
                 },
@@ -741,7 +771,10 @@ function handleData(response) {
                     const checkResults = [...new Set(globalData.map(r => r["Kết quả Check"]).filter(Boolean))].sort();
                     const deliveryStatuses = [...new Set(globalData.map(r => r["Trạng thái giao hàng NB"]).filter(Boolean))].sort();
                     const paymentStatuses = [...new Set(globalData.map(r => r["Trạng thái thu tiền"]).filter(Boolean))].sort();
-                    const allStaff = [...new Set(globalData.map(r => r["NV Vận đơn"] || r["NV_Vận_đơn"]).filter(Boolean))].sort();
+                    const allStaff = VandonNvRegion.mergeVanDonStaffFilterList(
+                        globalData,
+                        this.vanDonStaffDirectory
+                    );
                     const allProducts = [...new Set(globalData.map(r => r["Mặt hàng"]).filter(Boolean))].sort();
                     const allMarkets = [...new Set(globalData.map(r => r["Khu vực"] || r["khu vực"]).filter(Boolean))].sort();
                     const allTeams = [...new Set(globalData.map(r => r["Team"]).filter(Boolean))].sort();
@@ -917,8 +950,6 @@ function handleData(response) {
                     const selectedCheckResults = getSelected('detailCheckResultDropdown', 'detailCheckResultSelectAll');
                     const selectedDeliveryStatuses = getSelected('detailDeliveryStatusDropdown', 'detailDeliveryStatusSelectAll');
                     const selectedPaymentStatuses = getSelected('detailPaymentStatusDropdown', 'detailPaymentStatusSelectAll');
-                    const startDate = document.getElementById('detailStartDateFilter').value;
-                    const endDate = document.getElementById('detailEndDateFilter').value;
                     const nameQuery = document.getElementById('detailNameFilter').value.toLowerCase().trim();
                     const selectedStaff = getSelected('detailStaffDropdown', 'detailStaffSelectAll');
                     const selectedProducts = getSelected('detailProductDropdown', 'detailProductSelectAll');
@@ -930,7 +961,7 @@ function handleData(response) {
                     // Lọc nhân viên vận đơn
                     if (selectedStaff.length > 0) {
                         filteredData = filteredData.filter(row => {
-                            const staffValue = (row["NV Vận đơn"] || row["NV_Vận_đơn"] || '').trim();
+                            const staffValue = VandonNvRegion.resolveNvVanDon(row);
                             const isEmpty = !staffValue;
                             
                             return selectedStaff.some(filter => {
@@ -1049,27 +1080,6 @@ function handleData(response) {
                                         return false;
                                 }
                             });
-                        });
-                    }
-
-                    // SỬA LỖI: LOGIC LỌC NGÀY ĐÃ ĐƯỢC CẬP NHẬT
-                    if (startDate || endDate) {
-                        const startDateObj = startDate ? new Date(startDate) : null;
-                        const endDateObj = endDate ? new Date(endDate) : null;
-                        if (startDateObj) startDateObj.setHours(0, 0, 0, 0);
-                        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
-                        
-                        
-                        filteredData = filteredData.filter(row => {
-                            const ymd = normalizeDateToYMD(row["Ngày lên đơn"]);
-                            if (!ymd) {
-                                return false;
-                            }
-                            const orderDateStr = new Date(`${ymd}T00:00:00`);
-                            if (isNaN(orderDateStr.getTime())) return false;
-                            const isStartOk = startDateObj ? orderDateStr.getTime() >= startDateObj.getTime() : true;
-                            const isEndOk = endDateObj ? orderDateStr.getTime() <= endDateObj.getTime() : true;
-                            return isStartOk && isEndOk;
                         });
                     }
 
@@ -1192,7 +1202,13 @@ function handleData(response) {
                         const filterOptions = {
                             "Ngày lên đơn": { type: 'date' },
                             "Mặt hàng": { type: 'multiselect', items: [...new Set(globalData.map(r => r["Mặt hàng"]).filter(Boolean))].sort() },
-                            "NV Vận đơn": { type: 'multiselect', items: [...new Set(globalData.map(r => r["NV Vận đơn"] || r["NV_Vận_đơn"]).filter(Boolean))].sort() },
+                            "NV Vận đơn": {
+                                type: 'multiselect',
+                                items: VandonNvRegion.mergeVanDonStaffFilterList(
+                                    globalData,
+                                    detailApp.vanDonStaffDirectory
+                                ),
+                            },
                             "Nhân sự Marketing": { type: 'multiselect', items: [...new Set(globalData.map(r => r["Nhân viên Marketing"]).filter(Boolean))].sort() },
                             "Nhân sự Sale": { type: 'multiselect', items: [...new Set(globalData.map(r => r["Nhân viên Sale"]).filter(Boolean))].sort() },
                             "Đơn vị vận chuyển": { type: 'multiselect', items: [...new Set(globalData.map(r => r["Đơn vị vận chuyển"]).filter(Boolean))].sort() }

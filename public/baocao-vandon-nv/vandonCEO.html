@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Báo cáo Vận đơn - Tổng kết</title>
+    <script src="./supabase-config.js"></script>
     <script src="./regionScope.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -909,6 +910,22 @@
             let rawData = []; // Lưu toàn bộ dữ liệu từ API trước khi filter
             let employeeData = [];
             let nhanSuData = []; // Dữ liệu nhân sự từ Firebase để lọc Team
+            let loadOrdersDebounce = null;
+            const PRELOAD_ORDER_DAYS = (window.VandonNvRegion && VandonNvRegion.PRELOAD_ORDER_DAYS) || 10;
+
+            function getOrderDateRangeForApi() {
+                const fromInputs = VandonNvRegion.readDateFilterValues(
+                    'reportStartDateFilter',
+                    'reportEndDateFilter'
+                );
+                if (fromInputs.startDate && fromInputs.endDate) return fromInputs;
+                return VandonNvRegion.getPreloadOrderDateRange(PRELOAD_ORDER_DAYS);
+            }
+
+            function scheduleLoadOrdersFromApi() {
+                clearTimeout(loadOrdersDebounce);
+                loadOrdersDebounce = setTimeout(() => loadData(), 400);
+            }
 
             // Biến quản lý quyền truy cập
             let allowedNames = null; // Set<string> hoặc null (null = xem tất cả)
@@ -972,12 +989,53 @@
                 return String(name).trim().toLowerCase().replace(/\s+/g, ' ');
             }
 
+            function normalizeTextAscii(value) {
+                return String(value || '')
+                    .trim()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .toLowerCase()
+                    .replace(/[.\-_/]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            }
+
+            function getNhanSuName(row) {
+                return (row?.['Họ Và Tên'] ?? row?.['Họ và tên'] ?? row?.['Họ_và_tên'] ?? row?.['Tên'] ?? row?.Name ?? '').toString().trim();
+            }
+
+            function isNhanSuHcmVanDon(row) {
+                const branch = normalizeTextAscii(row?.['Chi nhánh'] || row?.Chi_nhanh || row?.Branch || row?.branch || row?.Team);
+                const dept = normalizeTextAscii(row?.['Bộ phận'] || row?.Bo_phan || row?.department || row?.dept);
+                const isHcm = branch === 'hcm' || branch === 'tp hcm' || branch === 'tphcm' || branch.includes('hcm') || branch.includes('ho chi minh');
+                const isVanDon = dept === 'van don' || dept.includes('van don') || dept === 'logistics' || dept.startsWith('logistics ');
+                return isHcm && isVanDon;
+            }
+
+            function getHcmVanDonNhanSuList() {
+                return (Array.isArray(nhanSuData) ? nhanSuData : [])
+                    .filter(isNhanSuHcmVanDon)
+                    .map(r => ({ name: getNhanSuName(r), type: 'Vận đơn', team: (r?.Team || '').toString().trim() }))
+                    .filter(s => s.name);
+            }
+
+            function getHcmVanDonNameSet() {
+                const set = new Set();
+                getHcmVanDonNhanSuList().forEach(s => {
+                    set.add(s.name);
+                    set.add(normalizeName(s.name));
+                });
+                return set;
+            }
+
             // ========== FUNCTIONS TỪ KPISALE FILTERS ==========
             let filterTimeout = null;
             function debounceFilter(callback, delay = 300) {
                 if (filterTimeout) clearTimeout(filterTimeout);
                 filterTimeout = setTimeout(callback, delay);
             }
+
+            const debouncedApplyFilters = () => debounceFilter(() => vanDonReportApp.applyAllFilters(), 150);
 
             function closeAllDropdowns() {
                 document.querySelectorAll('.dd.open').forEach(el => el.classList.remove('open'));
@@ -1486,16 +1544,7 @@ function handleData(response) {
             // Hàm fetch dữ liệu nhân sự từ Firebase
             async function fetchNhanSuData() {
                 try {
-                    const firebaseUrl = window.VandonNvRegion
-                        ? window.VandonNvRegion.buildApiUrl({ kind: 'hr' })
-                        : '/api/baocaoVandonNvData?kind=hr&region=hcm';
-                    const response = await fetch(firebaseUrl);
-                    const data = await response.json();
-                    if (!response.ok || (data && data.error)) {
-                        throw new Error((data && data.error) || `HTTP ${response.status}`);
-                    }
-                    
-                    // Chuyển đổi object thành array nếu cần
+                    const data = await VandonNvRegion.fetchHrRows();
                     if (data && typeof data === 'object' && !Array.isArray(data)) {
                         nhanSuData = Object.values(data).filter(item => item && item["Team"]);
                     } else if (Array.isArray(data)) {
@@ -1503,11 +1552,10 @@ function handleData(response) {
                     } else {
                         nhanSuData = [];
                     }
-                    
-                    console.log('✅ Nhân sự data loaded from API:', nhanSuData.length, 'records');
+                    console.log('✅ Nhân sự từ Supabase users:', nhanSuData.length, 'records');
                     return nhanSuData;
                 } catch (error) {
-                    console.error('❌ Lỗi tải dữ liệu nhân sự từ API:', error);
+                    console.error('❌ Lỗi tải nhân sự từ Supabase:', error);
                     nhanSuData = [];
                     return [];
                 }
@@ -1515,26 +1563,15 @@ function handleData(response) {
 
             function loadData() {
                 showLoader();
-                vanDonReportApp.showError('Đang tải dữ liệu, vui lòng chờ...');
+                vanDonReportApp.showError('Đang tải dữ liệu từ Supabase, vui lòng chờ...');
 
-                // Dùng API cũ cho dữ liệu vận đơn
-                const apiUrl = window.VandonNvRegion
-                    ? window.VandonNvRegion.buildApiUrl({ kind: 'f3' })
-                    : '/api/baocaoVandonNvData?kind=f3&region=hcm';
+                const dateRange = VandonNvRegion.resolveOrderHcmDateRange(getOrderDateRangeForApi());
 
-                // Gọi cả 2 API song song
                 Promise.all([
-                    fetch(apiUrl),
+                    VandonNvRegion.fetchOrderHcmRows(dateRange),
                     fetchNhanSuData()
                 ])
-                    .then(async ([vanDonResponse, nhanSuResult]) => {
-                        const vanDonData = await vanDonResponse.json();
-                        if (!vanDonResponse.ok || (vanDonData && vanDonData.error)) {
-                            throw new Error((vanDonData && vanDonData.error) || `HTTP ${vanDonResponse.status}`);
-                        }
-                        return { vanDonData, nhanSuResult };
-                    })
-                    .then(({ vanDonData, nhanSuResult }) => {
+                    .then(([vanDonData, nhanSuResult]) => {
                         console.log('===== API RESPONSE =====');
                         console.log('Van don data loaded, rows count:', vanDonData.rows?.length || 0);
                         console.log('Nhân sự data loaded, records count:', nhanSuData.length || 0);
@@ -1559,7 +1596,7 @@ function handleData(response) {
                     })
                     .catch(error => {
                         console.error('Đã xảy ra lỗi khi tải dữ liệu:', error.message);
-                        let userMessage = 'Tải dữ liệu thất bại. Vui lòng kiểm tra kết nối mạng và địa chỉ API.';
+                        let userMessage = 'Tải dữ liệu thất bại. Vui lòng kiểm tra kết nối Supabase và thử lại.';
                         if (error.message.includes('Failed to fetch')) {
                             userMessage += ' (Lỗi có thể do CORS hoặc mạng không ổn định).';
                         }
@@ -1620,7 +1657,12 @@ function handleData(response) {
                     
                     // Lấy danh sách nhân sự đã chọn từ bộ lọc (theo rule: Cột Tên NV sẽ đi theo bộ lọc theo NV)
                     const selectedStaff = new Set(Array.from(document.querySelectorAll('#reportStaffDropdown input:checked:not(#reportStaffSelectAll)')).map(cb => cb.value));
+                    const kpiStaffSelection = getSelectedDropdown('filterName');
+                    if (!kpiStaffSelection.all && kpiStaffSelection.values.length) {
+                        kpiStaffSelection.values.forEach(name => selectedStaff.add(`${name}|||Vận đơn`));
+                    }
                     console.log('📋 Nhân sự đã chọn trong bộ lọc:', selectedStaff.size, 'người');
+                    const hcmVanDonNameSet = getHcmVanDonNameSet();
 
                     // BƯỚC 1: Tính số liệu từ filteredData cho cả 3 loại nhân viên
                     // CHỈ tính cho nhân viên đã chọn trong filter (theo rule mới)
@@ -1630,34 +1672,22 @@ function handleData(response) {
                             ? VandonNvRegion.resolveTrangThaiThanhToan(row)
                             : (getRowValue(row, 'Trạng_thái_thanh_toán', 'Trạng thái thanh toán', 'payment_status_detail', 'Trạng_thái_thu_tiền', 'Trạng thái thu tiền') || "");
                         const deliveryNb = VandonNvRegion.resolveTrangThaiGiaoHangNb(row);
-                        const ketQuaCheckRaw = VandonNvRegion.resolveKetQuaCheck(row);
-                        const ketQuaCheck = ketQuaCheckRaw.trim().toUpperCase();
+                        const ketQuaCheckOk = VandonNvRegion.ketQuaCheckIsOk(row);
                         const maTracking = (getRowValue(row, 'Mã_Tracking', 'Mã Tracking') || "").trim();
                         const dvvc = (getRowValue(row, 'Đơn_vị_vận_chuyển', 'Đơn vị vận chuyển') || "").trim();
 
-                        // Thu thập 3 loại nhân viên từ đơn hàng
-                        const nhanVienMarketing = (getRowValue(row, 'Nhân_viên_Marketing', 'Nhân viên Marketing') || "").trim();
-                        const nhanVienSale = (getRowValue(row, 'Nhân_viên_Sale', 'Nhân viên Sale') || "").trim();
+                        // Chỉ tổng hợp nhân viên thuộc Chi nhánh HCM + Bộ phận Vận đơn.
                         const nhanVienVanDon = (getRowValue(row, 'NV_Vận_đơn', 'NV Vận đơn') || "").trim();
 
                         const staffList = [];
-                        if (nhanVienMarketing) staffList.push({ name: nhanVienMarketing, type: 'Marketing' });
-                        if (nhanVienSale) {
-                            // Kiểm tra xem nhân viên Sale này có phải là CSKH trong selectedStaff không
-                            const isCSKH = selectedStaff.size > 0 && selectedStaff.has(`${nhanVienSale}|||CSKH`);
-                            if (isCSKH) {
-                                // Nếu là CSKH, thêm với type CSKH
-                                staffList.push({ name: nhanVienSale, type: 'CSKH' });
-                            } else {
-                                // Nếu không phải CSKH (hoặc không có filter), thêm với type Sale
-                                staffList.push({ name: nhanVienSale, type: 'Sale' });
-                            }
+                        if (
+                            nhanVienVanDon &&
+                            (hcmVanDonNameSet.has(nhanVienVanDon) || hcmVanDonNameSet.has(normalizeName(nhanVienVanDon)))
+                        ) {
+                            staffList.push({ name: nhanVienVanDon, type: 'Vận đơn' });
                         }
-                        if (nhanVienVanDon) staffList.push({ name: nhanVienVanDon, type: 'Vận đơn' });
 
-                        if (staffList.length === 0) {
-                            staffList.push({ name: 'Chưa có NV', type: 'Chưa xác định' });
-                        }
+                        if (staffList.length === 0) return;
 
                         // Tính số liệu cho từng nhân viên tham gia
                         // Nếu có chọn nhân viên, chỉ tính cho nhân viên đã chọn
@@ -1690,7 +1720,7 @@ function handleData(response) {
                             const stats = staffStats[key];
 
                             stats["Tổng đơn lên nội bộ"].count++;
-                            if (ketQuaCheck === "OK") {
+                            if (ketQuaCheckOk) {
                                 stats["Tổng đơn đủ đkien đẩy vh"].count++;
                                 stats["Tổng đơn OK"].count++;
                                 if (dvvc === "") {
@@ -1715,15 +1745,15 @@ function handleData(response) {
                                 stats["Đã Thanh Toán (có bill)"].count++;
                                 stats["Đã Thanh Toán (có bill)"].amount += amount;
                             }
-                            if (ketQuaCheck === "OK" && payment === "" && deliveryNb === "") {
+                            if (ketQuaCheckOk && payment === "" && deliveryNb === "") {
                                 stats["Trống trạng thái"].count++;
                             }
-                            VandonNvRegion.incrementDeliveryStatusCount(stats, ketQuaCheckRaw);
+                            VandonNvRegion.incrementDeliveryStatusCount(stats, deliveryNb);
                         });
 
                         // Grand total chỉ tính 1 lần cho mỗi đơn
                         grandTotal["Tổng đơn lên nội bộ"].count++;
-                        if (ketQuaCheck === "OK") {
+                        if (ketQuaCheckOk) {
                             grandTotal["Tổng đơn đủ đkien đẩy vh"].count++;
                             grandTotal["Tổng đơn OK"].count++;
                             if (dvvc === "") {
@@ -1748,10 +1778,10 @@ function handleData(response) {
                             grandTotal["Đã Thanh Toán (có bill)"].count++;
                             grandTotal["Đã Thanh Toán (có bill)"].amount += amount;
                         }
-                        if (ketQuaCheck === "OK" && payment === "" && deliveryNb === "") {
+                        if (ketQuaCheckOk && payment === "" && deliveryNb === "") {
                             grandTotal["Trống trạng thái"].count++;
                         }
-                        VandonNvRegion.incrementDeliveryStatusCount(grandTotal, ketQuaCheckRaw);
+                        VandonNvRegion.incrementDeliveryStatusCount(grandTotal, deliveryNb);
                     });
 
                     // BƯỚC 2: Thêm nhân viên chưa có dữ liệu vào bảng
@@ -1759,6 +1789,9 @@ function handleData(response) {
                     const selectedStaffFromDropdown = new Set(
                         Array.from(document.querySelectorAll('#reportStaffDropdown input:checked:not(#reportStaffSelectAll)')).map(cb => cb.value)
                     );
+                    if (!kpiStaffSelection.all && kpiStaffSelection.values.length) {
+                        kpiStaffSelection.values.forEach(name => selectedStaffFromDropdown.add(`${name}|||Vận đơn`));
+                    }
                     
                     if (selectedStaffFromDropdown.size > 0) {
                         // Có chọn nhân viên → chỉ thêm nhân viên đã chọn (ngay cả khi chưa có dữ liệu)
@@ -1786,26 +1819,9 @@ function handleData(response) {
                         // Thêm tất cả nhân viên có trong filteredData nhưng chưa có trong staffStats
                         console.log('=== STEP 2: No staff selected, adding all staff from data ===');
                         const allStaffFromRaw = new Set();
-                        filteredData.forEach(row => {
-                            const marketing = (getRowValue(row, 'Nhân_viên_Marketing', 'Nhân viên Marketing') || "").trim();
-                            const sale = (getRowValue(row, 'Nhân_viên_Sale', 'Nhân viên Sale') || "").trim();
-                            const vandon = (getRowValue(row, 'NV_Vận_đơn', 'NV Vận đơn') || "").trim();
-
-                            // ÁP DỤNG PHÂN QUYỀN khi thu thập danh sách
-                            if (marketing) {
-                                if (!allowedNames || allowedNames.size === 0 || allowedNames.has(marketing) || allowedNames.has(normalizeName(marketing))) {
-                                    allStaffFromRaw.add(`${marketing}|||Marketing`);
-                                }
-                            }
-                            if (sale) {
-                                if (!allowedNames || allowedNames.size === 0 || allowedNames.has(sale) || allowedNames.has(normalizeName(sale))) {
-                                    allStaffFromRaw.add(`${sale}|||Sale`);
-                                }
-                            }
-                            if (vandon) {
-                                if (!allowedNames || allowedNames.size === 0 || allowedNames.has(vandon) || allowedNames.has(normalizeName(vandon))) {
-                                    allStaffFromRaw.add(`${vandon}|||Vận đơn`);
-                                }
+                        getHcmVanDonNhanSuList().forEach(staff => {
+                            if (!allowedNames || allowedNames.size === 0 || allowedNames.has(staff.name) || allowedNames.has(normalizeName(staff.name))) {
+                                allStaffFromRaw.add(`${staff.name}|||Vận đơn`);
                             }
                         });
 
@@ -2088,13 +2104,16 @@ function handleData(response) {
                                 const quickSelect = document.getElementById('quick-date-vandon');
                                 if (quickSelect) quickSelect.value = '';
                                 updateRangeBadge();
-                                this.applyAllFilters();
+                                scheduleLoadOrdersFromApi();
                             });
                         }
                     });
                     document.getElementById('reportClearFilters')?.addEventListener('click', () => {
-                        document.getElementById('reportStartDateFilter').value = '';
-                        document.getElementById('reportEndDateFilter').value = '';
+                        VandonNvRegion.applyPreloadDateRangeToInputs(
+                            'reportStartDateFilter',
+                            'reportEndDateFilter',
+                            PRELOAD_ORDER_DAYS
+                        );
                         document.getElementById('quick-date-vandon').value = '';
                         // Clear quick date radio buttons
                         document.querySelectorAll('input[name="quickDate"]').forEach(radio => radio.checked = false);
@@ -2107,7 +2126,7 @@ function handleData(response) {
                         this.updateTeamFilterButtonText();
                         this.updateStaffFilterButtonText();
                         this.updateStaffTypeFilterButtonText();
-                        this.applyAllFilters();
+                        scheduleLoadOrdersFromApi();
                     });
                     // Dropdown open/close for KPisale style dropdowns
                     ['reportTeam', 'reportStaff', 'reportProduct', 'reportMarket', 'reportStaffType'].forEach(fid => {
@@ -2168,64 +2187,12 @@ function handleData(response) {
                     const allProducts = [...new Set(globalData.map(r => getRowValue(r, 'Mặt_hàng', 'Mặt hàng')).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
                     const allMarkets = [...new Set(globalData.map(r => getRowValue(r, 'Khu_vực', 'Khu vực', 'khu vực')).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
                     
-                    // Lấy Team từ dữ liệu nhân sự Firebase, lọc theo "Bộ phận" dựa trên "Loại NV" đã chọn
-                    // Lấy tất cả loại nhân viên đã chọn từ dropdown (không cố định Sale nữa)
-                    const staffTypeFilters = new Set(Array.from(document.querySelectorAll('#reportStaffTypeDropdown input:checked:not(#reportStaffTypeSelectAll)')).map(cb => cb.value));
-                    
-                    // Map loại NV sang Bộ phận
-                    const boPhanMap = {
-                        'Marketing': 'MKT',
-                        'Sale': 'Sale',
-                        'Vận đơn': 'Vận đơn',
-                        'CSKH': 'CSKH'
-                    };
-                    
-                    // Lọc Team từ nhanSuData dựa trên Bộ phận
-                    let filteredTeams = [];
-                    if (staffTypeFilters.size === 0) {
-                        // Nếu không chọn gì, lấy tất cả Team từ nhanSuData
-                        filteredTeams = [...new Set(nhanSuData.map(r => (r["Team"] || '').trim()).filter(Boolean))];
-                    } else {
-                        // Lọc theo Bộ phận tương ứng với Loại NV đã chọn
-                        const boPhanFilters = new Set();
-                        staffTypeFilters.forEach(type => {
-                            if (boPhanMap[type]) {
-                                boPhanFilters.add(boPhanMap[type]);
-                            }
-                        });
-                        
-                        // Lấy Team từ nhanSuData (bao gồm cả Vận đơn)
-                        filteredTeams = [...new Set(
-                            nhanSuData
-                                .filter(r => {
-                                    const boPhan = (r["Bộ phận"] || '').trim();
-                                    return boPhanFilters.has(boPhan);
-                                })
-                                .map(r => (r["Team"] || '').trim())
-                                .filter(Boolean)
-                        )];
-                        
-                        console.log(`📊 Chọn loại NV: ${Array.from(staffTypeFilters).join(', ')} → Lọc Team theo Bộ phận: ${Array.from(boPhanFilters).join(', ')}`);
-                        console.log(`✅ Tìm thấy ${filteredTeams.length} Team`);
-                    }
-                    
+                    const hcmVanDonStaff = getHcmVanDonNhanSuList();
+                    const filteredTeams = [...new Set(hcmVanDonStaff.map(s => s.team).filter(Boolean))];
                     const allTeams = filteredTeams.sort((a, b) => a.localeCompare(b, 'vi'));
 
-                    // Thu thập tất cả 3 loại nhân viên từ rawData (TẤT CẢ TEAM)
-                    const staffWithTypes = [];
-                    rawData.forEach(r => {
-                        const marketing = (getRowValue(r, 'Nhân_viên_Marketing', 'Nhân viên Marketing') || '').trim();
-                        const sale = (getRowValue(r, 'Nhân_viên_Sale', 'Nhân viên Sale') || '').trim();
-                        const vandon = (getRowValue(r, 'NV_Vận_đơn', 'NV Vận đơn') || '').trim();
-
-                        if (marketing) staffWithTypes.push({ name: marketing, type: 'Marketing' });
-                        if (sale) staffWithTypes.push({ name: sale, type: 'Sale' });
-                        if (vandon) staffWithTypes.push({ name: vandon, type: 'Vận đơn' });
-                    });
-
-                    // Loại bỏ trùng lặp
                     const uniqueStaffMap = new Map();
-                    staffWithTypes.forEach(s => {
+                    hcmVanDonStaff.forEach(s => {
                         const key = `${s.name}|||${s.type}`;
                         if (!uniqueStaffMap.has(key)) {
                             uniqueStaffMap.set(key, s);
@@ -2289,54 +2256,12 @@ function handleData(response) {
                 },
                 
                 populateStaffDropdown: function () {
-                    // Lấy các loại nhân viên đã chọn từ dropdown (không cố định Sale nữa)
-                    const staffTypeFilters = new Set(Array.from(document.querySelectorAll('#reportStaffTypeDropdown input:checked:not(#reportStaffTypeSelectAll)')).map(cb => cb.value));
-                    
                     // Lấy danh sách Team đã chọn từ filter
                     const selectedTeams = new Set(Array.from(document.querySelectorAll('#reportTeamDropdown input:checked:not(#reportTeamSelectAll)')).map(cb => cb.value));
-                    
-                    // Map loại NV sang Bộ phận
-                    const boPhanMap = {
-                        'Marketing': 'MKT',
-                        'Sale': 'Sale',
-                        'Vận đơn': 'Vận đơn',
-                        'CSKH': 'CSKH'
-                    };
-                    
-                    // Lấy nhân sự từ nhanSuData theo Team đã chọn
-                    let staffFromNhanSu = [];
-                    if (selectedTeams.size === 0) {
-                        // Nếu không chọn Team, lấy tất cả nhân sự
-                        staffFromNhanSu = nhanSuData;
-                    } else {
-                        // Chỉ lấy nhân sự từ Team đã chọn
-                        staffFromNhanSu = nhanSuData.filter(r => {
-                            const team = (r["Team"] || '').trim();
-                            return selectedTeams.has(team);
-                        });
+                    let staffWithTypes = getHcmVanDonNhanSuList();
+                    if (selectedTeams.size > 0) {
+                        staffWithTypes = staffWithTypes.filter(staff => selectedTeams.has(staff.team));
                     }
-                    
-                    // Chuyển đổi sang format {name, type} dựa trên Bộ phận
-                    const staffWithTypes = [];
-                    staffFromNhanSu.forEach(r => {
-                        const ten = (r["Họ Và Tên"] || r["Tên"] || '').trim();
-                        const boPhan = (r["Bộ phận"] || '').trim();
-                        
-                        if (!ten) return;
-                        
-                        // Map Bộ phận sang loại NV
-                        let type = '';
-                        if (boPhan === 'MKT') type = 'Marketing';
-                        else if (boPhan === 'Sale') type = 'Sale';
-                        else if (boPhan === 'Vận đơn') type = 'Vận đơn';
-                        else if (boPhan === 'CSKH') type = 'CSKH';
-                        
-                        if (type) {
-                            staffWithTypes.push({ name: ten, type: type });
-                        }
-                    });
-                    
-                    // Nhân viên Vận đơn đã được lấy từ nhanSuData ở trên, không cần lấy từ rawData nữa
                     
                     // Loại bỏ trùng lặp
                     const uniqueStaffMap = new Map();
@@ -2349,11 +2274,6 @@ function handleData(response) {
                     
                     let filteredStaff = Array.from(uniqueStaffMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
                     
-                    // Lọc theo loại nhân viên đã chọn
-                    if (staffTypeFilters.size > 0 && staffTypeFilters.size < 4) {
-                        filteredStaff = filteredStaff.filter(staff => staffTypeFilters.has(staff.type));
-                    }
-
                     const staffDropdown = document.getElementById('reportStaffDropdown');
                     if (staffDropdown) {
                         // Lưu trạng thái checkbox đã chọn trước đó (TRƯỚC KHI clear innerHTML)
@@ -2478,41 +2398,15 @@ function handleData(response) {
                     console.log('🔍 applyAllFilters: Starting with', data.length, 'records from globalData');
                     console.log('🔐 allowedNames status:', allowedNames ? `Set with ${allowedNames.size} names` : 'null (no restriction)');
                     
-                    const startValue = document.getElementById('reportStartDateFilter')?.value;
-                    const endValue = document.getElementById('reportEndDateFilter')?.value;
-
-                    let start, end;
-
-                    if (startValue) {
-                        start = new Date(startValue);
-                        start.setHours(0, 0, 0, 0);
-                    }
-
-                    if (endValue) {
-                        end = new Date(endValue);
-                        end.setHours(23, 59, 59, 999);
-                    }
-
-                    if (start) {
-                        data = data.filter(r => {
-                            const ngayLenDon = getRowValue(r, 'Ngày_lên_đơn', 'Ngày lên đơn', 'Thời gian lên đơn');
-                            const ts = parseOrderDateToMs(ngayLenDon);
-                            return Number.isFinite(ts) && ts >= start.getTime();
-                        });
-                    }
-                    if (end) {
-                        data = data.filter(r => {
-                            const ngayLenDon = getRowValue(r, 'Ngày_lên_đơn', 'Ngày lên đơn', 'Thời gian lên đơn');
-                            const ts = parseOrderDateToMs(ngayLenDon);
-                            return Number.isFinite(ts) && ts <= end.getTime();
-                        });
-                    }
-
                     const getSelected = (selector) => new Set(Array.from(document.querySelectorAll(selector)).map(cb => cb.value));
                     const products = getSelected('#reportProductDropdown input:checked:not(#reportProductSelectAll)');
                     const markets = getSelected('#reportMarketDropdown input:checked:not(#reportMarketSelectAll)');
                     // const teams = getSelected('#reportTeamDropdown input:checked:not(#reportTeamSelectAll)'); // Bỏ lọc theo cột Team trong data, chỉ dùng để lọc list nhân viên
                     const staffFilters = getSelected('#reportStaffDropdown input:checked:not(#reportStaffSelectAll)');
+                    const kpiStaffSelection = getSelectedDropdown('filterName');
+                    if (!kpiStaffSelection.all && kpiStaffSelection.values.length) {
+                        kpiStaffSelection.values.forEach(name => staffFilters.add(`${name}|||Vận đơn`));
+                    }
 
                     if (products.size) data = data.filter(r => products.has(getRowValue(r, 'Mặt_hàng', 'Mặt hàng')));
                     if (markets.size) data = data.filter(r => markets.has(getRowValue(r, 'Khu_vực', 'Khu vực', 'khu vực')));
@@ -2521,33 +2415,20 @@ function handleData(response) {
 
                     // Filter theo nhân viên và loại
                     if (staffFilters.size > 0) {
-                        // Lấy danh sách tên nhân viên CSKH từ staffFilters
-                        const cskhStaffNames = new Set();
-                        staffFilters.forEach(filterValue => {
-                            const [name, type] = filterValue.split('|||');
-                            if (type === 'CSKH') {
-                                cskhStaffNames.add(name);
-                            }
-                        });
-
                         data = data.filter(r => {
-                            const marketing = (r["Nhân viên Marketing"] || '').trim();
-                            const sale = (r["Nhân viên Sale"] || '').trim();
                             const vandon = (r["NV Vận đơn"] || '').trim();
-
-                            const hasMarketing = marketing && staffFilters.has(`${marketing}|||Marketing`);
-                            const hasSale = sale && staffFilters.has(`${sale}|||Sale`);
-                            const hasVandon = vandon && staffFilters.has(`${vandon}|||Vận đơn`);
-                            // CSKH khớp với cột "Nhân viên Sale"
-                            const hasCSKH = sale && cskhStaffNames.has(sale);
-
-                            return hasMarketing || hasSale || hasVandon || hasCSKH;
+                            return vandon && staffFilters.has(`${vandon}|||Vận đơn`);
                         });
                     }
                     this.updateDetailedSummaryTable(data);
                 }
             };
             vanDonReportApp.init();
+            VandonNvRegion.applyPreloadDateRangeToInputs(
+                'reportStartDateFilter',
+                'reportEndDateFilter',
+                PRELOAD_ORDER_DAYS
+            );
             loadData();
         });
     </script>

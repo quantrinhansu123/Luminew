@@ -21,7 +21,10 @@ import { matchesVanDonHeaderSearch, normalizeVanDonFilterWhitespace } from '../u
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { fetchHcmAndOrdersRowsForCrossDuplicate } from '../services/hcmOrdersCrossDuplicateFetch';
-import { findHcmOrdersCrossTableDuplicateGroups } from '../utils/hcmOrdersCrossTableDuplicate';
+import {
+  findHcmOrdersCrossTableDuplicateGroups,
+  formatCrossDupCodeList,
+} from '../utils/hcmOrdersCrossTableDuplicate';
 
 
 import {
@@ -6827,7 +6830,7 @@ function VanDon({ dataSource = 'default' }) {
                   </h2>
                   <p className="text-xs text-gray-600 mt-0.5">
                     Khớp: <strong>Name*</strong>, <strong>Phone*</strong>, <strong>Add</strong>,{' '}
-                    <strong>Mặt hàng</strong>. Phạm vi:{' '}
+                    <strong>Mặt hàng</strong>. Sắp xếp theo <strong>Ngày lên đơn</strong> mới nhất trước. Phạm vi:{' '}
                     {hcmCrossDupRangeLabel || '—'}. Đã quét{' '}
                     <code className="bg-gray-200 px-1 rounded">order_code_hcm</code>:{' '}
                     <strong>{hcmCrossDupStats.hcm}</strong> — <code className="bg-gray-200 px-1 rounded">orders</code>{' '}
@@ -6897,6 +6900,7 @@ function VanDon({ dataSource = 'default' }) {
                         <th className="p-2 border border-gray-200">Phone*</th>
                         <th className="p-2 border border-gray-200">Add</th>
                         <th className="p-2 border border-gray-200">Mặt hàng</th>
+                        <th className="p-2 border border-gray-200 whitespace-nowrap">Ngày lên đơn</th>
                         <th className="p-2 border border-gray-200">Mã order_code_hcm</th>
                         <th className="p-2 border border-gray-200">Mã orders</th>
                       </tr>
@@ -6917,11 +6921,14 @@ function VanDon({ dataSource = 'default' }) {
                           <td className="p-2 border border-gray-200 max-w-[160px] break-words select-text">
                             {g.product || '—'}
                           </td>
+                          <td className="p-2 border border-gray-200 whitespace-nowrap font-semibold text-gray-900 select-text">
+                            {g.latestOrderDateLabel || '—'}
+                          </td>
                           <td className="p-2 border border-gray-200 font-mono text-xs text-rose-800 whitespace-pre-wrap break-all select-text">
-                            {g.hcmCodes.join(', ')}
+                            {formatCrossDupCodeList(g.hcmEntries)}
                           </td>
                           <td className="p-2 border border-gray-200 font-mono text-xs text-blue-800 whitespace-pre-wrap break-all select-text">
-                            {g.ordersCodes.join(', ')}
+                            {formatCrossDupCodeList(g.ordersEntries)}
                           </td>
                         </tr>
                       ))}

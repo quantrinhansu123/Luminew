@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="./supabase-config.js"></script>
     <script src="./regionScope.js"></script>
     <style>
         :root {
@@ -793,6 +794,22 @@
             const showLoader = () => loader.classList.add('visible');
             const hideLoader = () => loader.classList.remove('visible');
             let globalData = [];
+            let loadOrdersDebounce = null;
+            const PRELOAD_ORDER_DAYS = (window.VandonNvRegion && VandonNvRegion.PRELOAD_ORDER_DAYS) || 10;
+
+            function getOrderDateRangeForApi() {
+                const fromInputs = VandonNvRegion.readDateFilterValues(
+                    'reportStartDateFilter',
+                    'reportEndDateFilter'
+                );
+                if (fromInputs.startDate && fromInputs.endDate) return fromInputs;
+                return VandonNvRegion.getPreloadOrderDateRange(PRELOAD_ORDER_DAYS);
+            }
+
+            function scheduleLoadOrdersFromApi() {
+                clearTimeout(loadOrdersDebounce);
+                loadOrdersDebounce = setTimeout(() => loadData(), 400);
+            }
 
             function formatDateForInputLocal(date) {
                 if (!date) return '';
@@ -910,7 +927,7 @@
                     "Mặt hàng": getRowValue(row, "Mặt hàng", "Mặt_hàng"),
                     "Khu vực": getRowValue(row, "Khu vực", "Khu_vực"),
                     "khu vực": getRowValue(row, "khu vực", "Khu_vực", "Khu vực"),
-                    "NV Vận đơn": getRowValue(row, "NV Vận đơn", "NV_Vận_đơn"),
+                    "NV Vận đơn": VandonNvRegion.resolveNvVanDon(row),
                     "Team": getRowValue(row, "Team", "Chi nhánh", "Chi_nhánh"),
                     "Mã Tracking": getRowValue(row, "Mã Tracking", "Mã_Tracking"),
                     "Đơn vị vận chuyển": getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển"),
@@ -918,7 +935,7 @@
                     "Trạng thái thu tiền": getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"),
                     "Trạng thái thanh toán": getRowValue(row, "Trạng thái thanh toán", "Trạng_thái_thanh_toán", "payment_status_detail"),
                     "Trạng thái giao hàng NB": getRowValue(row, "Trạng thái giao hàng NB", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"),
-                    "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ"),
+                    "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ", "total_amount_vnd"),
                 };
             }
 
@@ -928,10 +945,15 @@ function handleData(response) {
                     vanDonReportApp.showError('Lỗi hoặc không có dữ liệu: ' + (response.error || 'Định dạng dữ liệu không đúng'));
                     return;
                 }
-                // Khớp logic vận hành: chỉ tính trên đơn có mã đơn hàng.
                 globalData = response.rows
                     .map(normalizeSourceRow)
                     .filter(r => getRowValue(r, "Mã đơn hàng", "Mã_đơn_hàng"));
+                if (globalData.length === 0) {
+                    vanDonReportApp.showError(
+                        'Không có đơn trong khoảng ngày đã chọn (hoặc thiếu mã đơn). Hãy mở rộng Từ/Đến ngày rồi thử lại.'
+                    );
+                    return;
+                }
                 /* API chỉ trả về order_code_hcm — không lọc thêm theo Team. */
                 vanDonReportApp.populateReportFilters();
                 vanDonReportApp.applyAllFilters();
@@ -939,19 +961,17 @@ function handleData(response) {
 
             function loadData() {
                 showLoader();
-                vanDonReportApp.showError('Đang tải dữ liệu, vui lòng chờ...');
-                const apiUrl = window.VandonNvRegion
-                    ? window.VandonNvRegion.buildApiUrl({ kind: 'f3' })
-                    : '/api/baocaoVandonNvData?kind=f3&region=hcm';
-                fetch(apiUrl)
-                    .then(async (response) => {
-                        const data = await response.json();
-                        if (!response.ok || (data && data.error)) {
-                            throw new Error((data && data.error) || `HTTP ${response.status}`);
-                        }
-                        return data;
+                vanDonReportApp.showError('Đang tải dữ liệu từ Supabase, vui lòng chờ...');
+                const dateRange = VandonNvRegion.resolveOrderHcmDateRange(getOrderDateRangeForApi());
+                const staffPromise = VandonNvRegion.fetchVanDonNvStaffDirectory();
+                Promise.all([
+                    VandonNvRegion.fetchOrderHcmRows(dateRange),
+                    staffPromise,
+                ])
+                    .then(([data, staffDirectory]) => {
+                        vanDonReportApp.vanDonStaffDirectory = staffDirectory;
+                        handleData(normalizeApiRowsPayload(data));
                     })
-                    .then(data => handleData(normalizeApiRowsPayload(data)))
                     .catch(error => {
                         console.error('Đã xảy ra lỗi khi tải dữ liệu:', error.message);
                         let userMessage = 'Tải dữ liệu thất bại. Vui lòng kiểm tra kết nối mạng và địa chỉ API.';
@@ -1028,6 +1048,7 @@ function handleData(response) {
                 lastSummaryRows: [],
                 lastGrandTotal: null,
                 lastFilteredData: [],
+                vanDonStaffDirectory: [],
                 init: function () {
                     this.setupControls();
                     setupQuickDateSelect('quick-date-vandon', 'reportStartDateFilter', 'reportEndDateFilter', 'reportEndDateFilter');
@@ -1136,7 +1157,7 @@ function handleData(response) {
                     }
                     const staffData = {};
                     filteredData.forEach(r => {
-                        const staff = r["NV Vận đơn"] || "Chưa có NV";
+                        const staff = VandonNvRegion.resolveNvVanDon(r) || "Chưa có NV";
                         if (!staffData[staff]) staffData[staff] = { success: 0, returned: 0, paid: 0 };
                         const deliveryBucket = VandonNvRegion.classifyTrangThaiGiaoHangNb(
                             VandonNvRegion.resolveTrangThaiGiaoHangNb(r)
@@ -1207,19 +1228,18 @@ function handleData(response) {
                     const staffStats = {};
                     const grandTotal = this.createEmptyStats();
                     filteredData.forEach(row => {
-                        const staffName = row["NV Vận đơn"] || "Chưa có NV";
+                        const staffName = VandonNvRegion.resolveNvVanDon(row) || "Chưa có NV";
                         if (!staffStats[staffName]) staffStats[staffName] = this.createEmptyStats();
                         const statsToUpdate = [staffStats[staffName], grandTotal];
                         const amount = parseFloat(String(getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ") || '0').replace(/[^\d.-]/g, '')) || 0;
                         const payment = String(VandonNvRegion.resolveTrangThaiThanhToan(row));
                         const deliveryNb = String(VandonNvRegion.resolveTrangThaiGiaoHangNb(row));
-                        const ketQuaCheckStatus = String(VandonNvRegion.resolveKetQuaCheck(row));
-                        const ketQuaCheck = ketQuaCheckStatus.trim().toUpperCase();
+                        const ketQuaCheckOk = VandonNvRegion.ketQuaCheckIsOk(row);
                         const maTracking = String(getRowValue(row, "Mã Tracking", "Mã_Tracking")).trim();
                         const dvvc = String(getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển")).trim();
                         statsToUpdate.forEach(stats => {
                             stats["Tổng đơn lên nội bộ"].count++;
-                            if (ketQuaCheck === "OK") {
+                            if (ketQuaCheckOk) {
                                 stats["Tổng đơn đủ đkien đẩy vh"].count++;
                                 stats["Tổng đơn OK"].count++;
                                 if (dvvc === "") {
@@ -1245,10 +1265,10 @@ function handleData(response) {
                                 stats["Đã Thanh Toán (có bill)"].count++;
                                 stats["Đã Thanh Toán (có bill)"].amount += amount;
                             }
-                            if(ketQuaCheck === "OK" && payment === "" && deliveryNb === "") {
+                            if (ketQuaCheckOk && payment === "" && deliveryNb === "") {
                                 stats["Trống trạng thái"].count++;
                             }
-                            VandonNvRegion.incrementDeliveryStatusCount(stats, ketQuaCheckStatus);
+                            VandonNvRegion.incrementDeliveryStatusCount(stats, deliveryNb);
                         });
                     });
                     this.lastSummaryRows = Object.keys(staffStats).map(staff => {
@@ -1378,10 +1398,15 @@ function handleData(response) {
                 // ===== END: JAVASCRIPT MODIFICATION (setupSummarySorting) =====
                 
                 setupControls: function () {
-                    ['reportStartDateFilter', 'reportEndDateFilter'].forEach(id => document.getElementById(id)?.addEventListener('change', this.applyAllFilters.bind(this)));
+                    ['reportStartDateFilter', 'reportEndDateFilter'].forEach(id =>
+                        document.getElementById(id)?.addEventListener('change', scheduleLoadOrdersFromApi)
+                    );
                     document.getElementById('reportClearFilters')?.addEventListener('click', () => {
-                        document.getElementById('reportStartDateFilter').value = '';
-                        document.getElementById('reportEndDateFilter').value = '';
+                        VandonNvRegion.applyPreloadDateRangeToInputs(
+                            'reportStartDateFilter',
+                            'reportEndDateFilter',
+                            PRELOAD_ORDER_DAYS
+                        );
                         document.getElementById('quick-date-vandon').value = '';
                         ['reportProductDropdown', 'reportMarketDropdown', 'reportStaffDropdown', 'reportTeamDropdown', 'reportTrackingDropdown'].forEach(id => document.getElementById(id)?.querySelectorAll('input').forEach(cb => cb.checked = false));
                         this.updateProductFilterButtonText();
@@ -1389,7 +1414,7 @@ function handleData(response) {
                         this.updateStaffFilterButtonText();
                         this.updateTeamFilterButtonText();
                         this.updateTrackingFilterButtonText();
-                        this.applyAllFilters();
+                        scheduleLoadOrdersFromApi();
                     });
                     ['reportStaffFilterBtn', 'reportTeamFilterBtn', 'reportProductFilterBtn', 'reportMarketFilterBtn', 'reportTrackingFilterBtn'].forEach(id => {
                         const btn = document.getElementById(id), dropdown = document.getElementById(id.replace('FilterBtn', 'Dropdown'));
@@ -1407,7 +1432,10 @@ function handleData(response) {
                 populateReportFilters: function () {
                     const allProducts = [...new Set(globalData.map(r => r["Mặt hàng"]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
                     const allMarkets = [...new Set(globalData.map(r => r["Khu vực"] || r["khu vực"]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
-                    const allStaff = [...new Set(globalData.map(r => (r["NV Vận đơn"] || '').toString().trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+                    const allStaff = VandonNvRegion.mergeVanDonStaffFilterList(
+                        globalData,
+                        this.vanDonStaffDirectory
+                    );
                     const allTeams = [...new Set(globalData.map(r => r["Team"]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
                     const populate = (dropdownId, selectAllId, items, callback) => {
                         const dropdown = document.getElementById(dropdownId);
@@ -1469,28 +1497,6 @@ function handleData(response) {
                 updateTrackingFilterButtonText: function () { this.updateFilterButtonText('reportTrackingFilterBtn', 'reportTrackingDropdown', 'reportTrackingSelectAll', 'Tất cả mã tracking', 'trạng thái'); },
                 applyAllFilters: function () {
                     let data = [...globalData];
-                    const startValue = document.getElementById('reportStartDateFilter')?.value;
-                    const endValue = document.getElementById('reportEndDateFilter')?.value;
-
-                    let start, end;
-
-                    if (startValue) {
-                        start = new Date(startValue); 
-                        start.setHours(0, 0, 0, 0); 
-                    }
-
-                    if (endValue) {
-                        end = new Date(endValue); 
-                        end.setHours(23, 59, 59, 999); 
-                    }
-
-                    if (start) {
-                        data = data.filter(r => parseOrderDateToMs(r["Ngày lên đơn"]) >= start.getTime());
-                    }
-                    if (end) {
-                        data = data.filter(r => parseOrderDateToMs(r["Ngày lên đơn"]) <= end.getTime());
-                    }
-
                     const getSelected = (selector) => new Set(Array.from(document.querySelectorAll(selector)).map(cb => cb.value));
                     const products = getSelected('#reportProductDropdown input:checked:not(#reportProductSelectAll)');
                     const markets = getSelected('#reportMarketDropdown input:checked:not(#reportMarketSelectAll)');
@@ -1500,7 +1506,7 @@ function handleData(response) {
                     
                     if (products.size) data = data.filter(r => products.has(r["Mặt hàng"]));
                     if (markets.size) data = data.filter(r => markets.has(r["Khu vực"] || r["khu vực"]));
-                    if (staff.size) data = data.filter(r => staff.has(r["NV Vận đơn"]));
+                    if (staff.size) data = data.filter(r => staff.has(VandonNvRegion.resolveNvVanDon(r)));
                     if (teams.size) data = data.filter(r => teams.has(r["Team"]));
                     
                     if (trackingFilters.size > 0) {
@@ -1531,6 +1537,11 @@ function handleData(response) {
                 }
             };
             vanDonReportApp.init();
+            VandonNvRegion.applyPreloadDateRangeToInputs(
+                'reportStartDateFilter',
+                'reportEndDateFilter',
+                PRELOAD_ORDER_DAYS
+            );
             loadData();
         });
     </script>
