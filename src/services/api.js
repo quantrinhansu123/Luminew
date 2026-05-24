@@ -17,6 +17,7 @@ import {
     escapeIlikePattern,
     normalizeVanDonFilterWhitespace
 } from '../utils/vanDonFilterNormalize';
+import { fetchVanDonStaffNameList } from '../utils/vanDonStaffNameList.js';
 import { supabase } from './supabaseClient';
 
 export const DB_TO_APP_MAPPING = {
@@ -384,6 +385,27 @@ function extractPostgrestAggregateNumeric(data) {
     return null;
 }
 
+/**
+ * PostgREST chỉ có một query param `or` — không được `.or(bill).or(money)`.
+ * Cần: (điều kiện bill OR …) AND (điều kiện tiền OR …).
+ */
+/** Giá trị cho `.filter('and', …)` → `and=(or(bill),or(money))` (không dùng `.or(and(...))`). */
+function vanDonBillPaidAndFilterValue(billOr, moneyOr) {
+    return `(or(${billOr}),or(${moneyOr}))`;
+}
+
+function applyVanDonBillPaidFilter(query, billOr, moneyOr) {
+    return query.filter('and', vanDonBillPaidAndFilterValue(billOr, moneyOr));
+}
+
+/** Cột SUM trên order_code_hcm — tránh aggregate cột generated gây 400 trên một số project. */
+function vanDonMoneySumSelectForTable(tableName) {
+    if (tableName === 'order_code_hcm') {
+        return 'total_amount_vnd.sum(),tong_tien_vnd.sum()';
+    }
+    return 'total_amount_vnd.sum(),van_don_line_total_vnd.sum(),tong_tien_vnd.sum()';
+}
+
 /** Một response PostgREST với nhiều `.sum()` — ví dụ `total_amount_vnd.sum`, `van_don_line_total_vnd.sum`. */
 function extractVanDonMoneyAggregateSums(data) {
     const row = unwrapPostgrestAggregateRow(data);
@@ -409,8 +431,6 @@ const SHEET_NAME = 'F3';
 
 const BATCH_UPDATE_API_URL = `${MAIN_HOST}/sheet/${SHEET_NAME}/update?verbose=true`;
 const SINGLE_UPDATE_API_URL = `${MAIN_HOST}/sheet/${SHEET_NAME}/update-single`;
-const TRANSFER_API_URL = `${MAIN_HOST}/sheet/MGT nội bộ/rows/batch`;
-const MGT_NOI_BO_ORDER_API_URL = `${MAIN_HOST}/sheet/MGT nội bộ/data`;
 const DATA_API_URL = `${MAIN_HOST}/sheet/${SHEET_NAME}/data`;
 
 const getDataSourceMode = () => {
@@ -862,21 +882,6 @@ export const fetchFFMOrdersBatch = async ({
         mgtExhausted: newMgtExhausted,
         trackedExhausted: newTrackedExhausted
     };
-};
-
-export const fetchMGTNoiBoOrders = async () => {
-    try {
-        const response = await fetch(MGT_NOI_BO_ORDER_API_URL);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const json = await response.json();
-        if (json.data && Array.isArray(json.data)) {
-            return json.data.map((row) => row[PRIMARY_KEY_COLUMN]).filter(Boolean);
-        }
-        return [];
-    } catch (error) {
-        console.error('fetchMGTNoiBoOrders error:', error);
-        return [];
-    }
 };
 
 /** Tải toàn bộ FFM (lặp batch) — ưu tiên dùng fetchFFMOrdersBatch + gộp phía UI để hiện từng lô. */
@@ -1653,11 +1658,12 @@ export const fetchVanDon = async (options = {}) => {
                 tableName === 'order_code_hcm' ? VAN_DON_SELECT_QUERY_ORDER_CODE_HCM : VAN_DON_SELECT_QUERY;
             /** SUM trên bảng vật lý: ưu tiên total_amount_vnd — khớp cột «Tổng tiền VNĐ» trên lưới (không dùng line total trước). */
             const sumFromTable = tableName === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
-            const sumMoneyCombinedQ = applyVanDonFilters(
-                supabase
-                    .from(sumFromTable)
-                    .select('total_amount_vnd.sum(),van_don_line_total_vnd.sum(),tong_tien_vnd.sum()')
-            );
+            const isHcmSumTable = sumFromTable === 'order_code_hcm';
+            const sumMoneyCombinedQ = isHcmSumTable
+                ? Promise.resolve({ data: null, error: { message: 'hcm-client-scan' } })
+                : applyVanDonFilters(
+                      supabase.from(sumFromTable).select(vanDonMoneySumSelectForTable(sumFromTable))
+                  );
 
             /**
              * @param {{ count?: number|null, data?: unknown[] }} listRes
@@ -1673,33 +1679,42 @@ export const fetchVanDon = async (options = {}) => {
                 let sumError = null;
 
                 if (sumCombinedRes.error) {
-                    const [sumTotalRes, sumLineRes, sumTongTienRes] = await Promise.all([
-                        applyVanDonFilters(supabase.from(sumFromTable).select('total_amount_vnd.sum()')),
-                        applyVanDonFilters(supabase.from(sumFromTable).select('van_don_line_total_vnd.sum()')),
-                        applyVanDonFilters(supabase.from(sumFromTable).select('tong_tien_vnd.sum()')),
-                    ]);
-                    const totalErr = sumTotalRes.error;
-                    totalMissing = Boolean(
-                        totalErr &&
-                            (String(totalErr.message || '').toLowerCase().includes('total_amount_vnd') ||
-                                String(totalErr.code || '') === '42703')
-                    );
-                    const lineErr = sumLineRes.error;
-                    lineMissing = Boolean(
-                        lineErr &&
-                            (String(lineErr.message || '').toLowerCase().includes('van_don_line_total_vnd') ||
-                                String(lineErr.code || '') === '42703')
-                    );
-                    const tongErr = sumTongTienRes.error;
-                    tongMissing = Boolean(
-                        tongErr &&
-                            (String(tongErr.message || '').toLowerCase().includes('tong_tien_vnd') ||
-                                String(tongErr.code || '') === '42703')
-                    );
-                    if (!totalMissing) totalRaw = extractPostgrestAggregateNumeric(sumTotalRes.data);
-                    if (!lineMissing) lineRaw = extractPostgrestAggregateNumeric(sumLineRes.data);
-                    if (!tongMissing) tongRaw = extractPostgrestAggregateNumeric(sumTongTienRes.data);
-                    sumError = totalMissing ? lineErr : totalErr || lineErr || (tongMissing ? null : tongErr);
+                    if (isHcmSumTable) {
+                        totalMissing = lineMissing = tongMissing = true;
+                        sumError = null;
+                    } else {
+                        const [sumTotalRes, sumLineRes, sumTongTienRes] = await Promise.all([
+                            applyVanDonFilters(supabase.from(sumFromTable).select('total_amount_vnd.sum()')),
+                            applyVanDonFilters(
+                                supabase.from(sumFromTable).select('van_don_line_total_vnd.sum()')
+                            ),
+                            applyVanDonFilters(supabase.from(sumFromTable).select('tong_tien_vnd.sum()')),
+                        ]);
+                        const totalErr = sumTotalRes.error;
+                        totalMissing = Boolean(
+                            totalErr &&
+                                (String(totalErr.message || '').toLowerCase().includes('total_amount_vnd') ||
+                                    String(totalErr.code || '') === '42703')
+                        );
+                        const lineErr = sumLineRes.error;
+                        lineMissing = Boolean(
+                            lineErr &&
+                                (String(lineErr.message || '')
+                                    .toLowerCase()
+                                    .includes('van_don_line_total_vnd') ||
+                                    String(lineErr.code || '') === '42703')
+                        );
+                        const tongErr = sumTongTienRes.error;
+                        tongMissing = Boolean(
+                            tongErr &&
+                                (String(tongErr.message || '').toLowerCase().includes('tong_tien_vnd') ||
+                                    String(tongErr.code || '') === '42703')
+                        );
+                        if (!totalMissing) totalRaw = extractPostgrestAggregateNumeric(sumTotalRes.data);
+                        if (!lineMissing) lineRaw = extractPostgrestAggregateNumeric(sumLineRes.data);
+                        if (!tongMissing) tongRaw = extractPostgrestAggregateNumeric(sumTongTienRes.data);
+                        sumError = totalMissing ? lineErr : totalErr || lineErr || (tongMissing ? null : tongErr);
+                    }
                 } else {
                     const sums = extractVanDonMoneyAggregateSums(sumCombinedRes.data);
                     totalRaw = sums.totalRaw;
@@ -1744,7 +1759,8 @@ export const fetchVanDon = async (options = {}) => {
                 const rowCount = listRes.count ?? 0;
                 const pageRows = listRes.data || [];
                 const pageHasPositiveMoney = pageRows.some((r) => pickVanDonMoneyFromDbRow(r) > 0);
-                const needMoneyFallback = totalAmountVndSum === 0 && rowCount > 0;
+                const needMoneyFallback =
+                    rowCount > 0 && (isHcmSumTable || totalAmountVndSum === 0);
                 if (needMoneyFallback) {
                     const moneyCols = 'van_don_line_total_vnd,tong_tien_vnd,total_amount_vnd,sale_price,goods_amount';
                     const PROBE = 800;
@@ -1800,26 +1816,28 @@ export const fetchVanDon = async (options = {}) => {
              */
             const computeVanDonAuxiliaryAggregates = async () => {
                 let totalShippingFeeSum = 0;
-                const shipCostRes = await applyVanDonFilters(
-                    supabase.from(sumFromTable).select('shipping_cost.sum()')
-                );
-                if (!shipCostRes.error) {
-                    totalShippingFeeSum = extractPostgrestAggregateNumeric(shipCostRes.data) ?? 0;
-                } else {
-                    console.warn('[fetchVanDon] shipping_cost.sum:', shipCostRes.error.message);
-                }
-
-                if (shipCostRes.error || totalShippingFeeSum === 0) {
-                    const shipFeeRes = await applyVanDonFilters(
-                        supabase.from(sumFromTable).select('shipping_fee.sum()')
+                if (!isHcmSumTable) {
+                    const shipCostRes = await applyVanDonFilters(
+                        supabase.from(sumFromTable).select('shipping_cost.sum()')
                     );
-                    if (!shipFeeRes.error) {
-                        const feeSum = extractPostgrestAggregateNumeric(shipFeeRes.data) ?? 0;
-                        if (shipCostRes.error || feeSum > 0) {
-                            totalShippingFeeSum = feeSum;
+                    if (!shipCostRes.error) {
+                        totalShippingFeeSum = extractPostgrestAggregateNumeric(shipCostRes.data) ?? 0;
+                    } else {
+                        console.warn('[fetchVanDon] shipping_cost.sum:', shipCostRes.error.message);
+                    }
+
+                    if (shipCostRes.error || totalShippingFeeSum === 0) {
+                        const shipFeeRes = await applyVanDonFilters(
+                            supabase.from(sumFromTable).select('shipping_fee.sum()')
+                        );
+                        if (!shipFeeRes.error) {
+                            const feeSum = extractPostgrestAggregateNumeric(shipFeeRes.data) ?? 0;
+                            if (shipCostRes.error || feeSum > 0) {
+                                totalShippingFeeSum = feeSum;
+                            }
+                        } else if (shipCostRes.error) {
+                            console.warn('[fetchVanDon] shipping_fee.sum:', shipFeeRes.error.message);
                         }
-                    } else if (shipCostRes.error) {
-                        console.warn('[fetchVanDon] shipping_fee.sum:', shipFeeRes.error.message);
                     }
                 }
 
@@ -1827,7 +1845,8 @@ export const fetchVanDon = async (options = {}) => {
                     supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
                 );
                 const rowCountShip = headShip.count ?? 0;
-                const needShipScan = rowCountShip > 0 && totalShippingFeeSum === 0;
+                const needShipScan =
+                    rowCountShip > 0 && (isHcmSumTable || totalShippingFeeSum === 0);
                 if (needShipScan) {
                     const SHIP_PROBE = 800;
                     const probeRes = await applyVanDonFilters(
@@ -1874,22 +1893,19 @@ export const fetchVanDon = async (options = {}) => {
                 ]);
 
                 const runBillPaidAggregates = async (billOr, moneyOr) => {
+                    const baseCount = applyVanDonFilters(
+                        supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
+                    );
+                    const baseVnd = applyVanDonFilters(
+                        supabase.from(sumFromTable).select('reconciled_vnd.sum()')
+                    );
+                    const baseAmt = applyVanDonFilters(
+                        supabase.from(sumFromTable).select('reconciled_amount.sum()')
+                    );
                     const [cRes, vRes, aRes] = await Promise.all([
-                        applyVanDonFilters(
-                            supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
-                        )
-                            .or(billOr)
-                            .or(moneyOr),
-                        applyVanDonFilters(
-                            supabase.from(sumFromTable).select('reconciled_vnd.sum()')
-                        )
-                            .or(billOr)
-                            .or(moneyOr),
-                        applyVanDonFilters(
-                            supabase.from(sumFromTable).select('reconciled_amount.sum()')
-                        )
-                            .or(billOr)
-                            .or(moneyOr),
+                        applyVanDonBillPaidFilter(baseCount, billOr, moneyOr),
+                        applyVanDonBillPaidFilter(baseVnd, billOr, moneyOr),
+                        applyVanDonBillPaidFilter(baseAmt, billOr, moneyOr),
                     ]);
                     return { cRes, vRes, aRes };
                 };
@@ -1898,38 +1914,53 @@ export const fetchVanDon = async (options = {}) => {
                 let upBillDbKey = upBillDbKeyCandidates[0];
                 let billOrCandidates = buildBillOrCandidates(upBillDbKey);
                 let billOr = billOrCandidates[0];
-                let { cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr);
+                let cRes = { error: { message: 'skip' }, count: 0 };
+                let vRes = { error: { message: 'skip' }, data: null };
+                let aRes = { error: { message: 'skip' }, data: null };
 
-                const upBillNeedsFallback =
-                    (cRes.error &&
-                        String(cRes.error.message || '').toLowerCase().includes('ngayupbill')) ||
-                    (vRes.error &&
-                        String(vRes.error.message || '').toLowerCase().includes('ngayupbill'));
-                if (upBillNeedsFallback) {
-                    upBillDbKey = upBillDbKeyCandidates[1];
-                    billOrCandidates = buildBillOrCandidates(upBillDbKey);
-                    billOr = billOrCandidates[0];
+                if (!isHcmSumTable) {
                     ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
-                }
 
-                const billNeedsFallback =
-                    (cRes.error &&
-                        String(cRes.error.message || '').toLowerCase().includes('payment_bill')) ||
-                    (vRes.error &&
-                        String(vRes.error.message || '').toLowerCase().includes('payment_bill'));
-                if (billNeedsFallback) {
-                    billOr = billOrCandidates[1];
-                    ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
-                }
+                    const upBillNeedsFallback =
+                        (cRes.error &&
+                            String(cRes.error.message || '').toLowerCase().includes('ngayupbill')) ||
+                        (vRes.error &&
+                            String(vRes.error.message || '').toLowerCase().includes('ngayupbill'));
+                    if (upBillNeedsFallback) {
+                        upBillDbKey = upBillDbKeyCandidates[1];
+                        billOrCandidates = buildBillOrCandidates(upBillDbKey);
+                        billOr = billOrCandidates[0];
+                        ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
+                    }
 
-                if (
-                    aRes.error &&
-                    String(aRes.error.message || '')
-                        .toLowerCase()
-                        .includes('reconciled_amount')
-                ) {
-                    moneyOr = 'reconciled_vnd.gt.0';
-                    ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
+                    const billNeedsFallback =
+                        (cRes.error &&
+                            String(cRes.error.message || '').toLowerCase().includes('payment_bill')) ||
+                        (vRes.error &&
+                            String(vRes.error.message || '').toLowerCase().includes('payment_bill'));
+                    if (billNeedsFallback) {
+                        billOr = billOrCandidates[1];
+                        ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
+                    }
+
+                    if (
+                        aRes.error &&
+                        String(aRes.error.message || '')
+                            .toLowerCase()
+                            .includes('reconciled_amount')
+                    ) {
+                        moneyOr = 'reconciled_vnd.gt.0';
+                        ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
+                    }
+
+                    if (cRes.error || vRes.error) {
+                        console.warn(
+                            '[fetchVanDon] bill paid aggregates:',
+                            cRes.error?.message || vRes.error?.message
+                        );
+                    } else if (aRes.error && moneyOr.includes('reconciled_amount')) {
+                        console.warn('[fetchVanDon] reconciled_amount.sum:', aRes.error.message);
+                    }
                 }
 
                 let ordersPaidWithBillCount = cRes.error ? 0 : (cRes.count ?? 0);
@@ -1944,15 +1975,6 @@ export const fetchVanDon = async (options = {}) => {
                 let reconciledVndWithBillSum =
                     moneyOr === 'reconciled_vnd.gt.0' ? vndSumPart : vndSumPart + amtSumPart;
 
-                if (cRes.error || vRes.error) {
-                    console.warn(
-                        '[fetchVanDon] bill paid aggregates:',
-                        cRes.error?.message || vRes.error?.message
-                    );
-                } else if (aRes.error && moneyOr.includes('reconciled_amount')) {
-                    console.warn('[fetchVanDon] reconciled_amount.sum:', aRes.error.message);
-                }
-
                 const headBill = await applyVanDonFilters(
                     supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
                 );
@@ -1960,7 +1982,7 @@ export const fetchVanDon = async (options = {}) => {
                 /** SUM/count SQL không đọc được tiền dạng text / định dạng VNĐ trên ô — luôn thử probe khi tổng tiền = 0 nhưng còn đơn trong lọc. */
                 const needBillScan =
                     rowCountBill > 0 &&
-                    (cRes.error || vRes.error || reconciledVndWithBillSum === 0);
+                    (isHcmSumTable || cRes.error || vRes.error || reconciledVndWithBillSum === 0);
 
                 if (needBillScan) {
                     const BILL_PROBE = 3000;
@@ -2334,120 +2356,9 @@ export const fetchFfmOrderChangeHistoryBulk = async ({ entries } = {}) => {
     return all;
 };
 
-/** Khớp `DanhSachVanDon.jsx` — chi nhánh HCM (users.branch / HR «chi nhánh»). */
-function normalizeBranchForHcmVanDon(value) {
-    return String(value ?? '')
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[.\-_/]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-function isHcmBranchForVanDonFilter(value) {
-    const branch = normalizeBranchForHcmVanDon(value);
-    return (
-        branch === 'hcm' ||
-        branch === 'tp hcm' ||
-        branch === 'tphcm' ||
-        branch === 'ho chi minh' ||
-        branch.includes('hcm') ||
-        branch.includes('ho chi minh')
-    );
-}
-
-/** Khớp `DanhSachVanDon.jsx` — `users.department` hoặc HR «Bộ phận». */
-function isBoPhanVanDonDepartment(dept) {
-    const raw = (dept ?? '').toString().trim();
-    if (!raw) return false;
-    const compact = raw.toLowerCase().replace(/\s+/g, ' ');
-    if (compact.includes('vận đơn') || compact.includes('van đơn')) return true;
-    const ascii = raw
-        .normalize('NFD')
-        .replace(/\p{M}/gu, '')
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
-    if (ascii.includes('van don')) return true;
-    if (ascii === 'logistics' || ascii.startsWith('logistics ')) return true;
-    return false;
-}
-
-/**
- * Danh sách tên hiển thị cho bộ lọc «NV Vận đơn» trên /van-don-hcm: đủ nhân sự bộ phận vận đơn + chi nhánh HCM.
- * Nguồn: `human_resources` + `users` (không chỉ distinct trên `order_code_hcm`).
- */
+/** Danh sách NV vận đơn HCM — `users` + `danh_sach_van_don` (không gọi `human_resources`). */
 async function fetchVanDonHcmNvVanDonFromDirectory() {
-    const names = new Set();
-
-    try {
-        const { data: hrRows, error: hrError } = await supabase
-            .from('human_resources')
-            .select('"Họ Và Tên", "Bộ phận", "chi nhánh"');
-        if (!hrError && hrRows) {
-            for (const row of hrRows) {
-                if (!isBoPhanVanDonDepartment(row?.['Bộ phận'])) continue;
-                const chi = String(row?.['chi nhánh'] || '').trim();
-                if (!isHcmBranchForVanDonFilter(chi)) continue;
-                const n = String(row?.['Họ Và Tên'] || '').trim();
-                if (n) names.add(n);
-            }
-        }
-    } catch (e) {
-        console.warn('[fetchVanDonHcmNvVanDonFromDirectory] human_resources:', e);
-    }
-
-    let usersRows = [];
-    try {
-        const { data: uData, error: uError } = await supabase
-            .from('users')
-            .select('name, department, branch, chi_nhanh')
-            .not('name', 'is', null)
-            .order('name', { ascending: true });
-        if (uError) throw uError;
-        usersRows = uData || [];
-    } catch (e) {
-        const message = String(e?.message || '').toLowerCase();
-        const missingChiNhanh = message.includes('chi_nhanh') && message.includes('does not exist');
-        const missingBranch = message.includes('branch') && message.includes('does not exist');
-        try {
-            if (!missingBranch) {
-                const { data: uData, error: uError } = await supabase
-                    .from('users')
-                    .select('name, department, branch')
-                    .not('name', 'is', null)
-                    .order('name', { ascending: true });
-                if (!uError) usersRows = uData || [];
-            } else if (!missingChiNhanh) {
-                const { data: uData, error: uError } = await supabase
-                    .from('users')
-                    .select('name, department, chi_nhanh')
-                    .not('name', 'is', null)
-                    .order('name', { ascending: true });
-                if (!uError) usersRows = uData || [];
-            } else {
-                const { data: uData, error: uError } = await supabase
-                    .from('users')
-                    .select('name, department')
-                    .not('name', 'is', null)
-                    .order('name', { ascending: true });
-                if (!uError) usersRows = uData || [];
-            }
-        } catch (e2) {
-            console.warn('[fetchVanDonHcmNvVanDonFromDirectory] users fallback:', e2);
-        }
-    }
-
-    for (const member of usersRows) {
-        if (!isBoPhanVanDonDepartment(member?.department)) continue;
-        const br = String(member?.branch || member?.chi_nhanh || '').trim();
-        if (!isHcmBranchForVanDonFilter(br)) continue;
-        const n = String(member?.name || '').trim();
-        if (n) names.add(n);
-    }
-
-    return Array.from(names);
+    return fetchVanDonStaffNameList(supabase, { vanDonBranch: 'hcm' });
 }
 
 /** Một cột DB → các tiêu đề cột UI Van Đơn dùng chung danh sách distinct (một RPC / cột DB). */

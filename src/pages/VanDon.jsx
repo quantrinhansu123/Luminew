@@ -947,7 +947,6 @@ function VanDon({ dataSource = 'default' }) {
   }, []);
 
   // --- MGT Noi Bo specific ---
-  const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
 
   // --- Removed Old Queue Map ---
   // --- Toasts ---
@@ -1485,8 +1484,6 @@ function VanDon({ dataSource = 'default' }) {
         throw new Error(result.error);
       }
 
-      API.fetchMGTNoiBoOrders().then((mgtOrder) => setMgtNoiBoOrder(mgtOrder));
-
       return result;
     },
     [activeFilters, dataSource, isAdmin, role, selectedPersonnelNames]
@@ -1717,10 +1714,7 @@ function VanDon({ dataSource = 'default' }) {
       });
 
       // Team Filter
-      if (omActiveTeam === 'mgt_noi_bo') {
-        const orderedIds = new Set(mgtNoiBoOrder);
-        data = data.filter(row => orderedIds.has(row[PRIMARY_KEY_COLUMN]));
-      } else if (omActiveTeam !== 'all') {
+      if (omActiveTeam !== 'all') {
         data = data.filter(row => row[TEAM_COLUMN_NAME] === omActiveTeam);
       }
 
@@ -2403,7 +2397,6 @@ function VanDon({ dataSource = 'default' }) {
     appliedDateFrom,
     appliedDateTo,
     appliedEnableDateFilter,
-    mgtNoiBoOrder,
     isAdmin,
     useBackendPagination,
     dataSource

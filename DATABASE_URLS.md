@@ -92,16 +92,7 @@ https://n-api-gamma.vercel.app
 - **Method**: PATCH
 - **Sử dụng trong**: `src/services/api.js` → `updateBatch()`
 
-#### d) MGT nội bộ Data
-- **URL**: `https://n-api-gamma.vercel.app/sheet/MGT nội bộ/data`
-- **Method**: GET
-- **Sử dụng trong**: `src/services/api.js` → `fetchMGTNoiBoOrders()`
-
-#### e) MGT nội bộ Batch
-- **URL**: `https://n-api-gamma.vercel.app/sheet/MGT nội bộ/rows/batch`
-- **Sử dụng trong**: `src/services/api.js` (TRANSFER_API_URL)
-
-#### f) Detail reports (MKT)
+#### d) Detail reports (MKT)
 - **URL**: `https://lumidataapi.vercel.app/detail_reports`
 - **Sử dụng trong**: `src/pages/BaoCaoHieuSuatKPI.jsx`, `viewNsMoiNhanh.html`
 
@@ -118,7 +109,7 @@ https://n-api-gamma.vercel.app
 ## Tóm tắt theo file:
 
 ### `src/services/api.js`
-- `https://n-api-gamma.vercel.app` - Tất cả API endpoints cho F3 và MGT nội bộ
+- `https://n-api-gamma.vercel.app` - API endpoints cho F3 (sheet)
 
 ### `src/pages/BaoCaoChiTiet.jsx`
 - `https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json`
@@ -164,7 +155,7 @@ https://n-api-gamma.vercel.app
    - `lumi-6dff7` - Sử dụng REST API
    - `report-55c9f` - Sử dụng Firebase SDK
 
-2. API Server chính: `n-api-gamma.vercel.app` - Xử lý các thao tác với Google Sheets (F3, MGT nội bộ)
+2. API Server chính: `n-api-gamma.vercel.app` - Xử lý các thao tác với Google Sheets (F3)
 
 3. Tất cả các URL đều là production URLs, không có local development URLs đang được sử dụng.
 

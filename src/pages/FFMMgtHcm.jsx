@@ -604,7 +604,6 @@ function FFMMgtHcm() {
   });
   const [contextMenu, setContextMenu] = useState(null);
 
-  const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Hà Nội không (dựa trên can_day_ffm)
 
   const updateQueue = useRef(new Map()); // Legacy
@@ -1254,10 +1253,7 @@ function FFMMgtHcm() {
       // Tracking code được filter ở client-side theo tab đã chọn
       // Thứ tự nguồn đã theo rowIndex (assignRowIndexByOrderDate) — filter giữ nguyên thứ tự, không sort lại.
 
-      if (omActiveTeam === 'mgt_noi_bo') {
-        const orderedIds = new Set(mgtNoiBoOrder);
-        data = data.filter((row) => orderedIds.has(row[PRIMARY_KEY_COLUMN]));
-      } else if (omActiveTeam !== 'all') {
+      if (omActiveTeam !== 'all') {
         data = data.filter((row) => row[TEAM_COLUMN_NAME] === omActiveTeam);
       }
 
@@ -1547,7 +1543,7 @@ function FFMMgtHcm() {
     }
 
     return data;
-  }, [omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, ffmShowOnlyMarkedRows, markedRows, variant, pendingChanges]);
+  }, [omActiveTeam, omDateType, dateFrom, dateTo, ffmBranchFilter, ffmTrackingPresence, ffmShowOnlyMarkedRows, markedRows, variant, pendingChanges]);
 
   const getFilteredData = useMemo(() => {
     return applyFfmFilters(allData, localFilterValues);

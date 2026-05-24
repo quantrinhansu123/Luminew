@@ -45,10 +45,6 @@ Các API endpoint có thể bị lỗi trong ứng dụng:
 - **URL**: `https://n-api-gamma.vercel.app/sheet/F3/update?verbose=true`
 - **Sử dụng trong**: `src/services/api.js` → `updateBatch()`
 
-#### 5. API MGT nội bộ
-- **URL**: `https://n-api-gamma.vercel.app/sheet/MGT nội bộ/data`
-- **Sử dụng trong**: `src/services/api.js` → `fetchMGTNoiBoOrders()`
-
 ## 🛠️ Cách kiểm tra API có hoạt động không
 
 ### Cách 1: Test trực tiếp trong trình duyệt
