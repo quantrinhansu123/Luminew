@@ -1,5 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { BRANCHES, DEPARTMENTS } from '../../../utils/dashboardDieuHanhMetrics';
+import SearchableFilterSelect from './SearchableFilterSelect';
 
 export default function FilterBar({
   activeTab,
@@ -47,56 +48,49 @@ export default function FilterBar({
         </select>
       </label>
 
-      <label className="text-[10px] font-black uppercase tracking-wide text-[#2864d9]">
-        Chi nhánh
-        <select value={branch} onChange={(e) => setBranch(e.target.value)} className="mt-1 h-8 w-full rounded-md border px-2 text-xs">
-          {BRANCHES.map((item) => (
-            <option key={item.value} value={item.value}>{item.label}</option>
-          ))}
-        </select>
-      </label>
+      <SearchableFilterSelect
+        label="Chi nhánh"
+        value={branch}
+        onChange={setBranch}
+        options={BRANCHES}
+        allLabel="Tổng"
+        placeholder="Tìm chi nhánh..."
+      />
 
-      <label className="text-[10px] font-black uppercase tracking-wide text-[#2864d9]">
-        Khu vực
-        <select value={market} onChange={(e) => setMarket(e.target.value)} className="mt-1 h-8 w-full rounded-md border px-2 text-xs">
-          <option value="all">Tất cả</option>
-          {marketOptions.map((item) => (
-            <option key={item} value={item}>{item}</option>
-          ))}
-        </select>
-      </label>
+      <SearchableFilterSelect
+        label="Khu vực"
+        value={market}
+        onChange={setMarket}
+        options={marketOptions}
+        placeholder="Tìm khu vực..."
+      />
 
-      <label className="text-[10px] font-black uppercase tracking-wide text-[#2864d9]">
-        Mặt hàng
-        <select value={product} onChange={(e) => setProduct(e.target.value)} className="mt-1 h-8 w-full rounded-md border px-2 text-xs">
-          <option value="all">Tất cả</option>
-          {productOptions.map((item) => (
-            <option key={item} value={item}>{item}</option>
-          ))}
-        </select>
-      </label>
+      <SearchableFilterSelect
+        label="Mặt hàng"
+        value={product}
+        onChange={setProduct}
+        options={productOptions}
+        placeholder="Tìm mặt hàng..."
+      />
 
       {activeTab !== 'company' && (
-        <label className="text-[10px] font-black uppercase tracking-wide text-[#2864d9]">
-          Team
-          <select value={department} onChange={(e) => setDepartment(e.target.value)} className="mt-1 h-8 w-full rounded-md border px-2 text-xs">
-            {DEPARTMENTS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-          </select>
-        </label>
+        <SearchableFilterSelect
+          label="Bộ phận"
+          value={department}
+          onChange={setDepartment}
+          options={DEPARTMENTS}
+          placeholder="Tìm bộ phận..."
+        />
       )}
 
       {activeTab === 'individual' && (
-        <label className="text-[10px] font-black uppercase tracking-wide text-[#2864d9]">
-          Cá nhân
-          <select value={person} onChange={(e) => setPerson(e.target.value)} className="mt-1 h-8 w-full rounded-md border px-2 text-xs">
-            <option value="all">Tất cả</option>
-            {personOptions.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
-        </label>
+        <SearchableFilterSelect
+          label="Cá nhân"
+          value={person}
+          onChange={setPerson}
+          options={personOptions}
+          placeholder="Tìm cá nhân..."
+        />
       )}
 
       <label className="hidden text-[10px] font-black uppercase tracking-wide text-[#2864d9]">

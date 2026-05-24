@@ -145,7 +145,7 @@ async function loadOrdersTable(tableName, from, to) {
   throw lastError;
 }
 
-export default function useDashboardDieuHanhData({ periodMode = 'month', from, to, branch, market, product, department, person, enabled = true }) {
+export default function useDashboardDieuHanhData({ activeTab = 'company', periodMode = 'month', from, to, branch, market, product, department, team, person, enabled = true }) {
   const [mktRows, setMktRows] = useState([]);
   const [vanDonRows, setVanDonRows] = useState([]);
   const [salesRows, setSalesRows] = useState([]);
@@ -159,16 +159,21 @@ export default function useDashboardDieuHanhData({ periodMode = 'month', from, t
     setErrors([]);
     try {
       const historyFrom = buildLastFourPeriodBuckets(periodMode, from, to)[0]?.start || from;
-      const [mktHnRes, mktHcmRes, vanDonHnRes, vanDonHcmRes, vanDonSummaryRes, salesReportsRes, usersRes] =
-        await Promise.allSettled([
-          loadMktTable('detail_reports', historyFrom, to, MKT_HN_ALLOWED_TEAMS),
-          loadMktTable('marketing_report_hcm', historyFrom, to, MKT_HCM_ALLOWED_TEAMS),
-          loadOrdersTable('orders', historyFrom, to),
-          loadOrdersTable('order_code_hcm', historyFrom, to),
-          loadVanDonTable(historyFrom, to),
-          loadSalesReportsTable(historyFrom, to),
-          loadUsersTable(),
-        ]);
+      const shouldLoadPeopleData = activeTab !== 'company';
+      const loadJobs = [
+        ['detail_reports', loadMktTable('detail_reports', historyFrom, to, MKT_HN_ALLOWED_TEAMS)],
+        ['marketing_report_hcm', loadMktTable('marketing_report_hcm', historyFrom, to, MKT_HCM_ALLOWED_TEAMS)],
+        ['orders', loadOrdersTable('orders', historyFrom, to)],
+        ['order_code_hcm', loadOrdersTable('order_code_hcm', historyFrom, to)],
+      ];
+      if (shouldLoadPeopleData) {
+        loadJobs.push(
+          ['sales_reports', loadSalesReportsTable(historyFrom, to)],
+          ['users', loadUsersTable()]
+        );
+      }
+
+      const settledJobs = await Promise.allSettled(loadJobs.map(([, job]) => job));
 
       const nextErrors = [];
       const unwrap = (res, label) => {
@@ -182,14 +187,14 @@ export default function useDashboardDieuHanhData({ periodMode = 'month', from, t
         }
         return Array.isArray(res.value) ? res.value : res.value?.rows || [];
       };
+      const rowsByLabel = new Map(loadJobs.map(([label], index) => [label, unwrap(settledJobs[index], label)]));
 
-      const hn = unwrap(mktHnRes, 'detail_reports');
-      const hcm = unwrap(mktHcmRes, 'marketing_report_hcm');
-      const ordersHn = unwrap(vanDonHnRes, 'orders');
-      const ordersHcm = unwrap(vanDonHcmRes, 'order_code_hcm');
-      const vdSummary = unwrap(vanDonSummaryRes, 'bao_cao_van_don');
-      const salesReports = unwrap(salesReportsRes, 'sales_reports');
-      const users = unwrap(usersRes, 'users');
+      const hn = rowsByLabel.get('detail_reports') || [];
+      const hcm = rowsByLabel.get('marketing_report_hcm') || [];
+      const ordersHn = rowsByLabel.get('orders') || [];
+      const ordersHcm = rowsByLabel.get('order_code_hcm') || [];
+      const salesReports = rowsByLabel.get('sales_reports') || [];
+      const users = rowsByLabel.get('users') || [];
 
       const hnMktRows = dedupeMktDetailReportRows(
         hn.map(normalizeMktHnDetailReportRow).filter(mktRowHasName)
@@ -210,9 +215,13 @@ export default function useDashboardDieuHanhData({ periodMode = 'month', from, t
         ...ordersHn.map((r) => mapOrderToVanDonRow(r, 'hn')).filter(Boolean),
         ...ordersHcm.map((r) => mapOrderToVanDonRow(r, 'hcm')).filter(Boolean),
       ];
-      if (mappedVd.length === 0 && vdSummary.length > 0) {
+      if (mappedVd.length === 0) {
+        const [vanDonSummaryRes] = await Promise.allSettled([loadVanDonTable(historyFrom, to)]);
+        const vdSummary = unwrap(vanDonSummaryRes, 'bao_cao_van_don');
         mappedVd = vdSummary.map(mapVanDonSummaryRow).filter(Boolean);
-        nextErrors.push('Vận đơn: đang dùng fallback bao_cao_van_don nên chưa tách được Hà Nội/Hồ Chí Minh.');
+        if (mappedVd.length > 0) {
+          nextErrors.push('Vận đơn: đang dùng fallback bao_cao_van_don nên chưa tách được Hà Nội/Hồ Chí Minh.');
+        }
       }
 
       setMktRows(mappedMkt);
@@ -229,15 +238,15 @@ export default function useDashboardDieuHanhData({ periodMode = 'month', from, t
     } finally {
       setLoading(false);
     }
-  }, [enabled, from, periodMode, to]);
+  }, [activeTab, enabled, from, periodMode, to]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   const model = useMemo(
-    () => buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, person, from, to, periodMode }),
-    [branch, department, from, market, mktRows, periodMode, person, product, salesRows, to, usersRows, vanDonRows]
+    () => buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, team, person, from, to, periodMode }),
+    [branch, department, from, market, mktRows, periodMode, person, product, salesRows, team, to, usersRows, vanDonRows]
   );
 
   return {

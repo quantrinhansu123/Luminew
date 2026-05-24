@@ -2,12 +2,13 @@ import { Line } from 'react-chartjs-2';
 import KpiCard from './KpiCard';
 import MetricTable from './MetricTable';
 import MiniTrendChart from './MiniTrendChart';
+import SearchableFilterSelect from './SearchableFilterSelect';
 import StatusBadge from './StatusBadge';
-import { DEPARTMENT_FILTERS, departmentLabel, formatMoney, formatNumber, formatPercent } from '../../../utils/dashboardDieuHanhMetrics';
+import { departmentLabel, formatMoney, formatNumber, formatPercent } from '../../../utils/dashboardDieuHanhMetrics';
 
 const COLORS = ['#2864d9', '#55dbe8', '#44c5b6', '#ff8a1f', '#ffd447', '#7c5cff'];
 
-export default function IndividualTab({ data, person, setPerson, setDepartment }) {
+export default function IndividualTab({ data, team, setTeam, person, setPerson }) {
   const allRows = data.allIndividualRows || data.individualRows;
   const rows = data.individualRows;
   const rankingRows = allRows.slice(0, 10);
@@ -40,29 +41,26 @@ export default function IndividualTab({ data, person, setPerson, setDepartment }
     <div className="space-y-4">
       <section className="lumi-dieu-hanh-panel rounded-lg border bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="lumi-section-title">B1 - Team:</span>
-          <select
-            value={data.selectedDepartmentValue}
-            onChange={(e) => setDepartment(e.target.value)}
-            className="h-9 rounded-md border px-3 text-sm font-bold"
-          >
-            {DEPARTMENT_FILTERS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-          </select>
-          <span className="lumi-section-title ml-2">B2 - Cá nhân:</span>
-          <select
+          <SearchableFilterSelect
+            label="B1 - Team"
+            value={team}
+            onChange={setTeam}
+            options={data.teamOptions || []}
+            allLabel="- Tất cả (All) -"
+            placeholder="Tìm team..."
+            className="w-[190px]"
+          />
+          <SearchableFilterSelect
+            label="B2 - Cá nhân"
             value={person}
-            onChange={(e) => setPerson(e.target.value)}
-            className="h-9 min-w-[210px] rounded-md border px-3 text-sm font-bold"
-          >
-            <option value="all">- Tất cả (All) -</option>
-            {data.personOptions.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
+            onChange={setPerson}
+            options={data.personOptions || []}
+            allLabel="- Tất cả (All) -"
+            placeholder="Tìm cá nhân..."
+            className="w-[240px]"
+          />
           <div className="ml-auto text-xs font-bold text-[#69768c]">
-            {departmentLabel(data.selectedDepartmentValue)} · 4 kỳ gần nhất
+            {(team === 'all' ? departmentLabel(data.selectedDepartmentValue) : team)} · 4 kỳ gần nhất
           </div>
         </div>
       </section>
@@ -70,7 +68,9 @@ export default function IndividualTab({ data, person, setPerson, setDepartment }
       <section className="lumi-dieu-hanh-panel rounded-lg border bg-white p-3 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="lumi-section-title">BXH doanh số toàn team</h2>
-          <div className="text-sm font-black text-[#2864d9]">TEAM {departmentLabel(data.selectedDepartmentValue).toUpperCase()}</div>
+          <div className="text-sm font-black text-[#2864d9]">
+            TEAM {(team === 'all' ? departmentLabel(data.selectedDepartmentValue) : team).toUpperCase()}
+          </div>
         </div>
         <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
           {rankingRows.map((row, index) => {

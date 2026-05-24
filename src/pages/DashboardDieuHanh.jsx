@@ -113,6 +113,7 @@ export default function DashboardDieuHanh() {
   const [market, setMarket] = useState('all');
   const [product, setProduct] = useState('all');
   const [department, setDepartment] = useState('all');
+  const [team, setTeam] = useState('all');
   const [person, setPerson] = useState('all');
   const [activeTab, setActiveTab] = useState('company');
   const periodOptions = useMemo(() => (periodMode === 'week' ? buildWeekOptions() : buildMonthOptions()), [periodMode]);
@@ -130,6 +131,7 @@ export default function DashboardDieuHanh() {
   }, [periodKey, periodOptions]);
 
   const data = useDashboardDieuHanhData({
+    activeTab,
     periodMode,
     from,
     to,
@@ -137,12 +139,17 @@ export default function DashboardDieuHanh() {
     market,
     product,
     department,
+    team,
     person,
     enabled: allowed && !allowedLoading,
   });
 
   useEffect(() => {
     setPerson('all');
+  }, [branch, department, market, product, team]);
+
+  useEffect(() => {
+    setTeam('all');
   }, [branch, department, market, product]);
 
   useEffect(() => {
@@ -154,6 +161,11 @@ export default function DashboardDieuHanh() {
     if (product === 'all') return;
     if (!data.productOptions.includes(product)) setProduct('all');
   }, [data.productOptions, product]);
+
+  useEffect(() => {
+    if (team === 'all') return;
+    if (!data.teamOptions.includes(team)) setTeam('all');
+  }, [data.teamOptions, team]);
 
   useEffect(() => {
     if (person === 'all') return;
@@ -197,6 +209,9 @@ export default function DashboardDieuHanh() {
         productOptions: data.productOptions,
         department,
         setDepartment,
+        team,
+        setTeam,
+        teamOptions: data.teamOptions,
         person,
         setPerson,
         personOptions: data.personOptions,
@@ -230,7 +245,7 @@ export default function DashboardDieuHanh() {
           <DepartmentTab data={data} department={department} setDepartment={setDepartment} />
         </TabsContent>
         <TabsContent value="individual" className="m-0 outline-none ring-0 focus-visible:ring-0 data-[state=inactive]:hidden">
-          <IndividualTab data={data} person={person} setPerson={setPerson} setDepartment={setDepartment} />
+          <IndividualTab data={data} team={team} setTeam={setTeam} person={person} setPerson={setPerson} />
         </TabsContent>
       </Tabs>
     </DashboardShell>

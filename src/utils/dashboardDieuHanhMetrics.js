@@ -821,7 +821,7 @@ function matchesOptionalFilter(rowValue, selected) {
   return optionLabel(rowValue) === selected;
 }
 
-export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, person, from, to, periodMode = 'month' }) {
+export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, team, person, from, to, periodMode = 'month' }) {
   const periodBuckets = buildLastFourPeriodBuckets(periodMode, from, to);
   const branchMktRows = branch === 'all' ? mktRows : mktRows.filter((r) => r.branch === branch);
   const branchVanDonRows = branch === 'all' ? vanDonRows : vanDonRows.filter((r) => r.branch === branch);
@@ -845,6 +845,7 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
   const current = finalizeCompany(mkt, vd);
   const previous = monthly.length >= 2 ? monthly[monthly.length - 2] : null;
   const selectedDepartmentValue = department === 'all' ? 'mkt' : department;
+  const selectedTeam = team || 'all';
 
   const companyKpis = COMPANY_METRICS.map((metric) => ({
     ...metric,
@@ -887,39 +888,69 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
     };
   });
 
+  const teamOptions = buildTeamOptions({
+    selectedDepartmentValue,
+    filteredMktRows: filteredMktRowsHistory,
+    filteredSalesRows: filteredSalesRowsHistory,
+    filteredUsersRows,
+    filteredVanDonRows: filteredVanDonRowsHistory,
+  });
+
+  const teamFilteredMktRows = selectedDepartmentValue === 'mkt'
+    ? filteredMktRows.filter((r) => matchesOptionalFilter(r.team, selectedTeam))
+    : filteredMktRows;
+  const teamFilteredMktRowsHistory = selectedDepartmentValue === 'mkt'
+    ? filteredMktRowsHistory.filter((r) => matchesOptionalFilter(r.team, selectedTeam))
+    : filteredMktRowsHistory;
+  const teamFilteredSalesRows = ['sale', 'cskh', 'rnd'].includes(selectedDepartmentValue)
+    ? filteredSalesRows.filter((r) => matchesOptionalFilter(r.team, selectedTeam))
+    : filteredSalesRows;
+  const teamFilteredSalesRowsHistory = ['sale', 'cskh', 'rnd'].includes(selectedDepartmentValue)
+    ? filteredSalesRowsHistory.filter((r) => matchesOptionalFilter(r.team, selectedTeam))
+    : filteredSalesRowsHistory;
+  const teamFilteredUsersRows = selectedDepartmentValue === 'hcns'
+    ? filteredUsersRows.filter((r) => matchesOptionalFilter(r.team, selectedTeam))
+    : filteredUsersRows;
+  const teamFilteredVanDonRows = selectedDepartmentValue === 'delivery'
+    ? filteredVanDonRows.filter((r) => matchesOptionalFilter(r.team, selectedTeam))
+    : filteredVanDonRows;
+  const teamFilteredVanDonRowsHistory = selectedDepartmentValue === 'delivery'
+    ? filteredVanDonRowsHistory.filter((r) => matchesOptionalFilter(r.team, selectedTeam))
+    : filteredVanDonRowsHistory;
+
   const personOptions = buildPersonOptions({
     selectedDepartmentValue,
-    filteredMktRows,
-    filteredSalesRows,
-    filteredUsersRows,
-    filteredVanDonRows,
+    filteredMktRows: teamFilteredMktRows,
+    filteredSalesRows: teamFilteredSalesRows,
+    filteredUsersRows: teamFilteredUsersRows,
+    filteredVanDonRows: teamFilteredVanDonRows,
   });
 
   const individualDeltaCtx = {
     selectedDepartmentValue,
     monthBuckets: periodBuckets,
     periodBuckets,
-    filteredMktRows: filteredMktRowsHistory,
-    filteredSalesRows: filteredSalesRowsHistory,
-    filteredUsersRows,
-    filteredVanDonRows: filteredVanDonRowsHistory,
+    filteredMktRows: teamFilteredMktRowsHistory,
+    filteredSalesRows: teamFilteredSalesRowsHistory,
+    filteredUsersRows: teamFilteredUsersRows,
+    filteredVanDonRows: teamFilteredVanDonRowsHistory,
   };
 
   const allIndividualRows = attachIndividualMetricDeltas(buildIndividualRows({
     selectedDepartmentValue,
-    filteredMktRows,
-    filteredSalesRows,
-    filteredUsersRows,
-    filteredVanDonRows,
+    filteredMktRows: teamFilteredMktRows,
+    filteredSalesRows: teamFilteredSalesRows,
+    filteredUsersRows: teamFilteredUsersRows,
+    filteredVanDonRows: teamFilteredVanDonRows,
     person: 'all',
   }), individualDeltaCtx);
 
   const individualRows = attachIndividualMetricDeltas(buildIndividualRows({
     selectedDepartmentValue,
-    filteredMktRows,
-    filteredSalesRows,
-    filteredUsersRows,
-    filteredVanDonRows,
+    filteredMktRows: teamFilteredMktRows,
+    filteredSalesRows: teamFilteredSalesRows,
+    filteredUsersRows: teamFilteredUsersRows,
+    filteredVanDonRows: teamFilteredVanDonRows,
     person,
   }), individualDeltaCtx);
 
@@ -935,10 +966,10 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
   const individualPeriodRows = buildIndividualPeriodRows({
     selectedDepartmentValue,
     monthBuckets: periodBuckets,
-    filteredMktRows: filteredMktRowsHistory,
-    filteredSalesRows: filteredSalesRowsHistory,
-    filteredUsersRows,
-    filteredVanDonRows: filteredVanDonRowsHistory,
+    filteredMktRows: teamFilteredMktRowsHistory,
+    filteredSalesRows: teamFilteredSalesRowsHistory,
+    filteredUsersRows: teamFilteredUsersRows,
+    filteredVanDonRows: teamFilteredVanDonRowsHistory,
     individualRows,
     person,
   });
@@ -958,6 +989,7 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
     previous,
     marketOptions,
     productOptions,
+    teamOptions,
     companyKpis,
     companyPeriodRows: buildCompanyPeriodRows(monthly),
     branchRows,
@@ -1026,6 +1058,13 @@ function buildDeliveryStatusRows(vd) {
     .map((row) => ({ ...row, pct: ratio(row.value, total) }));
 }
 
+function buildTeamOptions({ selectedDepartmentValue, filteredMktRows, filteredSalesRows, filteredUsersRows, filteredVanDonRows }) {
+  if (selectedDepartmentValue === 'mkt') return buildValueOptions(filteredMktRows, 'team');
+  if (selectedDepartmentValue === 'delivery') return buildValueOptions(filteredVanDonRows, 'team');
+  if (selectedDepartmentValue === 'hcns') return buildValueOptions(filteredUsersRows.filter((r) => r.teamKind === 'hcns'), 'team');
+  return buildValueOptions(filteredSalesRows.filter((r) => r.teamKind === selectedDepartmentValue), 'team');
+}
+
 function buildPersonOptions({ selectedDepartmentValue, filteredMktRows, filteredSalesRows, filteredUsersRows, filteredVanDonRows }) {
   const names = new Set();
   if (selectedDepartmentValue === 'delivery') filteredVanDonRows.forEach((r) => names.add(r.name));
@@ -1033,6 +1072,24 @@ function buildPersonOptions({ selectedDepartmentValue, filteredMktRows, filtered
   else if (selectedDepartmentValue === 'hcns') filteredUsersRows.filter((r) => r.teamKind === 'hcns').forEach((r) => names.add(r.name));
   else filteredSalesRows.filter((r) => r.teamKind === selectedDepartmentValue).forEach((r) => names.add(r.name));
   return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
+}
+
+function compactTeamLabels(values, fallback) {
+  const labels = [...new Set(values.map(optionLabel).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  if (labels.length === 0) return fallback;
+  if (labels.length <= 2) return labels.join(', ');
+  return `${labels[0]} +${labels.length - 1}`;
+}
+
+function buildTeamLabelByName(rows, fallback) {
+  const map = new Map();
+  rows.forEach((row) => {
+    const name = optionLabel(row.name);
+    if (!name) return;
+    if (!map.has(name)) map.set(name, []);
+    map.get(name).push(row.team);
+  });
+  return new Map([...map.entries()].map(([name, values]) => [name, compactTeamLabels(values, fallback)]));
 }
 
 function buildIndividualRows({ selectedDepartmentValue, filteredMktRows, filteredSalesRows, filteredUsersRows, filteredVanDonRows, person }) {
@@ -1077,10 +1134,14 @@ function buildIndividualRows({ selectedDepartmentValue, filteredMktRows, filtere
       .sort((a, b) => b.rankValue - a.rankValue);
   }
   if (selectedDepartmentValue !== 'mkt') {
+    const teamByName = buildTeamLabelByName(
+      filteredSalesRows.filter((r) => r.teamKind === selectedDepartmentValue),
+      departmentLabel(selectedDepartmentValue)
+    );
     return aggregateNamed(filteredSalesRows.filter((r) => r.teamKind === selectedDepartmentValue), addSales, emptySalesAgg, (r) => r.name)
       .map((a) => ({
         label: a.label,
-        team: departmentLabel(selectedDepartmentValue),
+        team: teamByName.get(a.label) || departmentLabel(selectedDepartmentValue),
         rankValue: selectedDepartmentValue === 'rnd' ? a.products.size : a.revenue,
         primary: selectedDepartmentValue === 'rnd' ? formatNumber(a.products.size) : formatMoney(a.revenue),
         secondary: selectedDepartmentValue === 'cskh' ? formatPercent(ratio(a.customerOld + a.crossSale, a.orders || a.responses)) : formatPercent(ratio(a.orders, a.messages)),
@@ -1096,10 +1157,11 @@ function buildIndividualRows({ selectedDepartmentValue, filteredMktRows, filtere
       .filter((r) => person === 'all' || r.label === person)
       .sort((a, b) => b.rankValue - a.rankValue);
   }
+  const teamByName = buildTeamLabelByName(filteredMktRows, 'MKT');
   return aggregateNamed(filteredMktRows, addMkt, emptyMktAgg, (r) => r.name)
     .map((a) => ({
       label: a.label,
-      team: 'MKT',
+      team: teamByName.get(a.label) || 'MKT',
       rankValue: a.revenue,
       primary: formatMoney(a.revenue),
       secondary: formatPercent(ratio(a.adsCost, a.revenueForAdsRate || a.revenue)),
