@@ -171,14 +171,9 @@
     </div>
 
     <script>
+        /** Luôn HCM — API đọc bảng order_code_hcm (không dùng orders). */
         function getParentRegionParam() {
-            try {
-                var p = new URLSearchParams(window.location.search);
-                var r = (p.get('region') || '').toString().toLowerCase();
-                return r === 'hcm' ? 'hcm' : 'hn';
-            } catch (e) {
-                return 'hn';
-            }
+            return 'hcm';
         }
 
         function withRegionQuery(url) {

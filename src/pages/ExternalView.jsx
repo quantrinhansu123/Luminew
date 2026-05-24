@@ -18,7 +18,14 @@ export default function ExternalView() {
                 navigate("/xem-bao-cao-mkt", { replace: true });
                 return;
             }
-            setUrl(decodedUrl);
+            let finalUrl = decodedUrl;
+            if (finalUrl.includes("/baocao-vandon-nv/")) {
+                const sep = finalUrl.includes("?") ? "&" : "?";
+                if (!/[?&]region=/i.test(finalUrl)) {
+                    finalUrl = `${finalUrl}${sep}region=hcm`;
+                }
+            }
+            setUrl(finalUrl);
         }
     }, [location.search, navigate]);
 

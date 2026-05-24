@@ -311,13 +311,6 @@ export default function Header() {
             >
               Trang chủ
             </Link>
-            <Link
-              to="/cham-cong"
-              className={`text-white bg-green-500 hover:bg-green-400 rounded-md font-bold transition ${compact ? "px-2 py-1 text-xs" : "px-3 py-2 text-sm"}`}
-              title="Điểm danh đầu giờ/cuối giờ"
-            >
-              📷 Chấm công
-            </Link>
             {/* <Link
               to="/bang-bao-cao"
               className="text-white hover:bg-green-700 px-3 py-2 rounded-md text-sm font-medium transition"

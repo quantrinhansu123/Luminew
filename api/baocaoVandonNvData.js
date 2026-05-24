@@ -24,6 +24,7 @@ const DB_TO_APP_MAPPING = {
   delivery_staff: 'NV Vận đơn',
   delivery_status: 'Trạng thái giao hàng',
   payment_status: 'Trạng thái thu tiền',
+  payment_status_detail: 'Trạng thái thanh toán',
   note: 'Ghi chú',
   feedback_pos: 'Phản hồi tích cực',
   feedback_neg: 'Phản hồi tiêu cực',
@@ -296,14 +297,18 @@ async function fetchMktFromDetailReports(supabase) {
   return rows.slice(0, cap);
 }
 
+/** Báo cáo vận đơn NV (`/baocao-vandon-nv`) — chỉ bảng HCM, không đọc `orders`. */
+export const BAOCAO_VANDON_NV_ORDERS_TABLE = 'order_code_hcm';
+
 export async function fetchF3LegacyMapped(supabase, opts = {}) {
   const { startDate = '', endDate = '', maxRows } = opts;
+  const tableName = BAOCAO_VANDON_NV_ORDERS_TABLE;
   const cap = Math.min(Number(maxRows) || 80000, 150000);
   const rows = [];
   let from = 0;
 
   while (rows.length < cap) {
-    let q = supabase.from('orders').select('*');
+    let q = supabase.from(tableName).select('*');
     if (startDate) q = q.gte('order_date', startDate);
     if (endDate) q = q.lte('order_date', endDate);
     q = q
@@ -529,7 +534,12 @@ export default async function handler(req, res) {
     const endDate = req.query.end_date ? String(req.query.end_date).trim() : '';
     const maxRows = req.query.max_rows ? Number(req.query.max_rows) : undefined;
 
-    const mapped = await fetchF3LegacyMapped(client, { startDate, endDate, maxRows });
+    const mapped = await fetchF3LegacyMapped(client, {
+      startDate,
+      endDate,
+      maxRows,
+    });
+    res.setHeader('X-Baocao-Vandon-Source-Table', BAOCAO_VANDON_NV_ORDERS_TABLE);
     res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
     res.status(200).json(mapped);
   } catch (e) {

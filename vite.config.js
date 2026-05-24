@@ -1,6 +1,7 @@
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
+import { viteBaocaoVandonNvApiPlugin } from './scripts/viteBaocaoVandonNvApiPlugin.js';
 
 // Express (server.js) mặc định cổng 3002 — không trùng Vite 3001.
 // Ghi đè: VITE_DEV_API_PROXY=http://127.0.0.1:9999 npm run dev
@@ -11,7 +12,7 @@ export default defineConfig(({ mode }) => {
   const apiTarget = env.VITE_DEV_API_PROXY || 'http://127.0.0.1:3002';
 
   return {
-  plugins: [react()],
+  plugins: [react(), viteBaocaoVandonNvApiPlugin(env)],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -61,17 +62,7 @@ export default defineConfig(({ mode }) => {
           });
         },
       },
-      '/api/baocaoVandonNvData': {
-        target: apiTarget,
-        changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('baocaoVandonNvData proxy error (chạy `npm run server` trên cổng 3002?)', err);
-          });
-        },
-      },
+      // /api/baocaoVandonNvData — xử lý bởi viteBaocaoVandonNvApiPlugin (không proxy 3002)
       // Proxy for local API server to bypass CORS
       '/api/local': {
         target: 'http://127.0.0.1:8000',

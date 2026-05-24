@@ -499,9 +499,17 @@
   </div>
 
   <script>
-    const F3_URL = '/api/baocaoVandonNvData?kind=f3';
-    const BAO_CAO_MKT_URL = '/api/baocaoVandonNvData?kind=mkt';
-    const HR_URL = '/api/baocaoVandonNvData?kind=hr';
+    const buildVandonApiUrl = (params) => {
+      if (window.VandonNvRegion && window.VandonNvRegion.buildApiUrl) {
+        return window.VandonNvRegion.buildApiUrl(params || {});
+      }
+      const sp = new URLSearchParams(params || {});
+      if (!sp.has('region')) sp.set('region', 'hcm');
+      return '/api/baocaoVandonNvData?' + sp.toString();
+    };
+    const F3_URL = buildVandonApiUrl({ kind: 'f3' });
+    const BAO_CAO_MKT_URL = buildVandonApiUrl({ kind: 'mkt' });
+    const HR_URL = buildVandonApiUrl({ kind: 'hr' });
     // Fallback sample (user-provided) to display when network fails
     const F3_SAMPLE = {
       "0": {
@@ -649,14 +657,7 @@
           console.warn('⚠️ No HR data loaded from API');
         }
 
-        if (window.VandonNvRegion) {
-          const reg = window.VandonNvRegion.get();
-          rawOrders = rawOrders.filter((r) => window.VandonNvRegion.rowMatches(r, reg));
-          mktRows = mktRows.filter((r) => window.VandonNvRegion.rowMatches(r, reg));
-          hrRows = hrRows.filter((r) =>
-            window.VandonNvRegion.rowMatches({ Team: r.Team || r.team }, reg)
-          );
-        }
+        /* F3 đã từ order_code_hcm (API) — không lọc thêm theo Team. */
         
         // Debug: Kiểm tra dữ liệu F3
         if (rawOrders.length > 0) {
@@ -669,11 +670,13 @@
         applyFiltersAndRender(); // Chỉ dùng cho KPI, không khởi tạo RAW F3 view nữa
       } catch (e) {
         console.error('Lỗi tải dữ liệu F3:', e);
-        document.getElementById('statusText').textContent = 'Không thể tải dữ liệu từ F3. Đang hiển thị dữ liệu mẫu.';
+        document.getElementById('statusText').textContent =
+          'Không tải được đơn từ order_code_hcm. Kiểm tra API / mạng.';
         const rawStatus = document.getElementById('rawStatus');
-        if (rawStatus) rawStatus.textContent = 'Không thể tải dữ liệu từ F3. Đang hiển thị dữ liệu mẫu.';
-        // Use fallback sample so UI still works
-        rawOrders = normalizeF3(F3_SAMPLE);
+        if (rawStatus) {
+          rawStatus.textContent = 'Không tải được đơn từ order_code_hcm.';
+        }
+        rawOrders = [];
         mktRows = [];
         hrRows = [];
         computeAccessScope();

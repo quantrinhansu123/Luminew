@@ -524,6 +524,7 @@ app.get('/api/baocaoVandonNvData', async (req, res) => {
       maxRows,
     });
     res.setHeader('Cache-Control', 'public, max-age=30');
+    res.setHeader('X-Baocao-Vandon-Source-Table', 'order_code_hcm');
     return res.json(mapped);
   } catch (e) {
     const msg = e && e.message ? String(e.message) : 'Server error';

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Gửi Webhook</title>
+
+  <style>
+    body{
+      font-family: Arial;
+      background:#f5f5f5;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      height:100vh;
+    }
+
+    .box{
+      background:white;
+      padding:25px;
+      width:350px;
+      border-radius:12px;
+      box-shadow:0 0 10px rgba(0,0,0,0.1);
+    }
+
+    input,textarea{
+      width:100%;
+      padding:10px;
+      margin-top:10px;
+      box-sizing:border-box;
+    }
+
+    button{
+      width:100%;
+      padding:12px;
+      margin-top:15px;
+      background:#0066ff;
+      color:white;
+      border:none;
+      border-radius:8px;
+      cursor:pointer;
+    }
+
+    #kq{
+      margin-top:15px;
+      font-weight:bold;
+    }
+  </style>
+</head>
+<body>
+
+<div class="box">
+
+  <h2>Gửi Webhook</h2>
+
+  <input type="text" id="sdt" placeholder="Nhập số điện thoại">
+
+  <textarea id="noidung" rows="4" placeholder="Nhập nội dung"></textarea>
+
+  <button onclick="guiWebhook()">Gửi</button>
+
+  <div id="kq"></div>
+
+</div>
+
+<script>
+async function guiWebhook(){
+
+  const sdt = document.getElementById("sdt").value;
+  const noidung = document.getElementById("noidung").value;
+
+  try{
+
+    await fetch(
+      "https://asia-57169778.phoaify.com/webhook/fb7f8618-107e-4730-aa94-666e3bac55df",
+      {
+        method:"POST",
+
+        mode:"no-cors",
+
+        headers:{
+          "Content-Type":"application/json"
+        },
+
+        body:JSON.stringify({
+          sdt:sdt,
+          noidung:noidung
+        })
+      }
+    );
+
+    document.getElementById("kq").innerHTML =
+      "✅ Đã gửi webhook thành công";
+
+  }catch(err){
+
+    console.log(err);
+
+    document.getElementById("kq").innerHTML =
+      "❌ Gửi thất bại";
+
+  }
+
+}
+</script>
+
+</body>
+</html>

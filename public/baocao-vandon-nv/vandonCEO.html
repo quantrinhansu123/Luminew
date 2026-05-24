@@ -1447,12 +1447,10 @@
             }
 
             function normalizeApiRowsPayload(payload) {
-                if (Array.isArray(payload)) return { rows: payload };
-                if (payload && typeof payload === 'object') {
-                    if (Array.isArray(payload.rows)) return { rows: payload.rows };
-                    if (Array.isArray(payload.data)) return { rows: payload.data };
-                    return { rows: Object.values(payload).filter(item => item && typeof item === 'object') };
+                if (window.VandonNvRegion && window.VandonNvRegion.normalizeApiRowsPayload) {
+                    return window.VandonNvRegion.normalizeApiRowsPayload(payload);
                 }
+                if (Array.isArray(payload)) return { rows: payload };
                 return { rows: [] };
             }
 
@@ -1472,11 +1470,7 @@ function handleData(response) {
 
                 // Khớp logic trang vận hành: chỉ xử lý đơn có mã đơn hàng.
                 globalData = response.rows.filter(r => getRowValue(r, 'Mã_đơn_hàng', 'Mã đơn hàng'));
-                if (window.VandonNvRegion) {
-                    const reg = window.VandonNvRegion.get();
-                    rawData = window.VandonNvRegion.filterRows(rawData, reg);
-                    globalData = window.VandonNvRegion.filterRows(globalData, reg);
-                }
+                /* API chỉ trả về order_code_hcm — không lọc thêm theo Team. */
                 console.log('📊 Final globalData length:', globalData.length);
                 console.log('📊 Raw data length:', rawData.length);
                 console.log('🔐 Final allowedNames:', allowedNames ? Array.from(allowedNames) : 'null');
@@ -1492,10 +1486,14 @@ function handleData(response) {
             // Hàm fetch dữ liệu nhân sự từ Firebase
             async function fetchNhanSuData() {
                 try {
-                    const firebaseUrl = '/api/baocaoVandonNvData?kind=hr';
+                    const firebaseUrl = window.VandonNvRegion
+                        ? window.VandonNvRegion.buildApiUrl({ kind: 'hr' })
+                        : '/api/baocaoVandonNvData?kind=hr&region=hcm';
                     const response = await fetch(firebaseUrl);
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const data = await response.json();
+                    if (!response.ok || (data && data.error)) {
+                        throw new Error((data && data.error) || `HTTP ${response.status}`);
+                    }
                     
                     // Chuyển đổi object thành array nếu cần
                     if (data && typeof data === 'object' && !Array.isArray(data)) {
@@ -1520,16 +1518,21 @@ function handleData(response) {
                 vanDonReportApp.showError('Đang tải dữ liệu, vui lòng chờ...');
 
                 // Dùng API cũ cho dữ liệu vận đơn
-                const apiUrl = '/api/baocaoVandonNvData?kind=f3';
+                const apiUrl = window.VandonNvRegion
+                    ? window.VandonNvRegion.buildApiUrl({ kind: 'f3' })
+                    : '/api/baocaoVandonNvData?kind=f3&region=hcm';
 
                 // Gọi cả 2 API song song
                 Promise.all([
                     fetch(apiUrl),
                     fetchNhanSuData()
                 ])
-                    .then(([vanDonResponse, nhanSuResult]) => {
-                        if (!vanDonResponse.ok) throw new Error(`HTTP error! status: ${vanDonResponse.status}`);
-                        return vanDonResponse.json().then(vanDonData => ({ vanDonData, nhanSuResult }));
+                    .then(async ([vanDonResponse, nhanSuResult]) => {
+                        const vanDonData = await vanDonResponse.json();
+                        if (!vanDonResponse.ok || (vanDonData && vanDonData.error)) {
+                            throw new Error((vanDonData && vanDonData.error) || `HTTP ${vanDonResponse.status}`);
+                        }
+                        return { vanDonData, nhanSuResult };
                     })
                     .then(({ vanDonData, nhanSuResult }) => {
                         console.log('===== API RESPONSE =====');
@@ -1623,9 +1626,12 @@ function handleData(response) {
                     // CHỈ tính cho nhân viên đã chọn trong filter (theo rule mới)
                     filteredData.forEach(row => {
                         const amount = parseFloat(String(getRowValue(row, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ') || '0').replace(/[^\d.-]/g, '')) || 0;
-                        const payment = getRowValue(row, 'Trạng_thái_thu_tiền', 'Trạng thái thu tiền') || "";
-                        const delivery = getRowValue(row, 'Trạng_thái_giao_hàng_NB', 'Trạng_thái_giao_hàng', 'Trạng thái giao hàng NB', 'Trạng thái giao hàng') || "";
-                        const ketQuaCheck = (getRowValue(row, 'Kết_quả_Check', 'Kết quả Check') || "").trim().toUpperCase();
+                        const payment = (window.VandonNvRegion && VandonNvRegion.resolveTrangThaiThanhToan)
+                            ? VandonNvRegion.resolveTrangThaiThanhToan(row)
+                            : (getRowValue(row, 'Trạng_thái_thanh_toán', 'Trạng thái thanh toán', 'payment_status_detail', 'Trạng_thái_thu_tiền', 'Trạng thái thu tiền') || "");
+                        const deliveryNb = VandonNvRegion.resolveTrangThaiGiaoHangNb(row);
+                        const ketQuaCheckRaw = VandonNvRegion.resolveKetQuaCheck(row);
+                        const ketQuaCheck = ketQuaCheckRaw.trim().toUpperCase();
                         const maTracking = (getRowValue(row, 'Mã_Tracking', 'Mã Tracking') || "").trim();
                         const dvvc = (getRowValue(row, 'Đơn_vị_vận_chuyển', 'Đơn vị vận chuyển') || "").trim();
 
@@ -1709,15 +1715,10 @@ function handleData(response) {
                                 stats["Đã Thanh Toán (có bill)"].count++;
                                 stats["Đã Thanh Toán (có bill)"].amount += amount;
                             }
-                            if (ketQuaCheck === "OK" && payment === "" && delivery === "") {
+                            if (ketQuaCheck === "OK" && payment === "" && deliveryNb === "") {
                                 stats["Trống trạng thái"].count++;
                             }
-                            const deliveryLower = delivery.toLowerCase();
-                            if (deliveryLower.includes("giao thành công") || deliveryLower.includes("đơn thành công")) stats["Giao Thành Công"].count++;
-                            else if (delivery.includes("Đang Giao")) stats["Đang Giao"].count++;
-                            else if (delivery.includes("Chưa Giao")) stats["Chưa Giao"].count++;
-                            else if (delivery.includes("Hoàn")) stats["Hoàn"].count++;
-                            else if (delivery.includes("chờ check")) stats["chờ check"].count++;
+                            VandonNvRegion.incrementDeliveryStatusCount(stats, ketQuaCheckRaw);
                         });
 
                         // Grand total chỉ tính 1 lần cho mỗi đơn
@@ -1747,17 +1748,10 @@ function handleData(response) {
                             grandTotal["Đã Thanh Toán (có bill)"].count++;
                             grandTotal["Đã Thanh Toán (có bill)"].amount += amount;
                         }
-                        if (ketQuaCheck === "OK" && payment === "" && delivery === "") {
+                        if (ketQuaCheck === "OK" && payment === "" && deliveryNb === "") {
                             grandTotal["Trống trạng thái"].count++;
                         }
-                        {
-                            const deliveryLower = delivery.toLowerCase();
-                            if (deliveryLower.includes("giao thành công") || deliveryLower.includes("đơn thành công")) grandTotal["Giao Thành Công"].count++;
-                            else if (delivery.includes("Đang Giao")) grandTotal["Đang Giao"].count++;
-                            else if (delivery.includes("Chưa Giao")) grandTotal["Chưa Giao"].count++;
-                            else if (delivery.includes("Hoàn")) grandTotal["Hoàn"].count++;
-                            else if (delivery.includes("chờ check")) grandTotal["chờ check"].count++;
-                        }
+                        VandonNvRegion.incrementDeliveryStatusCount(grandTotal, ketQuaCheckRaw);
                     });
 
                     // BƯỚC 2: Thêm nhân viên chưa có dữ liệu vào bảng

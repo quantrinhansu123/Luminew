@@ -151,16 +151,43 @@
             min-width: 150px;
         }
 
+        .report-table-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 12px;
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
+
+        .view-charts-btn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 500;
+            color: #fff;
+            background: var(--primary-color);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 6px rgba(41, 128, 185, 0.35);
+        }
+
+        .view-charts-btn:hover {
+            background: var(--primary-light);
+        }
+
         .chart-controls {
             display: flex;
             gap: 20px;
             align-items: center;
-            padding: 15px 20px;
-            background: #fff;
+            padding: 12px 16px;
+            background: #f8fafc;
             border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-            margin-top: 25px;
-            margin-bottom: 25px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 16px;
             flex-wrap: wrap;
         }
 
@@ -175,33 +202,41 @@
 
         .table-wrapper {
             position: relative;
-            overflow-x: hidden;
+            overflow-x: auto;
             overflow-y: auto;
-            max-height: 75vh;
+            max-height: calc(100vh - 200px);
+            min-height: 420px;
             background: white;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
-            margin-top: 25px;
+            margin-top: 0;
         }
 
-        #VanDonReport table {
+        #VanDonReport table.summary-table {
             border-collapse: collapse;
-            width: 100%;
-            table-layout: fixed;
-            font-size: 15px;
+            width: max-content;
+            min-width: 100%;
+            table-layout: auto;
+            font-size: 14px;
             box-shadow: none;
         }
 
-        #VanDonReport th,
-        #VanDonReport td {
+        #VanDonReport .summary-table th,
+        #VanDonReport .summary-table td {
             border: 1px solid #e0e0e0;
-            padding: 12px 15px;
-            white-space: normal;
-            word-wrap: break-word;
-            word-break: break-word;
+            padding: 10px 12px;
+            white-space: nowrap;
             background-color: white;
+            text-align: center;
+            min-width: 72px;
+        }
+
+        #VanDonReport .summary-table th.header-main,
+        #VanDonReport .summary-table td:first-child {
+            min-width: 160px;
+            max-width: 220px;
+            white-space: normal;
             text-align: left;
-            overflow: hidden;
         }
 
         #VanDonReport th {
@@ -241,21 +276,88 @@
             font-size: 18px;
         }
 
+        .charts-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+
+        .charts-modal.is-open {
+            display: flex;
+        }
+
+        .charts-modal-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(44, 62, 80, 0.55);
+        }
+
+        .charts-modal-panel {
+            position: relative;
+            z-index: 1;
+            width: min(1800px, 98vw);
+            max-height: 96vh;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .charts-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+
+        .charts-modal-header h2 {
+            margin: 0;
+            font-size: 1.25rem;
+            color: var(--primary-dark);
+        }
+
+        .charts-modal-close {
+            border: none;
+            background: transparent;
+            font-size: 28px;
+            line-height: 1;
+            cursor: pointer;
+            color: #7f8c8d;
+            padding: 0 4px;
+        }
+
+        .charts-modal-close:hover {
+            color: #c0392b;
+        }
+
+        .charts-modal-body {
+            padding: 16px 20px 20px;
+            overflow-y: auto;
+        }
+
         #charts-container {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 25px;
-            margin-bottom: 25px;
+            grid-template-columns: repeat(2, minmax(420px, 1fr));
+            gap: 24px;
         }
 
         .chart-wrapper {
-            background: #fff;
-            padding: 20px;
+            background: #fafbfc;
+            padding: 16px;
             border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+            border: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
-            min-height: 450px;
+            min-height: 480px;
         }
 
         .chart-wrapper h3 {
@@ -269,13 +371,15 @@
 
         .chart-canvas-container {
             position: relative;
-            flex-grow: 1;
+            flex: 1 1 auto;
             width: 100%;
+            min-height: 360px;
         }
 
         .chart-wrapper canvas {
-            height: 80% !important;
-            width: 80% !important;
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
         }
 
         .summary-table td {
@@ -508,6 +612,11 @@
             #charts-container {
                 grid-template-columns: 1fr;
             }
+
+            .charts-modal-panel {
+                width: 100%;
+                max-height: 96vh;
+            }
         }
     </style>
 </head>
@@ -586,43 +695,10 @@
                 </div>
             </div>
 
-            <div class="chart-controls">
-                <label><input type="checkbox" id="toggleAllCharts" checked> <b>Tất cả biểu đồ</b></label>
-                <label><input type="checkbox" class="chart-toggle" data-chart-id="statusBreakdownChart" checked> Phân
-                    tích Trạng thái</label>
-                <label><input type="checkbox" class="chart-toggle" data-chart-id="funnelChart" checked> Phân tích Kênh
-                    Vận hành</label>
-                <label><input type="checkbox" class="chart-toggle" data-chart-id="staffPerformanceChart" checked> Hiệu
-                    suất NV</label>
-                <label><input type="checkbox" class="chart-toggle" data-chart-id="staffSuccessRateChart" checked> Tỉ lệ
-                    thu tiền</label>
-            </div>
-
-            <div id="charts-container">
-                <div class="chart-wrapper">
-                    <h3>Phân tích Trạng thái Giao hàng</h3>
-                    <div class="chart-canvas-container">
-                        <canvas id="statusBreakdownChart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-wrapper">
-                    <h3>Phân tích Kênh Vận hành</h3>
-                    <div class="chart-canvas-container">
-                        <canvas id="funnelChart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-wrapper">
-                    <h3>Hiệu suất theo NV Vận đơn</h3>
-                    <div class="chart-canvas-container">
-                        <canvas id="staffPerformanceChart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-wrapper">
-                    <h3>Tỉ lệ thu tiền / Giao thành công</h3>
-                    <div class="chart-canvas-container">
-                        <canvas id="staffSuccessRateChart"></canvas>
-                    </div>
-                </div>
+            <div class="report-table-toolbar">
+                <button type="button" id="openChartsModalBtn" class="view-charts-btn" title="Mở biểu đồ phân tích">
+                    <i class="fas fa-chart-pie" aria-hidden="true"></i> Xem biểu đồ phân tích
+                </button>
             </div>
 
             <div class="table-wrapper">
@@ -657,6 +733,55 @@
                     <!-- ===== END: HTML MODIFICATION ===== -->
                     <tbody id="summaryTableBody"></tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="chartsModal" class="charts-modal" hidden aria-hidden="true" role="dialog" aria-labelledby="chartsModalTitle">
+        <div class="charts-modal-backdrop" id="chartsModalBackdrop"></div>
+        <div class="charts-modal-panel">
+            <div class="charts-modal-header">
+                <h2 id="chartsModalTitle">Biểu đồ phân tích</h2>
+                <button type="button" class="charts-modal-close" id="closeChartsModalBtn" aria-label="Đóng">&times;</button>
+            </div>
+            <div class="charts-modal-body">
+                <div class="chart-controls">
+                    <label><input type="checkbox" id="toggleAllCharts" checked> <b>Tất cả biểu đồ</b></label>
+                    <label><input type="checkbox" class="chart-toggle" data-chart-id="statusBreakdownChart" checked> Phân
+                        tích Trạng thái</label>
+                    <label><input type="checkbox" class="chart-toggle" data-chart-id="funnelChart" checked> Phân tích Kênh
+                        Vận hành</label>
+                    <label><input type="checkbox" class="chart-toggle" data-chart-id="staffPerformanceChart" checked> Hiệu
+                        suất NV</label>
+                    <label><input type="checkbox" class="chart-toggle" data-chart-id="staffSuccessRateChart" checked> Tỉ lệ
+                        thu tiền</label>
+                </div>
+                <div id="charts-container">
+                    <div class="chart-wrapper">
+                        <h3>Phân tích Trạng thái Giao hàng</h3>
+                        <div class="chart-canvas-container">
+                            <canvas id="statusBreakdownChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <h3>Phân tích Kênh Vận hành</h3>
+                        <div class="chart-canvas-container">
+                            <canvas id="funnelChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <h3>Hiệu suất theo NV Vận đơn</h3>
+                        <div class="chart-canvas-container">
+                            <canvas id="staffPerformanceChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <h3>Tỉ lệ thu tiền / Giao thành công</h3>
+                        <div class="chart-canvas-container">
+                            <canvas id="staffSuccessRateChart"></canvas>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -763,12 +888,10 @@
             }
 
             function normalizeApiRowsPayload(payload) {
-                if (Array.isArray(payload)) return { rows: payload };
-                if (payload && typeof payload === 'object') {
-                    if (Array.isArray(payload.rows)) return { rows: payload.rows };
-                    if (Array.isArray(payload.data)) return { rows: payload.data };
-                    return { rows: Object.values(payload).filter(item => item && typeof item === 'object') };
+                if (window.VandonNvRegion && window.VandonNvRegion.normalizeApiRowsPayload) {
+                    return window.VandonNvRegion.normalizeApiRowsPayload(payload);
                 }
+                if (Array.isArray(payload)) return { rows: payload };
                 return { rows: [] };
             }
 
@@ -793,6 +916,7 @@
                     "Đơn vị vận chuyển": getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển"),
                     "Kết quả Check": getRowValue(row, "Kết quả Check", "Kết_quả_Check"),
                     "Trạng thái thu tiền": getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"),
+                    "Trạng thái thanh toán": getRowValue(row, "Trạng thái thanh toán", "Trạng_thái_thanh_toán", "payment_status_detail"),
                     "Trạng thái giao hàng NB": getRowValue(row, "Trạng thái giao hàng NB", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"),
                     "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ"),
                 };
@@ -808,9 +932,7 @@ function handleData(response) {
                 globalData = response.rows
                     .map(normalizeSourceRow)
                     .filter(r => getRowValue(r, "Mã đơn hàng", "Mã_đơn_hàng"));
-                if (window.VandonNvRegion) {
-                    globalData = window.VandonNvRegion.filterRows(globalData, window.VandonNvRegion.get());
-                }
+                /* API chỉ trả về order_code_hcm — không lọc thêm theo Team. */
                 vanDonReportApp.populateReportFilters();
                 vanDonReportApp.applyAllFilters();
             }
@@ -818,12 +940,16 @@ function handleData(response) {
             function loadData() {
                 showLoader();
                 vanDonReportApp.showError('Đang tải dữ liệu, vui lòng chờ...');
-                vanDonReportApp.updateCharts([]);
-                const apiUrl = '/api/baocaoVandonNvData?kind=f3';
+                const apiUrl = window.VandonNvRegion
+                    ? window.VandonNvRegion.buildApiUrl({ kind: 'f3' })
+                    : '/api/baocaoVandonNvData?kind=f3&region=hcm';
                 fetch(apiUrl)
-                    .then(response => {
-                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                        return response.json();
+                    .then(async (response) => {
+                        const data = await response.json();
+                        if (!response.ok || (data && data.error)) {
+                            throw new Error((data && data.error) || `HTTP ${response.status}`);
+                        }
+                        return data;
                     })
                     .then(data => handleData(normalizeApiRowsPayload(data)))
                     .catch(error => {
@@ -862,15 +988,51 @@ function handleData(response) {
                 tgs.forEach(t => t.addEventListener('change', update));
                 update();
             }
+
+            function setupChartsModal(app) {
+                const modal = document.getElementById('chartsModal');
+                const openBtn = document.getElementById('openChartsModalBtn');
+                const closeBtn = document.getElementById('closeChartsModalBtn');
+                const backdrop = document.getElementById('chartsModalBackdrop');
+                if (!modal || !openBtn) return;
+
+                const open = () => {
+                    modal.classList.add('is-open');
+                    modal.hidden = false;
+                    modal.setAttribute('aria-hidden', 'false');
+                    app.updateCharts(app.lastFilteredData || []);
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            Object.values(app.chartInstances).forEach((c) => {
+                                if (c && typeof c.resize === 'function') c.resize();
+                            });
+                        });
+                    });
+                };
+                const close = () => {
+                    modal.classList.remove('is-open');
+                    modal.hidden = true;
+                    modal.setAttribute('aria-hidden', 'true');
+                };
+
+                openBtn.addEventListener('click', open);
+                closeBtn?.addEventListener('click', close);
+                backdrop?.addEventListener('click', close);
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+                });
+            }
             const vanDonReportApp = {
                 chartInstances: {},
                 sortState: null,
                 lastSummaryRows: [],
                 lastGrandTotal: null,
+                lastFilteredData: [],
                 init: function () {
                     this.setupControls();
                     setupQuickDateSelect('quick-date-vandon', 'reportStartDateFilter', 'reportEndDateFilter', 'reportEndDateFilter');
                     setupChartToggles();
+                    setupChartsModal(this);
                     this.setupSummarySorting();
                 },
                 showError: function (message) {
@@ -913,13 +1075,11 @@ function handleData(response) {
 
                     const statusCtx = document.getElementById('statusBreakdownChart')?.getContext('2d');
                     if (statusCtx) {
-                        const statusCounts = { 'Giao Thành Công': 0, 'Hoàn': 0, 'Đang Giao': 0, 'chờ check': 0, 'Khác': 0 };
+                        const statusCounts = { 'Giao Thành Công': 0, 'Đang Giao': 0, 'Chưa Giao': 0, 'Hoàn': 0, 'chờ check': 0, 'Khác': 0 };
                         filteredData.forEach(r => {
-                            const s = r["Trạng thái giao hàng NB"] || "";
-                            if (s.includes("Giao Thành Công")) statusCounts['Giao Thành Công']++;
-                            else if (s.includes("Hoàn")) statusCounts['Hoàn']++;
-                            else if (s.includes("Đang Giao")) statusCounts['Đang Giao']++;
-                            else if (s.includes("chờ check")) statusCounts['chờ check']++;
+                            const s = VandonNvRegion.resolveTrangThaiGiaoHangNb(r);
+                            const bucket = VandonNvRegion.classifyTrangThaiGiaoHangNb(s);
+                            if (bucket) statusCounts[bucket]++;
                             else if (s) statusCounts['Khác']++;
                         });
                         const sortedStatus = Object.entries(statusCounts).sort(([, a], [, b]) => b - a);
@@ -929,7 +1089,7 @@ function handleData(response) {
                                 labels: sortedStatus.map(e => e[0]),
                                 datasets: [{
                                     data: sortedStatus.map(e => e[1]),
-                                    backgroundColor: ['#2ecc71', '#e74c3c', '#3498db', '#f1c40f', '#95a5a6']
+                                    backgroundColor: ['#2ecc71', '#3498db', '#9b59b6', '#e74c3c', '#f1c40f', '#95a5a6']
                                 }]
                             },
                             options: {
@@ -949,9 +1109,12 @@ function handleData(response) {
                         filteredData.forEach(r => {
                             funnelStats["Tổng đơn nội bộ"]++;
                             if ((r["Mã Tracking"] || "").trim()) funnelStats["Đơn lên vận hành"]++;
-                            if ((r["Trạng thái giao hàng NB"] || "").includes("Giao Thành Công")) funnelStats["Giao thành công"]++;
-                            if ((r["Trạng thái thu tiền"] || "").includes("Có bill 1 phần")) funnelStats["Có bill 1 phần"]++;
-                            else if ((r["Trạng thái thu tiền"] || "").includes("Có bill")) funnelStats["Có bill"]++;
+                            if (VandonNvRegion.classifyTrangThaiGiaoHangNb(VandonNvRegion.resolveTrangThaiGiaoHangNb(r)) === 'Giao Thành Công') {
+                                funnelStats["Giao thành công"]++;
+                            }
+                            const ttThanhToan = VandonNvRegion.resolveTrangThaiThanhToan(r);
+                            if (ttThanhToan.includes("Có bill 1 phần")) funnelStats["Có bill 1 phần"]++;
+                            else if (ttThanhToan.includes("Có bill")) funnelStats["Có bill"]++;
                         });
                         this.chartInstances.funnel = new Chart(funnelCtx, {
                             type: 'bar',
@@ -975,31 +1138,50 @@ function handleData(response) {
                     filteredData.forEach(r => {
                         const staff = r["NV Vận đơn"] || "Chưa có NV";
                         if (!staffData[staff]) staffData[staff] = { success: 0, returned: 0, paid: 0 };
-                        const status = r["Trạng thái giao hàng NB"] || "";
-                        if (status.includes("Giao Thành Công")) staffData[staff].success++;
-                        else if (status.includes("Hoàn")) staffData[staff].returned++;
-                        if ((r["Trạng thái thu tiền"] || "").includes("Có bill")) staffData[staff].paid++;
+                        const deliveryBucket = VandonNvRegion.classifyTrangThaiGiaoHangNb(
+                            VandonNvRegion.resolveTrangThaiGiaoHangNb(r)
+                        );
+                        if (deliveryBucket === 'Giao Thành Công') staffData[staff].success++;
+                        else if (deliveryBucket === 'Hoàn') staffData[staff].returned++;
+                        const tt = VandonNvRegion.resolveTrangThaiThanhToan(r);
+                        if (tt.includes("Có bill 1 phần")) { /* không tính paid */ }
+                        else if (tt.includes("Có bill")) staffData[staff].paid++;
                     });
                     const staffPerfCtx = document.getElementById('staffPerformanceChart')?.getContext('2d');
                     if (staffPerfCtx) {
-                        let perfArray = Object.entries(staffData).map(([s, d]) => ({ staff: s, ...d })).sort((a, b) => b.success - a.success);
+                        let perfArray = Object.entries(staffData)
+                            .map(([s, d]) => ({ staff: s, ...d }))
+                            .filter((i) => i.success > 0 || i.returned > 0)
+                            .sort((a, b) => (b.success + b.returned) - (a.success + a.returned));
                         this.chartInstances.staffPerf = new Chart(staffPerfCtx, {
                             type: 'bar',
                             data: {
                                 labels: perfArray.map(i => i.staff),
-                                datasets: [{ label: 'Thành Công', data: perfArray.map(i => i.success), backgroundColor: '#2ecc71' }, { label: 'Hoàn', data: perfArray.map(i => i.returned), backgroundColor: '#e74c3c' }]
+                                datasets: [
+                                    { label: 'Thành Công', data: perfArray.map(i => i.success), backgroundColor: '#2ecc71' },
+                                    { label: 'Hoàn', data: perfArray.map(i => i.returned), backgroundColor: '#e74c3c' }
+                                ]
                             },
                             options: {
                                 responsive: true,
                                 maintainAspectRatio: false,
-                                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
-                                plugins: { legend: { position: 'bottom' } }
+                                scales: {
+                                    x: { stacked: true, ticks: { maxRotation: 45, minRotation: 25 } },
+                                    y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
+                                },
+                                plugins: {
+                                    legend: { position: 'bottom' },
+                                    tooltip: { mode: 'index', intersect: false }
+                                }
                             }
                         });
                     }
                     const staffRateCtx = document.getElementById('staffSuccessRateChart')?.getContext('2d');
                     if (staffRateCtx) {
-                        let rateArray = Object.entries(staffData).map(([s, d]) => ({ staff: s, ...d, rate: d.success > 0 ? (d.paid * 100 / d.success) : 0 })).sort((a, b) => b.rate - a.rate);
+                        let rateArray = Object.entries(staffData)
+                            .map(([s, d]) => ({ staff: s, ...d, rate: d.success > 0 ? (d.paid * 100 / d.success) : 0 }))
+                            .filter((i) => i.success > 0)
+                            .sort((a, b) => b.rate - a.rate);
                         this.chartInstances.staffRate = new Chart(staffRateCtx, {
                             type: 'bar',
                             plugins: [ChartDataLabels],
@@ -1029,9 +1211,10 @@ function handleData(response) {
                         if (!staffStats[staffName]) staffStats[staffName] = this.createEmptyStats();
                         const statsToUpdate = [staffStats[staffName], grandTotal];
                         const amount = parseFloat(String(getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ") || '0').replace(/[^\d.-]/g, '')) || 0;
-                        const payment = String(getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"));
-                        const delivery = String(getRowValue(row, "Trạng thái giao hàng NB", "Trạng thái giao hàng", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"));
-                        const ketQuaCheck = String(getRowValue(row, "Kết quả Check", "Kết_quả_Check")).trim().toUpperCase();
+                        const payment = String(VandonNvRegion.resolveTrangThaiThanhToan(row));
+                        const deliveryNb = String(VandonNvRegion.resolveTrangThaiGiaoHangNb(row));
+                        const ketQuaCheckStatus = String(VandonNvRegion.resolveKetQuaCheck(row));
+                        const ketQuaCheck = ketQuaCheckStatus.trim().toUpperCase();
                         const maTracking = String(getRowValue(row, "Mã Tracking", "Mã_Tracking")).trim();
                         const dvvc = String(getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển")).trim();
                         statsToUpdate.forEach(stats => {
@@ -1062,15 +1245,10 @@ function handleData(response) {
                                 stats["Đã Thanh Toán (có bill)"].count++;
                                 stats["Đã Thanh Toán (có bill)"].amount += amount;
                             }
-                            if(ketQuaCheck === "OK" && payment === "" && delivery === "") {
+                            if(ketQuaCheck === "OK" && payment === "" && deliveryNb === "") {
                                 stats["Trống trạng thái"].count++;
                             }
-                            const deliveryLower = delivery.toLowerCase();
-                            if (deliveryLower.includes("giao thành công") || deliveryLower.includes("đơn thành công")) stats["Giao Thành Công"].count++;
-                            else if (delivery.includes("Đang Giao")) stats["Đang Giao"].count++;
-                            else if (delivery.includes("Chưa Giao")) stats["Chưa Giao"].count++;
-                            else if (delivery.includes("Hoàn")) stats["Hoàn"].count++;
-                            else if (delivery.includes("chờ check")) stats["chờ check"].count++;
+                            VandonNvRegion.incrementDeliveryStatusCount(stats, ketQuaCheckStatus);
                         });
                     });
                     this.lastSummaryRows = Object.keys(staffStats).map(staff => {
@@ -1344,8 +1522,12 @@ function handleData(response) {
                             });
                         });
                     }
+                    this.lastFilteredData = data;
                     this.updateDetailedSummaryTable(data);
-                    this.updateCharts(data);
+                    const chartsModal = document.getElementById('chartsModal');
+                    if (chartsModal && chartsModal.classList.contains('is-open')) {
+                        this.updateCharts(data);
+                    }
                 }
             };
             vanDonReportApp.init();
