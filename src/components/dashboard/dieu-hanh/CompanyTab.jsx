@@ -64,7 +64,7 @@ export default function CompanyTab({ data }) {
       <section className="lumi-dieu-hanh-panel rounded-lg border bg-white p-3 shadow-sm">
         <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="lumi-section-title">Chỉ số công ty - kỳ đang chọn</h2>
-          <span className="text-xs font-bold text-[#69768c]">So với kỳ liền trước trong 4 tháng gần nhất</span>
+          <span className="text-xs font-bold text-[#69768c]">So với kỳ liền trước trong 4 kỳ gần nhất</span>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {data.companyKpis.map((item) => (

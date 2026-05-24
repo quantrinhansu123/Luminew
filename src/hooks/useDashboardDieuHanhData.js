@@ -12,7 +12,7 @@ import {
   MAX_PAGES,
   MKT_DATE_COL,
   PAGE_SIZE,
-  buildLastFourMonthBuckets,
+  buildLastFourPeriodBuckets,
   buildDashboardModel,
   mapMktRow,
   mapOrderToVanDonRow,
@@ -145,7 +145,7 @@ async function loadOrdersTable(tableName, from, to) {
   throw lastError;
 }
 
-export default function useDashboardDieuHanhData({ from, to, branch, market, product, department, person, enabled = true }) {
+export default function useDashboardDieuHanhData({ periodMode = 'month', from, to, branch, market, product, department, person, enabled = true }) {
   const [mktRows, setMktRows] = useState([]);
   const [vanDonRows, setVanDonRows] = useState([]);
   const [salesRows, setSalesRows] = useState([]);
@@ -158,7 +158,7 @@ export default function useDashboardDieuHanhData({ from, to, branch, market, pro
     setLoading(true);
     setErrors([]);
     try {
-      const historyFrom = buildLastFourMonthBuckets(to)[0]?.start || from;
+      const historyFrom = buildLastFourPeriodBuckets(periodMode, from, to)[0]?.start || from;
       const [mktHnRes, mktHcmRes, vanDonHnRes, vanDonHcmRes, vanDonSummaryRes, salesReportsRes, usersRes] =
         await Promise.allSettled([
           loadMktTable('detail_reports', historyFrom, to, MKT_HN_ALLOWED_TEAMS),
@@ -229,15 +229,15 @@ export default function useDashboardDieuHanhData({ from, to, branch, market, pro
     } finally {
       setLoading(false);
     }
-  }, [enabled, from, to]);
+  }, [enabled, from, periodMode, to]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   const model = useMemo(
-    () => buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, person, from, to }),
-    [branch, department, from, market, mktRows, person, product, salesRows, to, usersRows, vanDonRows]
+    () => buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, person, from, to, periodMode }),
+    [branch, department, from, market, mktRows, periodMode, person, product, salesRows, to, usersRows, vanDonRows]
   );
 
   return {

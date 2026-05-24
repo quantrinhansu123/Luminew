@@ -55,6 +55,10 @@ export function addMonths(d, n) {
   return new Date(d.getFullYear(), d.getMonth() + n, 1);
 }
 
+export function addDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+
 export function defaultDateRange() {
   const end = new Date();
   const start = startOfMonth(addMonths(end, -3));
@@ -85,6 +89,12 @@ function parseDateLike(value) {
   return null;
 }
 
+function parseYmdDate(value) {
+  const ymd = normalizeYmd(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  return new Date(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)) - 1, Number(ymd.slice(8, 10)));
+}
+
 function ageHoursFromNow(value) {
   const d = parseDateLike(value);
   if (!d) return 0;
@@ -94,11 +104,51 @@ function ageHoursFromNow(value) {
 export function buildLastFourMonthBuckets(toYmd) {
   const endRaw = normalizeYmd(toYmd) || formatLocalYmd(new Date());
   const end = new Date(Number(endRaw.slice(0, 4)), Number(endRaw.slice(5, 7)) - 1, 1);
-  return [3, 2, 1, 0].map((offset) => {
+  return [3, 2, 1, 0].map((offset, index) => {
     const d = addMonths(end, -offset);
     const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-    return { key, label: `${pad2(d.getMonth() + 1)}/${d.getFullYear()}`, start: `${key}-01` };
+    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    return {
+      key,
+      label: `Kỳ ${index + 1}`,
+      rangeLabel: `${pad2(d.getMonth() + 1)}/${d.getFullYear()}`,
+      start: `${key}-01`,
+      end: formatLocalYmd(monthEnd),
+      type: 'month',
+      isReportPeriod: index === 3,
+    };
   });
+}
+
+function dayMonthLabel(d) {
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
+}
+
+export function buildLastFourWeekBuckets(fromYmd, toYmd) {
+  const selectedEnd = parseYmdDate(toYmd) || new Date();
+  const selectedStart = parseYmdDate(fromYmd) || addDays(selectedEnd, -6);
+  const diffMs = selectedEnd.getTime() - selectedStart.getTime();
+  const durationDays = Math.max(1, Math.round(diffMs / 864e5) + 1);
+
+  return [3, 2, 1, 0].map((offset, index) => {
+    const start = addDays(selectedStart, -durationDays * offset);
+    const end = addDays(selectedEnd, -durationDays * offset);
+    const startKey = formatLocalYmd(start);
+    const endKey = formatLocalYmd(end);
+    return {
+      key: `${startKey}_${endKey}`,
+      label: `Kỳ ${index + 1}`,
+      rangeLabel: `${dayMonthLabel(start)}-${dayMonthLabel(end)}/${end.getFullYear()}`,
+      start: startKey,
+      end: endKey,
+      type: 'week',
+      isReportPeriod: index === 3,
+    };
+  });
+}
+
+export function buildLastFourPeriodBuckets(periodMode, fromYmd, toYmd) {
+  return periodMode === 'week' ? buildLastFourWeekBuckets(fromYmd, toYmd) : buildLastFourMonthBuckets(toYmd);
 }
 
 export function parseNumberLoose(value) {
@@ -573,14 +623,19 @@ export function finalizeCompany(mkt, vd) {
   };
 }
 
-export function summarizeByMonth(mktRows, vdRows, buckets) {
+export function summarizeByPeriod(mktRows, vdRows, buckets) {
   return buckets.map((bucket) => {
     const mkt = emptyMktAgg(bucket.label);
     const vd = emptyVdAgg(bucket.label);
-    mktRows.filter((r) => r.monthKey === bucket.key).forEach((r) => addMkt(mkt, r));
-    vdRows.filter((r) => r.monthKey === bucket.key).forEach((r) => addVd(vd, r));
-    return { ...finalizeCompany(mkt, vd), label: bucket.label, key: bucket.key };
+    mktRows.filter((r) => rowInBucket(r, bucket)).forEach((r) => addMkt(mkt, r));
+    vdRows.filter((r) => rowInBucket(r, bucket)).forEach((r) => addVd(vd, r));
+    return { ...finalizeCompany(mkt, vd), label: bucket.label, rangeLabel: bucket.rangeLabel, key: bucket.key };
   });
+}
+
+function rowInBucket(row, bucket) {
+  if (!bucket?.start) return row?.monthKey === bucket?.key;
+  return rowInDateRange(row, bucket.start, bucket.end || bucket.start);
 }
 
 export function aggregateNamed(rows, addFn, emptyFn, keyFn) {
@@ -766,8 +821,8 @@ function matchesOptionalFilter(rowValue, selected) {
   return optionLabel(rowValue) === selected;
 }
 
-export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, person, from, to }) {
-  const monthBuckets = buildLastFourMonthBuckets(to);
+export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows, branch, market, product, department, person, from, to, periodMode = 'month' }) {
+  const periodBuckets = buildLastFourPeriodBuckets(periodMode, from, to);
   const branchMktRows = branch === 'all' ? mktRows : mktRows.filter((r) => r.branch === branch);
   const branchVanDonRows = branch === 'all' ? vanDonRows : vanDonRows.filter((r) => r.branch === branch);
   const branchSalesRows = branch === 'all' ? salesRows : salesRows.filter((r) => r.branch === branch);
@@ -781,7 +836,7 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
   const filteredMktRows = filteredMktRowsHistory.filter((r) => rowInDateRange(r, from, to));
   const filteredVanDonRows = filteredVanDonRowsHistory.filter((r) => rowInDateRange(r, from, to));
   const filteredSalesRows = filteredSalesRowsHistory.filter((r) => rowInDateRange(r, from, to));
-  const monthly = summarizeByMonth(filteredMktRowsHistory, filteredVanDonRowsHistory, monthBuckets);
+  const monthly = summarizeByPeriod(filteredMktRowsHistory, filteredVanDonRowsHistory, periodBuckets);
 
   const mkt = emptyMktAgg('Tổng MKT');
   const vd = emptyVdAgg('Tổng vận đơn');
@@ -840,27 +895,37 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
     filteredVanDonRows,
   });
 
-  const allIndividualRows = buildIndividualRows({
+  const individualDeltaCtx = {
+    selectedDepartmentValue,
+    monthBuckets: periodBuckets,
+    periodBuckets,
+    filteredMktRows: filteredMktRowsHistory,
+    filteredSalesRows: filteredSalesRowsHistory,
+    filteredUsersRows,
+    filteredVanDonRows: filteredVanDonRowsHistory,
+  };
+
+  const allIndividualRows = attachIndividualMetricDeltas(buildIndividualRows({
     selectedDepartmentValue,
     filteredMktRows,
     filteredSalesRows,
     filteredUsersRows,
     filteredVanDonRows,
     person: 'all',
-  });
+  }), individualDeltaCtx);
 
-  const individualRows = buildIndividualRows({
+  const individualRows = attachIndividualMetricDeltas(buildIndividualRows({
     selectedDepartmentValue,
     filteredMktRows,
     filteredSalesRows,
     filteredUsersRows,
     filteredVanDonRows,
     person,
-  });
+  }), individualDeltaCtx);
 
   const departmentPeriodRows = buildDepartmentPeriodRows({
     selectedDepartmentValue,
-    monthBuckets,
+    monthBuckets: periodBuckets,
     filteredMktRows: filteredMktRowsHistory,
     filteredSalesRows: filteredSalesRowsHistory,
     filteredUsersRows,
@@ -869,7 +934,7 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
 
   const individualPeriodRows = buildIndividualPeriodRows({
     selectedDepartmentValue,
-    monthBuckets,
+    monthBuckets: periodBuckets,
     filteredMktRows: filteredMktRowsHistory,
     filteredSalesRows: filteredSalesRowsHistory,
     filteredUsersRows,
@@ -881,7 +946,7 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
   const alerts = buildAlerts({ companyKpis, departmentRows, individualRows, current });
 
   return {
-    monthBuckets,
+    monthBuckets: periodBuckets,
     filteredCounts: {
       mkt: filteredMktRows.length,
       sales: filteredSalesRows.length,
@@ -982,10 +1047,10 @@ function buildIndividualRows({ selectedDepartmentValue, filteredMktRows, filtere
         third: formatNumber(a.stale24h),
         risk: a.stale24h > 0 || ratio(a.billOrders, a.success) < 0.8,
         metrics: [
-          { label: 'Tiền đã thu', value: formatMoney(a.billAmount), status: 'good' },
-          { label: 'TL Thu tiền', value: formatPercent(ratio(a.billOrders, a.success)), status: ratio(a.billOrders, a.success) < 0.8 ? 'danger' : 'good' },
-          { label: 'Hủy + Hoàn', value: formatPercent(ratio(a.cancel + a.returned, a.totalOrders)), status: ratio(a.cancel + a.returned, a.totalOrders) > 0.08 ? 'danger' : 'good' },
-          { label: 'Quá 24h', value: formatNumber(a.stale24h), status: a.stale24h > 0 ? 'danger' : 'good' },
+          { label: 'Tiền đã thu', value: formatMoney(a.billAmount), raw: a.billAmount, status: 'good' },
+          { label: 'TL Thu tiền', value: formatPercent(ratio(a.billOrders, a.success)), raw: ratio(a.billOrders, a.success), status: ratio(a.billOrders, a.success) < 0.8 ? 'danger' : 'good' },
+          { label: 'Hủy + Hoàn', value: formatPercent(ratio(a.cancel + a.returned, a.totalOrders)), raw: ratio(a.cancel + a.returned, a.totalOrders), status: ratio(a.cancel + a.returned, a.totalOrders) > 0.08 ? 'danger' : 'good' },
+          { label: 'Quá 24h', value: formatNumber(a.stale24h), raw: a.stale24h, status: a.stale24h > 0 ? 'danger' : 'good' },
         ],
       }))
       .filter((r) => person === 'all' || r.label === person)
@@ -1041,10 +1106,10 @@ function buildIndividualRows({ selectedDepartmentValue, filteredMktRows, filtere
       third: formatPercent(ratio(a.ordersForCloseRate || a.orders, a.messages)),
       risk: ratio(a.adsCost, a.revenueForAdsRate || a.revenue) > 0.35 || ratio(a.ordersForCloseRate || a.orders, a.messages) < 0.08,
       metrics: [
-        { label: 'Doanh thu', value: formatMoney(a.revenue), status: 'good' },
-        { label: 'TL Ads/DT', value: formatPercent(ratio(a.adsCost, a.revenueForAdsRate || a.revenue)), status: ratio(a.adsCost, a.revenueForAdsRate || a.revenue) > 0.35 ? 'danger' : 'good' },
-        { label: 'Tin nhắn', value: formatNumber(a.messages), status: 'good' },
-        { label: 'TL chốt', value: formatPercent(ratio(a.ordersForCloseRate || a.orders, a.messages)), status: ratio(a.ordersForCloseRate || a.orders, a.messages) < 0.08 ? 'danger' : 'good' },
+        { label: 'Doanh thu', value: formatMoney(a.revenue), raw: a.revenue, status: 'good' },
+        { label: 'TL Ads/DT', value: formatPercent(ratio(a.adsCost, a.revenueForAdsRate || a.revenue)), raw: ratio(a.adsCost, a.revenueForAdsRate || a.revenue), status: ratio(a.adsCost, a.revenueForAdsRate || a.revenue) > 0.35 ? 'danger' : 'good' },
+        { label: 'Tin nhắn', value: formatNumber(a.messages), raw: a.messages, status: 'good' },
+        { label: 'TL chốt', value: formatPercent(ratio(a.ordersForCloseRate || a.orders, a.messages)), raw: ratio(a.ordersForCloseRate || a.orders, a.messages), status: ratio(a.ordersForCloseRate || a.orders, a.messages) < 0.08 ? 'danger' : 'good' },
       ],
     }))
     .filter((r) => person === 'all' || r.label === person)
@@ -1055,14 +1120,21 @@ function buildDepartmentPeriodRows({ selectedDepartmentValue, monthBuckets, filt
   return monthBuckets.map((bucket) => {
     const mkt = emptyMktAgg(bucket.label);
     const vd = emptyVdAgg(bucket.label);
-    filteredMktRows.filter((r) => r.monthKey === bucket.key).forEach((r) => addMkt(mkt, r));
-    filteredVanDonRows.filter((r) => r.monthKey === bucket.key).forEach((r) => addVd(vd, r));
+    filteredMktRows.filter((r) => rowInBucket(r, bucket)).forEach((r) => addMkt(mkt, r));
+    filteredVanDonRows.filter((r) => rowInBucket(r, bucket)).forEach((r) => addVd(vd, r));
     const cfg = getDepartmentConfig(selectedDepartmentValue, {
       current: finalizeCompany(mkt, vd),
-      salesRows: filteredSalesRows.filter((r) => r.monthKey === bucket.key),
-      usersRows: filteredUsersRows.filter((r) => r.monthKey === bucket.key),
+      salesRows: filteredSalesRows.filter((r) => rowInBucket(r, bucket)),
+      usersRows: filteredUsersRows.filter((r) => rowInBucket(r, bucket)),
     });
-    return { label: bucket.label, key: bucket.key, metrics: cfg.metrics, trendValue: cfg.trendValue, trendDisplay: cfg.trendFormat(cfg.trendValue) };
+    return {
+      label: bucket.label,
+      rangeLabel: bucket.rangeLabel,
+      key: bucket.key,
+      metrics: cfg.metrics,
+      trendValue: cfg.trendValue,
+      trendDisplay: cfg.trendFormat(cfg.trendValue),
+    };
   });
 }
 
@@ -1071,19 +1143,19 @@ function snapshotIndividual(name, bucket, ctx) {
   const nameFilter = (r) => r.name === name;
   if (selectedDepartmentValue === 'delivery') {
     const agg = emptyVdAgg(bucket.label);
-    filteredVanDonRows.filter((r) => r.monthKey === bucket.key && nameFilter(r)).forEach((r) => addVd(agg, r));
+    filteredVanDonRows.filter((r) => rowInBucket(r, bucket) && nameFilter(r)).forEach((r) => addVd(agg, r));
     const value = ratio(agg.billOrders, agg.success);
     return { value, display: formatPercent(value), risk: value < 0.8 || agg.stale24h > 0, note: agg.stale24h > 0 ? `Quá 24h: ${formatNumber(agg.stale24h)}` : '' };
   }
   if (selectedDepartmentValue === 'hcns') {
     const agg = emptyUserAgg(bucket.label);
-    filteredUsersRows.filter((r) => r.monthKey === bucket.key && r.teamKind === 'hcns' && nameFilter(r)).forEach((r) => addUser(agg, r));
+    filteredUsersRows.filter((r) => rowInBucket(r, bucket) && r.teamKind === 'hcns' && nameFilter(r)).forEach((r) => addUser(agg, r));
     const value = ratio(agg.active, agg.total);
     return { value, display: formatPercent(value), risk: value < 0.9, note: '' };
   }
   if (selectedDepartmentValue !== 'mkt') {
     const agg = emptySalesAgg(bucket.label);
-    filteredSalesRows.filter((r) => r.monthKey === bucket.key && r.teamKind === selectedDepartmentValue && nameFilter(r)).forEach((r) => addSales(agg, r));
+    filteredSalesRows.filter((r) => rowInBucket(r, bucket) && r.teamKind === selectedDepartmentValue && nameFilter(r)).forEach((r) => addSales(agg, r));
     if (selectedDepartmentValue === 'sale') {
       const value = ratio(agg.orders, agg.messages);
       return { value, display: formatPercent(value), risk: value < 0.08, note: `Hủy: ${formatPercent(ratio(agg.cancelOrders, agg.orders))}` };
@@ -1096,9 +1168,66 @@ function snapshotIndividual(name, bucket, ctx) {
     return { value, display: formatNumber(value), risk: false, note: `Đơn: ${formatNumber(agg.orders)}` };
   }
   const agg = emptyMktAgg(bucket.label);
-  filteredMktRows.filter((r) => r.monthKey === bucket.key && nameFilter(r)).forEach((r) => addMkt(agg, r));
+  filteredMktRows.filter((r) => rowInBucket(r, bucket) && nameFilter(r)).forEach((r) => addMkt(agg, r));
   const value = ratio(agg.adsCost, agg.revenueForAdsRate || agg.revenue);
   return { value, display: formatPercent(value), risk: value > 0.35, note: `Chốt: ${formatPercent(ratio(agg.ordersForCloseRate || agg.orders, agg.messages))}` };
+}
+
+function snapshotIndividualMetricRawMap(name, bucket, ctx) {
+  const { selectedDepartmentValue, filteredMktRows, filteredSalesRows, filteredUsersRows, filteredVanDonRows } = ctx;
+  const nameFilter = (r) => r.name === name;
+  if (selectedDepartmentValue === 'delivery') {
+    const agg = emptyVdAgg(bucket.label);
+    filteredVanDonRows.filter((r) => rowInBucket(r, bucket) && nameFilter(r)).forEach((r) => addVd(agg, r));
+    return new Map([
+      ['Tiền đã thu', agg.billAmount],
+      ['TL Thu tiền', ratio(agg.billOrders, agg.success)],
+      ['Hủy + Hoàn', ratio(agg.cancel + agg.returned, agg.totalOrders)],
+      ['Quá 24h', agg.stale24h],
+    ]);
+  }
+  if (selectedDepartmentValue === 'mkt') {
+    const agg = emptyMktAgg(bucket.label);
+    filteredMktRows.filter((r) => rowInBucket(r, bucket) && nameFilter(r)).forEach((r) => addMkt(agg, r));
+    return new Map([
+      ['Doanh thu', agg.revenue],
+      ['TL Ads/DT', ratio(agg.adsCost, agg.revenueForAdsRate || agg.revenue)],
+      ['Tin nhắn', agg.messages],
+      ['TL chốt', ratio(agg.ordersForCloseRate || agg.orders, agg.messages)],
+    ]);
+  }
+  if (selectedDepartmentValue === 'hcns') {
+    const agg = emptyUserAgg(bucket.label);
+    filteredUsersRows.filter((r) => rowInBucket(r, bucket) && r.teamKind === 'hcns' && nameFilter(r)).forEach((r) => addUser(agg, r));
+    return new Map([
+      ['TL giữ người', ratio(agg.active, agg.total)],
+      ['Tuyển mới', agg.newHires],
+      ['Tổng dòng', agg.total],
+    ]);
+  }
+  const agg = emptySalesAgg(bucket.label);
+  filteredSalesRows.filter((r) => rowInBucket(r, bucket) && r.teamKind === selectedDepartmentValue && nameFilter(r)).forEach((r) => addSales(agg, r));
+  return new Map([
+    ['Doanh thu', agg.revenue],
+    ['TL chốt', ratio(agg.orders, agg.messages)],
+    ['Số đơn', agg.orders],
+    ['TL hủy', ratio(agg.cancelOrders, agg.orders)],
+  ]);
+}
+
+function attachIndividualMetricDeltas(rows, ctx) {
+  const previousBucket = ctx.monthBuckets?.[ctx.monthBuckets.length - 2];
+  if (!previousBucket) return rows;
+  return rows.map((row) => {
+    const previous = snapshotIndividualMetricRawMap(row.label, previousBucket, ctx);
+    return {
+      ...row,
+      metrics: (row.metrics || []).map((metric) => {
+        if (metric.raw == null || !previous.has(metric.label)) return metric;
+        return { ...metric, delta: calcDelta(metric.raw, previous.get(metric.label)) };
+      }),
+    };
+  });
 }
 
 function buildIndividualPeriodRows(ctx) {
@@ -1107,7 +1236,12 @@ function buildIndividualPeriodRows(ctx) {
     const values = ctx.monthBuckets.map((bucket, index) => {
       const currentValue = snapshotIndividual(name, bucket, ctx);
       const previousValue = index === 0 ? null : snapshotIndividual(name, ctx.monthBuckets[index - 1], ctx);
-      return { ...currentValue, label: bucket.label, delta: previousValue ? calcDelta(currentValue.value, previousValue.value) : 0 };
+      return {
+        ...currentValue,
+        label: bucket.label,
+        rangeLabel: bucket.rangeLabel,
+        delta: previousValue ? calcDelta(currentValue.value, previousValue.value) : 0,
+      };
     });
     return { label: name, values };
   });

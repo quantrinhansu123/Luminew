@@ -130,6 +130,7 @@ export default function DashboardDieuHanh() {
   }, [periodKey, periodOptions]);
 
   const data = useDashboardDieuHanhData({
+    periodMode,
     from,
     to,
     branch,

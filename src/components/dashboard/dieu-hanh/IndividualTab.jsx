@@ -17,7 +17,12 @@ export default function IndividualTab({ data, person, setPerson, setDepartment }
     ? data.individualPeriodRows.find((row) => row.label === selectedRow.label) || data.individualPeriodRows[0]
     : null;
 
-  const lineRows = person === 'all' ? data.individualPeriodRows.slice(0, 5) : data.individualPeriodRows;
+  const lineRows = person === 'all'
+    ? rankingRows
+        .slice(0, 5)
+        .map((row) => data.individualPeriodRows.find((item) => item.label === row.label))
+        .filter(Boolean)
+    : data.individualPeriodRows;
   const lineData = {
     labels: data.monthBuckets.map((bucket) => bucket.label),
     datasets: lineRows.map((row, index) => ({
@@ -113,6 +118,7 @@ export default function IndividualTab({ data, person, setPerson, setDepartment }
             key={metric.label}
             label={metric.label}
             display={metric.value}
+            delta={metric.delta}
             status={metric.status}
             note={selectedRow.label}
           />
