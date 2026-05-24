@@ -3,7 +3,7 @@ import { orderRangeToCreatedAtIsoBounds } from '../utils/dateParsing';
 
 const PAGE_SIZE = 1000;
 const SELECT_COLS =
-  'order_code, customer_name, customer_phone, product, order_date, created_at';
+  'order_code, customer_name, customer_phone, customer_address, product, order_date, created_at';
 
 async function fetchPaged(tableName, buildQuery, applyOrder) {
   const all = [];
@@ -40,7 +40,7 @@ function dedupeByOrderCode(rows) {
  */
 export async function fetchHcmAndOrdersRowsForCrossDuplicate({ startDate, endDate }) {
   if (!startDate || !endDate) {
-    throw new Error('Chọn đủ Từ ngày và Đến ngày (bật Áp dụng) trước khi tra trùng.');
+    throw new Error('Chọn đủ Từ ngày và Đến ngày (Ngày lên đơn) trước khi đối chiếu.');
   }
 
   const orderByOd = (q) =>

@@ -649,12 +649,15 @@ function VanDon({ dataSource = 'default' }) {
   
   // State cho dialog xuất Excel với bộ lọc ngày
   const [showExportDateDialog, setShowExportDateDialog] = useState(false);
-  /** Chỉ /van-don-hcm: trùng nội dung order_code_hcm ↔ orders (Name, Phone, Mặt hàng). */
+  /** Chỉ /van-don-hcm: trùng nội dung order_code_hcm ↔ orders (Name, Phone, Add, Mặt hàng). */
   const [hcmCrossDupModalOpen, setHcmCrossDupModalOpen] = useState(false);
   const [hcmCrossDupLoading, setHcmCrossDupLoading] = useState(false);
   const [hcmCrossDupGroups, setHcmCrossDupGroups] = useState([]);
   const [hcmCrossDupRangeLabel, setHcmCrossDupRangeLabel] = useState('');
   const [hcmCrossDupStats, setHcmCrossDupStats] = useState({ hcm: 0, orders: 0 });
+  /** Khoảng đối chiếu theo cột order_date (Ngày lên đơn) — chọn trong modal. */
+  const [hcmCrossDupDateFrom, setHcmCrossDupDateFrom] = useState('');
+  const [hcmCrossDupDateTo, setHcmCrossDupDateTo] = useState('');
   const [exportDateFrom, setExportDateFrom] = useState('');
   const [exportDateTo, setExportDateTo] = useState('');
   const [exportDateType, setExportDateType] = useState('Ngày lên đơn'); // 'Ngày lên đơn' hoặc 'Ngày đẩy đơn'
@@ -988,59 +991,76 @@ function VanDon({ dataSource = 'default' }) {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  const handleShowHcmCrossTableDuplicates = useCallback(async () => {
-    if (dataSource !== 'hcm') return;
-
-    let startDate = appliedEnableDateFilter && appliedDateFrom ? appliedDateFrom : '';
-    let endDate = appliedEnableDateFilter && appliedDateTo ? appliedDateTo : '';
-    let rangeNote = '30 ngày gần nhất (chưa bật lọc ngày toolbar)';
-
-    if (!startDate || !endDate) {
-      const end = new Date();
-      const start = new Date(end);
-      start.setDate(end.getDate() - 30);
-      startDate = start.toISOString().split('T')[0];
-      endDate = end.toISOString().split('T')[0];
-    } else {
-      rangeNote = `Toolbar: ${startDate} → ${endDate}`;
+  const getHcmCrossDupDefaultDateRange = useCallback(() => {
+    if (appliedEnableDateFilter && appliedDateFrom && appliedDateTo) {
+      return { startDate: appliedDateFrom, endDate: appliedDateTo };
     }
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(end.getDate() - 30);
+    return {
+      startDate: start.toISOString().split('T')[0],
+      endDate: end.toISOString().split('T')[0],
+    };
+  }, [appliedDateFrom, appliedDateTo, appliedEnableDateFilter]);
 
-    setHcmCrossDupLoading(true);
-    setHcmCrossDupModalOpen(true);
-    setHcmCrossDupGroups([]);
-    setHcmCrossDupRangeLabel(rangeNote);
-
-    try {
-      const { hcmRows, ordersRows } = await fetchHcmAndOrdersRowsForCrossDuplicate({
-        startDate,
-        endDate,
-      });
-      const groups = findHcmOrdersCrossTableDuplicateGroups(hcmRows, ordersRows);
-      setHcmCrossDupGroups(groups);
-      setHcmCrossDupStats({ hcm: hcmRows.length, orders: ordersRows.length });
-      if (groups.length === 0) {
-        addToast(
-          `Không có nhóm trùng (Name, Phone, Mặt hàng) giữa order_code_hcm và orders trong ${rangeNote}.`,
-          'info',
-          6000
-        );
-      } else {
-        addToast(`Tìm thấy ${groups.length} nhóm trùng nội dung HCM ↔ orders.`, 'success', 4000);
+  const runHcmCrossDupCompare = useCallback(
+    async (startDate, endDate, { showResultToast = true } = {}) => {
+      if (!startDate || !endDate) {
+        addToast('Chọn đủ Từ ngày và Đến ngày (Ngày lên đơn).', 'warning');
+        return;
       }
-    } catch (err) {
-      console.error('[VanDon HCM] cross duplicate:', err);
-      addToast(err?.message || 'Lỗi tra cứu trùng đơn HCM/orders', 'error');
-      setHcmCrossDupModalOpen(false);
-    } finally {
-      setHcmCrossDupLoading(false);
-    }
-  }, [
-    dataSource,
-    appliedDateFrom,
-    appliedDateTo,
-    appliedEnableDateFilter,
-    addToast,
-  ]);
+      if (startDate > endDate) {
+        addToast('Từ ngày không được sau Đến ngày.', 'warning');
+        return;
+      }
+
+      const rangeNote = `Ngày lên đơn: ${startDate} → ${endDate}`;
+      setHcmCrossDupLoading(true);
+      setHcmCrossDupGroups([]);
+      setHcmCrossDupRangeLabel(rangeNote);
+
+      try {
+        const { hcmRows, ordersRows } = await fetchHcmAndOrdersRowsForCrossDuplicate({
+          startDate,
+          endDate,
+        });
+        const groups = findHcmOrdersCrossTableDuplicateGroups(hcmRows, ordersRows);
+        setHcmCrossDupGroups(groups);
+        setHcmCrossDupStats({ hcm: hcmRows.length, orders: ordersRows.length });
+        if (showResultToast) {
+          if (groups.length === 0) {
+            addToast(
+              `Không có nhóm trùng (Name, Phone, Add, Mặt hàng) trong ${rangeNote}.`,
+              'info',
+              6000
+            );
+          } else {
+            addToast(`Tìm thấy ${groups.length} nhóm trùng nội dung HCM ↔ orders.`, 'success', 4000);
+          }
+        }
+      } catch (err) {
+        console.error('[VanDon HCM] cross duplicate:', err);
+        addToast(err?.message || 'Lỗi tra cứu trùng đơn HCM/orders', 'error');
+      } finally {
+        setHcmCrossDupLoading(false);
+      }
+    },
+    [addToast]
+  );
+
+  const handleShowHcmCrossTableDuplicates = useCallback(() => {
+    if (dataSource !== 'hcm') return;
+    const { startDate, endDate } = getHcmCrossDupDefaultDateRange();
+    setHcmCrossDupDateFrom(startDate);
+    setHcmCrossDupDateTo(endDate);
+    setHcmCrossDupModalOpen(true);
+    runHcmCrossDupCompare(startDate, endDate);
+  }, [dataSource, getHcmCrossDupDefaultDateRange, runHcmCrossDupCompare]);
+
+  const handleHcmCrossDupApplyDateRange = useCallback(() => {
+    runHcmCrossDupCompare(hcmCrossDupDateFrom, hcmCrossDupDateTo);
+  }, [hcmCrossDupDateFrom, hcmCrossDupDateTo, runHcmCrossDupCompare]);
 
   // --- Helper Functions ---
   const extractDateFromDateTime = (dateTimeString) => {
@@ -5898,7 +5918,7 @@ function VanDon({ dataSource = 'default' }) {
                   onClick={handleShowHcmCrossTableDuplicates}
                   disabled={hcmCrossDupLoading || isQueryLoading || permissionsLoading}
                   className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
-                  title="So khớp order_code_hcm với toàn bộ orders: trùng Name*, Phone*, Mặt hàng"
+                  title="So khớp order_code_hcm với toàn bộ orders: trùng Name*, Phone*, Add, Mặt hàng"
                 >
                   {hcmCrossDupLoading ? (
                     <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
@@ -6806,7 +6826,8 @@ function VanDon({ dataSource = 'default' }) {
                     Mã đơn trùng nội dung — order_code_hcm ↔ orders
                   </h2>
                   <p className="text-xs text-gray-600 mt-0.5">
-                    Khớp: <strong>Name*</strong>, <strong>Phone*</strong>, <strong>Mặt hàng</strong>. Phạm vi:{' '}
+                    Khớp: <strong>Name*</strong>, <strong>Phone*</strong>, <strong>Add</strong>,{' '}
+                    <strong>Mặt hàng</strong>. Phạm vi:{' '}
                     {hcmCrossDupRangeLabel || '—'}. Đã quét{' '}
                     <code className="bg-gray-200 px-1 rounded">order_code_hcm</code>:{' '}
                     <strong>{hcmCrossDupStats.hcm}</strong> — <code className="bg-gray-200 px-1 rounded">orders</code>{' '}
@@ -6815,12 +6836,50 @@ function VanDon({ dataSource = 'default' }) {
                 </div>
                 <button
                   type="button"
-                  className="p-2 rounded-lg hover:bg-gray-200 text-gray-700 text-xl leading-none"
+                  className="p-2 rounded-lg hover:bg-gray-200 text-gray-700 text-xl leading-none select-none"
                   aria-label="Đóng"
                   onClick={() => setHcmCrossDupModalOpen(false)}
                 >
                   ×
                 </button>
+              </div>
+              <div className="flex flex-wrap items-end gap-2 px-4 py-2.5 border-b border-amber-200 bg-amber-50/90">
+                <span className="text-xs font-bold text-amber-950 whitespace-nowrap">
+                  Ngày đối chiếu
+                </span>
+                <label className="flex flex-col gap-0.5">
+                  <span className="text-[10px] font-semibold text-gray-600">Ngày lên đơn — Từ</span>
+                  <input
+                    type="date"
+                    value={hcmCrossDupDateFrom}
+                    onChange={(e) => setHcmCrossDupDateFrom(e.target.value)}
+                    disabled={hcmCrossDupLoading}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded bg-white disabled:opacity-50"
+                  />
+                </label>
+                <span className="text-xs font-bold text-gray-500 pb-1">→</span>
+                <label className="flex flex-col gap-0.5">
+                  <span className="text-[10px] font-semibold text-gray-600">Đến</span>
+                  <input
+                    type="date"
+                    value={hcmCrossDupDateTo}
+                    onChange={(e) => setHcmCrossDupDateTo(e.target.value)}
+                    disabled={hcmCrossDupLoading}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded bg-white disabled:opacity-50"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleHcmCrossDupApplyDateRange}
+                  disabled={hcmCrossDupLoading || !hcmCrossDupDateFrom || !hcmCrossDupDateTo}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#F37021] hover:bg-[#e55f1a] text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                >
+                  {hcmCrossDupLoading ? 'Đang đối chiếu…' : 'Đối chiếu'}
+                </button>
+                <p className="w-full text-[10px] text-gray-600 m-0">
+                  Lọc đơn theo cột <strong>order_date</strong> (Ngày lên đơn); đơn không có ngày lên đơn được bổ sung theo{' '}
+                  <code className="bg-white/80 px-0.5 rounded">created_at</code> trong cùng khoảng.
+                </p>
               </div>
               <div className="overflow-auto flex-1 p-3">
                 {hcmCrossDupLoading ? (
@@ -6836,6 +6895,7 @@ function VanDon({ dataSource = 'default' }) {
                         <th className="p-2 border border-gray-200">#</th>
                         <th className="p-2 border border-gray-200">Name*</th>
                         <th className="p-2 border border-gray-200">Phone*</th>
+                        <th className="p-2 border border-gray-200">Add</th>
                         <th className="p-2 border border-gray-200">Mặt hàng</th>
                         <th className="p-2 border border-gray-200">Mã order_code_hcm</th>
                         <th className="p-2 border border-gray-200">Mã orders</th>
@@ -6850,6 +6910,9 @@ function VanDon({ dataSource = 'default' }) {
                           </td>
                           <td className="p-2 border border-gray-200 font-mono text-xs whitespace-nowrap select-text">
                             {g.phone || '—'}
+                          </td>
+                          <td className="p-2 border border-gray-200 max-w-[180px] break-words select-text">
+                            {g.address || '—'}
                           </td>
                           <td className="p-2 border border-gray-200 max-w-[160px] break-words select-text">
                             {g.product || '—'}
