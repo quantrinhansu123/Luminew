@@ -1601,9 +1601,7 @@ export default function DanhSachBaoCaoTayMKT({
 
     // isAdmin đã được định nghĩa ở trên, không cần định nghĩa lại
     
-    // Kiểm tra quyền xóa (Admin hoặc user có quyền delete cho permissionCode)
     const canDeleteAll = isAdmin || canDelete(permissionCode);
-    const canDeleteSingle = isAdmin || canDelete(permissionCode); // Quyền xóa từng dòng
 
     // Edit Handlers
     const handleEditClick = (report) => {
@@ -2365,25 +2363,21 @@ export default function DanhSachBaoCaoTayMKT({
                                                     )}
                                                     <td className="text-center">
                                                         <button
+                                                            type="button"
                                                             className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition mr-2"
                                                             onClick={() => handleEditClick(item)}
                                                         >
                                                             Sửa
                                                         </button>
-                                                        {canDeleteSingle && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    console.log('🔍 Delete button clicked, item:', item);
-                                                                    console.log('🔍 Item ID:', item.id);
-                                                                    handleDeleteReport(item.id);
-                                                                }}
-                                                                disabled={deletingId === item.id || !item.id}
-                                                                className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                title={!item.id ? 'Không có ID để xóa' : ''}
-                                                            >
-                                                                {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
-                                                            </button>
-                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeleteReport(item.id)}
+                                                            disabled={deletingId === item.id || !item.id}
+                                                            className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            title={!item.id ? 'Không có ID để xóa' : ''}
+                                                        >
+                                                            {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             );
