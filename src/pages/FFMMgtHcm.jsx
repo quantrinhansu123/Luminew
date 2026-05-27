@@ -577,7 +577,6 @@ function FFMMgtHcm() {
   }, []);
 
   const [selection, setSelection] = useState({ startRow: null, startCol: null, endRow: null, endCol: null });
-  const [copiedData, setCopiedData] = useState(null);
   const [copiedSelection, setCopiedSelection] = useState(null);
   const isSelecting = useRef(false);
   // Cache cell elements for smoother drag-selection (avoid scanning all td per frame).
@@ -603,6 +602,8 @@ function FFMMgtHcm() {
     }
   });
   const [contextMenu, setContextMenu] = useState(null);
+  const markedRowCycleRef = useRef(null);
+  const [pendingMarkedScrollOrderId, setPendingMarkedScrollOrderId] = useState(null);
 
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Hà Nội không (dựa trên can_day_ffm)
 
@@ -803,18 +804,18 @@ function FFMMgtHcm() {
   }, [canViewHaNoi, omActiveTeam]);
 
 
-  const addToast = (message, type, duration = 3000) => {
+  const removeToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const addToast = useCallback((message, type, duration = 3000) => {
     const id = ++toastIdCounter.current;
     setToasts((prev) => [...prev, { id, message, type }]);
     if (duration > 0) {
       setTimeout(() => removeToast(id), duration);
     }
     return id;
-  };
-
-  const removeToast = (id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
+  }, [removeToast]);
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -2178,6 +2179,58 @@ function FFMMgtHcm() {
   }, [getFilteredData, currentPage, effectiveRowsPerPage, pendingChanges]);
   const totalPages = Math.ceil(getFilteredData.length / effectiveRowsPerPage);
 
+  const markedRowsInFilteredData = useMemo(() => {
+    return getFilteredData
+      .map((row, index) => ({ row, index, orderId: row[PRIMARY_KEY_COLUMN] }))
+      .filter(({ orderId }) => markedRows.has(orderId));
+  }, [getFilteredData, markedRows]);
+
+  const handleGoToNextMarkedRow = () => {
+    if (markedRowsInFilteredData.length === 0) {
+      addToast('Không có hàng đã đánh dấu trong dữ liệu đang hiển thị.', 'info', 2500);
+      return;
+    }
+
+    const currentGlobalIndex =
+      selection.startRow == null ? -1 : (currentPage - 1) * effectiveRowsPerPage + selection.startRow;
+    const lastOrderId = markedRowCycleRef.current;
+    const lastIndex = markedRowsInFilteredData.findIndex(({ orderId }) => orderId === lastOrderId);
+    const nextIndex =
+      lastIndex >= 0
+        ? (lastIndex + 1) % markedRowsInFilteredData.length
+        : Math.max(0, markedRowsInFilteredData.findIndex(({ index }) => index > currentGlobalIndex));
+    const safeNextIndex = nextIndex >= 0 ? nextIndex : 0;
+    const target = markedRowsInFilteredData[safeNextIndex];
+    const targetPage = Math.floor(target.index / effectiveRowsPerPage) + 1;
+    const targetLocalRow = target.index % effectiveRowsPerPage;
+
+    markedRowCycleRef.current = target.orderId;
+    setCurrentPage(targetPage);
+    setSelection({ startRow: targetLocalRow, startCol: 0, endRow: targetLocalRow, endCol: 0 });
+    setPendingMarkedScrollOrderId(String(target.orderId));
+    addToast(`Đến hàng đánh dấu ${safeNextIndex + 1}/${markedRowsInFilteredData.length}.`, 'info', 1600);
+  };
+
+  useEffect(() => {
+    if (!pendingMarkedScrollOrderId) return undefined;
+    const targetIsOnPage = paginatedData.some(
+      (row) => String(row[PRIMARY_KEY_COLUMN]) === pendingMarkedScrollOrderId
+    );
+    if (!targetIsOnPage) return undefined;
+
+    const raf = requestAnimationFrame(() => {
+      const container = ffmScrollContainerRef.current;
+      if (!container) return;
+      const rowEl = Array.from(container.querySelectorAll('tr[data-ffm-order-id]')).find(
+        (el) => el.getAttribute('data-ffm-order-id') === pendingMarkedScrollOrderId
+      );
+      rowEl?.scrollIntoView({ block: 'center', inline: 'nearest' });
+      setPendingMarkedScrollOrderId(null);
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, [pendingMarkedScrollOrderId, paginatedData]);
+
   const renderFfmEmptyOverlay = () => {
     if (paginatedData.length > 0) return null;
     const filtered = getFilteredData.length;
@@ -2269,6 +2322,37 @@ function FFMMgtHcm() {
       maxCol: Math.max(copiedSelection.startCol, copiedSelection.endCol)
     };
   }, [copiedSelection]);
+
+  const selectionRef = useRef(selection);
+  const selectionBoundsRef = useRef(selectionBounds);
+  const paginatedDataRef = useRef(paginatedData);
+  const currentColumnsRef = useRef(currentColumns);
+  const quickAddModalOpenRef = useRef(quickAddModalOpen);
+  const effectiveFixedColumnsRef = useRef(effectiveFixedColumns);
+
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
+
+  useEffect(() => {
+    selectionBoundsRef.current = selectionBounds;
+  }, [selectionBounds]);
+
+  useEffect(() => {
+    paginatedDataRef.current = paginatedData;
+  }, [paginatedData]);
+
+  useEffect(() => {
+    currentColumnsRef.current = currentColumns;
+  }, [currentColumns]);
+
+  useEffect(() => {
+    quickAddModalOpenRef.current = quickAddModalOpen;
+  }, [quickAddModalOpen]);
+
+  useEffect(() => {
+    effectiveFixedColumnsRef.current = effectiveFixedColumns;
+  }, [effectiveFixedColumns]);
 
   const buildFfDragCellMap = useCallback(() => {
     const cells = getFfDragTargetCells();
@@ -2401,7 +2485,7 @@ function FFMMgtHcm() {
       if (e.target?.closest?.('select, input, textarea, button, [contenteditable="true"]')) return;
       e.preventDefault();
 
-      if (e.shiftKey && selection.startRow !== null) {
+      if (e.shiftKey && selectionRef.current?.startRow !== null) {
         setSelection((prev) => ({ ...prev, endRow: rowIndex, endCol: colIndex }));
         return;
       }
@@ -2474,7 +2558,7 @@ function FFMMgtHcm() {
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     },
-    [selection.startRow, removeDragListeners, updateDragFromCell]
+    [removeDragListeners, updateDragFromCell]
   );
 
   const handleMouseEnter = useCallback(
@@ -2514,7 +2598,6 @@ function FFMMgtHcm() {
 
       isSelecting.current = false;
       setCopiedSelection(null);
-      setCopiedData(null);
       setIsDraggingSelection(true);
       setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
       buildFfDragCellMap();
@@ -2612,7 +2695,7 @@ function FFMMgtHcm() {
     ]
   );
 
-  const getSelectionBounds = useCallback(() => selectionBounds, [selectionBounds]);
+  const getSelectionBounds = useCallback(() => selectionBoundsRef.current, []);
 
   /** Khi đang kéo chọn, React `selection` có thể chưa khớp vùng tô — dùng ref; sau mouseup bỏ startTransition để state khớp ngay. */
   const getBoundsForCopy = useCallback(() => {
@@ -2628,21 +2711,23 @@ function FFMMgtHcm() {
         maxCol: Math.max(sc, ec)
       };
     }
-    if (selection.startRow === null) return null;
-    return selectionBounds;
-  }, [selection.startRow, selectionBounds]);
+    const currentSelection = selectionRef.current;
+    if (!currentSelection || currentSelection.startRow === null) return null;
+    return selectionBoundsRef.current;
+  }, []);
 
   const buildCopyPayload = useCallback(() => {
     const bounds = getBoundsForCopy();
     if (!bounds) return null;
 
-    const viewData = paginatedData;
+    const viewData = paginatedDataRef.current;
+    const columns = currentColumnsRef.current;
     const copiedRows = [];
 
     for (let r = bounds.minRow; r <= bounds.maxRow && r < viewData.length; r++) {
       const rowData = [];
-      for (let c = bounds.minCol; c <= bounds.maxCol && c < currentColumns.length; c++) {
-        const col = currentColumns[c];
+      for (let c = bounds.minCol; c <= bounds.maxCol && c < columns.length; c++) {
+        const col = columns[c];
         const key = ffmPendingKeyForCol(col);
         let val = viewData[r][key] ?? viewData[r][col] ?? '';
         if (col === 'Ngày đóng hàng') {
@@ -2656,15 +2741,18 @@ function FFMMgtHcm() {
     }
 
     const text = copiedRows.map((row) => row.join('\t')).join('\n');
-    return { text, copiedRows, bounds };
-  }, [getBoundsForCopy, paginatedData, currentColumns]);
+    return { text, bounds };
+  }, [getBoundsForCopy]);
 
   const handleClearSelection = useCallback(() => {
-    if (selection.startRow === null) return;
-    const bounds = selectionBounds;
+    const currentSelection = selectionRef.current;
+    if (!currentSelection || currentSelection.startRow === null) return;
+    const bounds = selectionBoundsRef.current;
     if (!bounds) return;
 
-    const viewData = paginatedData;
+    const viewData = paginatedDataRef.current;
+    const columns = currentColumnsRef.current;
+    const pending = pendingChangesRef.current;
     const deleteChanges = [];
     const seen = new Set();
 
@@ -2685,20 +2773,20 @@ function FFMMgtHcm() {
       const rowData = viewData[r];
       const orderId = rowData[PRIMARY_KEY_COLUMN];
 
-      for (let c = bounds.minCol; c <= bounds.maxCol && c < currentColumns.length; c++) {
-        const colName = currentColumns[c];
+      for (let c = bounds.minCol; c <= bounds.maxCol && c < columns.length; c++) {
+        const colName = columns[c];
         if (!isEditableColFFM(colName)) continue;
 
         const dataKey = ffmPendingKeyForCol(colName);
         const originalVal = rowData[dataKey] ?? '';
-        const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
+        const pendingVal = pending.get(orderId)?.get(dataKey);
         const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
 
         appendDelete(orderId, dataKey, currentUiVal);
 
         if (dataKey === 'Mã Tracking' || dataKey === 'tracking_code') {
           const uiCol = 'Ngày có mã tracking';
-          const pendingDate = pendingChanges.get(orderId)?.get(uiCol);
+          const pendingDate = pending.get(orderId)?.get(uiCol);
           const rowDate = rowData[uiCol] ?? rowData.ngay_co_ma_tracking ?? '';
           const currentDateVal = pendingDate ? pendingDate.newValue : rowDate;
           if (String(currentDateVal || '').trim() !== '') {
@@ -2714,18 +2802,19 @@ function FFMMgtHcm() {
     }
     pushChange(deleteChanges, { deferDbSave: true });
     addToast(`Đã xóa ${deleteChanges.length} ô`, 'success', 2000);
-  }, [selection, selectionBounds, paginatedData, currentColumns, pendingChanges, pushChange, addToast]);
+  }, [pushChange, addToast]);
 
   useEffect(() => {
     const onCopy = (e) => {
-      if (quickAddModalOpen) return;
+      if (quickAddModalOpenRef.current) return;
       const active = document.activeElement;
       const isInInput =
         active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
       if (isInInput && active && !active.closest('td') && !active.closest('th')) {
         return;
       }
-      if (selection.startRow === null && !isSelecting.current) return;
+      const currentSelection = selectionRef.current;
+      if ((!currentSelection || currentSelection.startRow === null) && !isSelecting.current) return;
       const bounds = getBoundsForCopy();
       if (!bounds) return;
 
@@ -2748,7 +2837,6 @@ function FFMMgtHcm() {
         addToast('Không thể copy vào clipboard', 'error');
         return;
       }
-      setCopiedData(payload.copiedRows);
       setCopiedSelection({
         startRow: payload.bounds.minRow,
         startCol: payload.bounds.minCol,
@@ -2763,23 +2851,23 @@ function FFMMgtHcm() {
     };
     document.addEventListener('copy', onCopy, true);
     return () => document.removeEventListener('copy', onCopy, true);
-  }, [quickAddModalOpen, selection.startRow, getBoundsForCopy, buildCopyPayload, addToast]);
+  }, [getBoundsForCopy, buildCopyPayload, addToast]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (quickAddModalOpen) return;
+      if (quickAddModalOpenRef.current) return;
       const active = document.activeElement;
       const isInInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+      const currentSelection = selectionRef.current;
 
       if (e.key === 'Escape') {
         setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
         setCopiedSelection(null);
-        setCopiedData(null);
         return;
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selection.startRow === null) return;
+        if (!currentSelection || currentSelection.startRow === null) return;
         if (isInInput && active && !active.closest('td')) {
           return;
         }
@@ -2803,26 +2891,28 @@ function FFMMgtHcm() {
         return;
       }
 
-      if (!isInInput && selection.startRow !== null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (!isInInput && currentSelection?.startRow !== null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
         const bounds = getSelectionBounds();
         if (!bounds) return;
 
-        let newRow = e.shiftKey ? selection.endRow : selection.startRow;
-        let newCol = e.shiftKey ? selection.endCol : selection.startCol;
+        const viewData = paginatedDataRef.current;
+        const columns = currentColumnsRef.current;
+        let newRow = e.shiftKey ? currentSelection.endRow : currentSelection.startRow;
+        let newCol = e.shiftKey ? currentSelection.endCol : currentSelection.startCol;
 
         switch (e.key) {
           case 'ArrowUp':
             newRow = Math.max(0, newRow - 1);
             break;
           case 'ArrowDown':
-            newRow = Math.min(paginatedData.length - 1, newRow + 1);
+            newRow = Math.min(viewData.length - 1, newRow + 1);
             break;
           case 'ArrowLeft':
             newCol = Math.max(0, newCol - 1);
             break;
           case 'ArrowRight':
-            newCol = Math.min(currentColumns.length - 1, newCol + 1);
+            newCol = Math.min(columns.length - 1, newCol + 1);
             break;
           default:
             break;
@@ -2841,8 +2931,8 @@ function FFMMgtHcm() {
         setSelection({
           startRow: 0,
           startCol: 0,
-          endRow: paginatedData.length - 1,
-          endCol: currentColumns.length - 1
+          endRow: paginatedDataRef.current.length - 1,
+          endCol: currentColumnsRef.current.length - 1
         });
         return;
       }
@@ -2866,15 +2956,16 @@ function FFMMgtHcm() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selection, quickAddModalOpen, handleClearSelection, getSelectionBounds, paginatedData.length, currentColumns.length, handleUndo, handleRedo, paginatedData, currentColumns]);
+  }, [handleClearSelection, getSelectionBounds, handleUndo, handleRedo]);
 
   useEffect(() => {
     const handlePaste = (e) => {
-      if (quickAddModalOpen) {
+      if (quickAddModalOpenRef.current) {
         return;
       }
 
       const active = document.activeElement;
+      let activeCellBounds = null;
 
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) {
         if (active.closest('th')) {
@@ -2891,8 +2982,9 @@ function FFMMgtHcm() {
             const rowIndex = Array.from(tbody.children).indexOf(tr);
             let colIndex = Array.from(tr.children).indexOf(td);
             if (table?.getAttribute('data-ffm-pane') === 'right') {
-              colIndex += effectiveFixedColumns;
+              colIndex += effectiveFixedColumnsRef.current;
             }
+            activeCellBounds = { minRow: rowIndex, maxRow: rowIndex, minCol: colIndex, maxCol: colIndex };
             setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
           }
         } else {
@@ -2900,7 +2992,8 @@ function FFMMgtHcm() {
         }
       }
 
-      if (selection.startRow === null || selection.startCol === null) return;
+      const currentSelection = selectionRef.current;
+      if (!activeCellBounds && (currentSelection?.startRow === null || currentSelection?.startCol === null)) return;
 
       e.preventDefault();
       const text = e.clipboardData?.getData('text/plain');
@@ -2912,9 +3005,10 @@ function FFMMgtHcm() {
         .map((r) => r.split('\t'));
       if (rows.length === 0) return;
 
-      const viewData = paginatedData;
-      const newPending = new Map(pendingChanges);
-      const bounds = getSelectionBounds();
+      const viewData = paginatedDataRef.current;
+      const columns = currentColumnsRef.current;
+      const pending = pendingChangesRef.current;
+      const bounds = activeCellBounds || getSelectionBounds();
       if (!bounds) return;
 
       const pasteChanges = [];
@@ -2940,15 +3034,15 @@ function FFMMgtHcm() {
         /** Theo vị trí (như Excel): clipboard cột j → lưới (góc trái + j). */
         for (let pasteCol = 0; pasteCol < repeatCols; pasteCol++) {
           const targetColIndex = bounds.minCol + pasteCol;
-          if (targetColIndex >= currentColumns.length) break;
+          if (targetColIndex >= columns.length) break;
 
-          const colName = currentColumns[targetColIndex];
+          const colName = columns[targetColIndex];
           if (!isEditableColFFM(colName)) {
             skippedCount++;
             continue;
           }
 
-          const { dataKey, raw: currentUiVal } = getFfmRowColRaw(rowData, colName, pendingChanges);
+          const { dataKey, raw: currentUiVal } = getFfmRowColRaw(rowData, colName, pending);
           const sourceCol = dataCols === 1 ? 0 : pasteCol % dataCols;
           let pasteValue = String(rows[sourceRow]?.[sourceCol] ?? '');
           if (
@@ -2975,7 +3069,7 @@ function FFMMgtHcm() {
               const todayStr = getTodayDateStr();
               const uiCol = 'Ngày có mã tracking';
 
-              const pendingInfo = pendingChanges.get(orderId)?.get(uiCol);
+              const pendingInfo = pending.get(orderId)?.get(uiCol);
               const currentUiVal = pendingInfo ? pendingInfo.newValue : (rowData[uiCol] ?? '');
 
               if (String(currentUiVal) !== todayStr) {
@@ -2992,7 +3086,6 @@ function FFMMgtHcm() {
       }
 
       setCopiedSelection(null);
-      setCopiedData(null);
 
       if (pasteChanges.length > 0) {
         pushChange(pasteChanges, { deferDbSave: true });
@@ -3004,7 +3097,7 @@ function FFMMgtHcm() {
     };
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [selection, pendingChanges, quickAddModalOpen, currentColumns, paginatedData, getSelectionBounds, effectiveFixedColumns, pushChange, addToast]);
+  }, [getSelectionBounds, pushChange, addToast]);
 
   const calculatedSummary = useMemo(() => {
     if (!selectionBounds) return null;
@@ -3815,17 +3908,28 @@ function FFMMgtHcm() {
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
                 <label className="text-xs font-semibold text-gray-500">Hàng đang đánh dấu</label>
-                <select
-                  className="px-2 py-1 border rounded text-xs bg-white"
-                  value={ffmShowOnlyMarkedRows}
-                  onChange={(e) => {
-                    setFfmShowOnlyMarkedRows(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                >
-                  <option value="all">Tất cả</option>
-                  <option value="marked">Chỉ hiện hàng đã đánh dấu</option>
-                </select>
+                <div className="flex gap-1.5">
+                  <select
+                    className="min-w-0 flex-1 px-2 py-1 border rounded text-xs bg-white"
+                    value={ffmShowOnlyMarkedRows}
+                    onChange={(e) => {
+                      setFfmShowOnlyMarkedRows(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value="all">Tất cả</option>
+                    <option value="marked">Chỉ hiện hàng đã đánh dấu</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleGoToNextMarkedRow}
+                    disabled={markedRowsInFilteredData.length === 0}
+                    className="shrink-0 px-2 py-1 rounded border border-purple-300 bg-purple-50 text-xs font-semibold text-purple-700 hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Đi tới hàng đã đánh dấu kế tiếp trong danh sách đang lọc"
+                  >
+                    Đi tới
+                  </button>
+                </div>
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Thị trường</label>
@@ -4057,7 +4161,11 @@ function FFMMgtHcm() {
                 <tbody>
                   {paginatedData.length > 0 ? (
                     paginatedData.map((row, rIdx) => (
-                      <tr key={String(row[PRIMARY_KEY_COLUMN])} className="hover:bg-[#E8EAF6] transition-colors">
+                      <tr
+                        key={String(row[PRIMARY_KEY_COLUMN])}
+                        data-ffm-order-id={String(row[PRIMARY_KEY_COLUMN])}
+                        className="hover:bg-[#E8EAF6] transition-colors"
+                      >
                         {frozenCols.map((col, i) => {
                           const lastF = i === frozenCols.length - 1;
                           const cellStyle = {
@@ -4100,7 +4208,11 @@ function FFMMgtHcm() {
                 <tbody>
                   {paginatedData.length > 0 ? (
                     paginatedData.map((row, rIdx) => (
-                      <tr key={String(row[PRIMARY_KEY_COLUMN])} className="hover:bg-[#E8EAF6] transition-colors">
+                      <tr
+                        key={String(row[PRIMARY_KEY_COLUMN])}
+                        data-ffm-order-id={String(row[PRIMARY_KEY_COLUMN])}
+                        className="hover:bg-[#E8EAF6] transition-colors"
+                      >
                         {scrollCols.map((col, i) => {
                           const cIdx = effectiveFixedColumns + i;
                           const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 0 };
@@ -4192,7 +4304,11 @@ function FFMMgtHcm() {
                     paginatedData.map((row, rIdx) => {
                       const orderId = row[PRIMARY_KEY_COLUMN];
                       return (
-                        <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
+                        <tr
+                          key={orderId}
+                          data-ffm-order-id={String(orderId)}
+                          className="hover:bg-[#E8EAF6] transition-colors"
+                        >
                           {currentColumns.map((col, cIdx) => {
                             const colWidthStyles = getColumnWidthStyles(col);
                             const lastFrozenCol = cIdx === effectiveFixedColumns - 1;
