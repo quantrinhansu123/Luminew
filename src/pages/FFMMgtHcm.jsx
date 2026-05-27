@@ -52,6 +52,8 @@ const FFM_HCM_SUPABASE_TABLE = 'order_code_hcm';
 const FFM_LS_DEBOUNCE_MS = 1500;
 const FFM_HCM_PENDING_LS_KEY = 'speegoPendingChanges_ffm_mgt_hcm';
 const FFM_HCM_MARKED_ROWS_LS_KEY = 'ffm_marked_rows_hcm';
+const FFM_MARKET_TABS = ['US', 'Nhật Bản', 'Canada', 'Hàn Quốc', 'Úc', 'Anh', 'CĐ Nhật Bản'];
+const FFM_HCM_ACTIVE_MARKET_LS_KEY = 'ffm_hcm_active_market_tab';
 
 /** Giá trị Team / chi nhánh từ row (FFM) */
 function getTeamStringFFM(row) {
@@ -545,6 +547,10 @@ function FFMMgtHcm() {
   const [omActiveTeam, setOmActiveTeam] = useState('all');
   const [omDateType, setOmDateType] = useState('Ngày lên đơn');
   const [showFilters, setShowFilters] = useState(false); // Collapse/expand filters
+  const [activeMarketTab, setActiveMarketTab] = useState(() => {
+    const saved = localStorage.getItem(FFM_HCM_ACTIVE_MARKET_LS_KEY);
+    return FFM_MARKET_TABS.includes(saved) ? saved : FFM_MARKET_TABS[0];
+  });
 
   /** Chi nhánh: Tất cả | Hà Nội | HCM */
   const [ffmBranchFilter, setFfmBranchFilter] = useState('all');
@@ -718,7 +724,7 @@ function FFMMgtHcm() {
     if (!dateFrom || !dateTo) return undefined;
     const timer = setTimeout(() => {
       setCurrentPage(1);
-      void loadData({ dateFrom, dateTo, dateType: omDateType });
+      void loadData({ dateFrom, dateTo, dateType: omDateType, market: activeMarketTab });
     }, 350);
     return () => clearTimeout(timer);
   }, [dateFrom, dateTo, omDateType]);
@@ -909,6 +915,7 @@ function FFMMgtHcm() {
       dateFrom: dateRangeOverride.dateFrom ?? dateFrom,
       dateTo: dateRangeOverride.dateTo ?? dateTo,
       dateType: dateRangeOverride.dateType ?? omDateType,
+      market: dateRangeOverride.market ?? activeMarketTab,
     };
 
     setLoading(true);
@@ -1064,7 +1071,7 @@ function FFMMgtHcm() {
   const loadMoreFfmData = async () => {
     if (!ffmHasMore || loadingMore || loading || ffmBackgroundLoading) return;
     if (typeof API.fetchFFMOrdersBatch !== 'function') return;
-    const ffmDateRangeArgs = { dateFrom, dateTo, dateType: omDateType };
+    const ffmDateRangeArgs = { dateFrom, dateTo, dateType: omDateType, market: activeMarketTab };
 
     setLoadingMore(true);
     try {
@@ -1143,6 +1150,7 @@ function FFMMgtHcm() {
       dateFrom: currentYearRange.from,
       dateTo: currentYearRange.to,
       dateType: 'Ngày lên đơn',
+      market: activeMarketTab,
     });
   };
   const savePendingToLocalStorage = useCallback((newPending, newLegacy = new Map()) => {
@@ -2007,6 +2015,70 @@ function FFMMgtHcm() {
     }
     setSyncPopoverOpen(true);
   }, [pendingChanges, addToast]);
+
+  const releaseFfmLoadedRows = useCallback(() => {
+    ffmLoadGenRef.current += 1;
+    ffmMergeRef.current = new Map();
+    ffmCursorRef.current = {
+      mgtFrom: 0,
+      trackedFrom: 0,
+      mgtExhausted: false,
+      trackedExhausted: false,
+    };
+    setAllData([]);
+    setCurrentPage(1);
+    setFfmHasMore(false);
+    setFfmBackgroundLoading(false);
+    setLoadingMore(false);
+    setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
+    setCopiedSelection(null);
+  }, []);
+
+  const savePendingBeforeMarketSwitch = useCallback(async () => {
+    const pending = pendingChangesRef.current;
+    if (!pending || pending.size === 0) return true;
+
+    const ok = window.confirm(
+      `Đang có ${pending.size} đơn có thay đổi chưa lưu.\n\nBấm OK để lưu nhanh rồi chuyển tab thị trường.`
+    );
+    if (!ok) return false;
+
+    const queue = [];
+    pending.forEach((cols, orderId) => {
+      cols.forEach((info, colKey) => {
+        queue.push({
+          orderId,
+          colKey,
+          newValue: info.newValue,
+          originalValue: info.originalValue,
+        });
+      });
+    });
+    if (queue.length === 0) return true;
+
+    dbQueueRef.current = queue;
+    manualSaveRequestedRef.current = true;
+    await processDbQueue();
+    const stillPending = pendingChangesRef.current;
+    if (stillPending && stillPending.size > 0) {
+      addToast('Chưa lưu xong thay đổi, tạm thời chưa chuyển tab để tránh mất dữ liệu.', 'error', 5000);
+      return false;
+    }
+    return true;
+  }, [addToast, processDbQueue]);
+
+  const handleMarketTabChange = useCallback(async (market) => {
+    if (!market || market === activeMarketTab || loading) return;
+    const canSwitch = await savePendingBeforeMarketSwitch();
+    if (!canSwitch) return;
+
+    localStorage.setItem(FFM_HCM_ACTIVE_MARKET_LS_KEY, market);
+    releaseFfmLoadedRows();
+    setActiveMarketTab(market);
+    setLocalFilterValues((prev) => ({ ...prev, market: [] }));
+    setFilterValues((prev) => ({ ...prev, market: [] }));
+    await loadData({ market });
+  }, [activeMarketTab, loading, savePendingBeforeMarketSwitch, releaseFfmLoadedRows]);
 
   const handleDiscardAllPending = useCallback(() => {
     const revertEntries = [];
@@ -3853,6 +3925,33 @@ function FFMMgtHcm() {
         </div>
       </div>
 
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-2 px-2 py-1.5">
+        <div className="flex items-center gap-1 overflow-x-auto">
+          {FFM_MARKET_TABS.map((market) => {
+            const active = market === activeMarketTab;
+            return (
+              <button
+                key={market}
+                type="button"
+                onClick={() => handleMarketTabChange(market)}
+                disabled={loading && !active}
+                className={`shrink-0 px-3 py-1.5 rounded text-xs font-semibold border transition ${
+                  active
+                    ? 'bg-[#F37021] border-[#F37021] text-white shadow-sm'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-orange-50 hover:border-orange-200'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                title={active ? 'Thị trường đang tải trong RAM' : 'Chuyển tab sẽ xả dữ liệu thị trường cũ khỏi RAM'}
+              >
+                {market}
+              </button>
+            );
+          })}
+          <span className="ml-auto shrink-0 text-[11px] text-gray-500 px-2">
+            Đang tải: <strong>{activeMarketTab}</strong>
+          </span>
+        </div>
+      </div>
+
       {/* Filters Section - Collapsible */}
       <div className="bg-white rounded-lg shadow-sm mb-2">
         <button
@@ -3930,16 +4029,6 @@ function FFMMgtHcm() {
                     Đi tới
                   </button>
                 </div>
-              </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
-                <label className="text-xs font-semibold text-gray-500">Thị trường</label>
-                <MultiSelect
-                  label="Tất cả"
-                  mainFilter={true}
-                  options={getUniqueValues('Khu vực')}
-                  selected={localFilterValues.market}
-                  onChange={(vals) => setLocalFilterValues((prev) => ({ ...prev, market: vals }))}
-                />
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Sản phẩm</label>

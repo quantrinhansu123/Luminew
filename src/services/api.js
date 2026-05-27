@@ -796,7 +796,8 @@ export const fetchFFMOrdersBatch = async ({
     ordersTable = 'orders',
     dateFrom = '',
     dateTo = '',
-    dateType = 'Ngày lên đơn'
+    dateType = 'Ngày lên đơn',
+    market = ''
 } = {}) => {
     const table = String(ordersTable || 'orders').trim() || 'orders';
     const selectQuery = getFfmOrdersSelectQuery(table);
@@ -825,13 +826,24 @@ export const fetchFFMOrdersBatch = async ({
         };
     }
 
+    const applyMarketFilter = (query) => {
+        const markets = Array.isArray(market)
+            ? market.map((v) => String(v || '').trim()).filter(Boolean)
+            : String(market || '').trim()
+                ? [String(market).trim()]
+                : [];
+        return markets.length > 0 ? query.in('country', markets) : query;
+    };
+
     const mgtPromise = mgtSkip
         ? Promise.resolve({ data: [], error: null })
         : applyFfmDateRange(
-              supabase
-                  .from(table)
-                  .select(selectQuery)
-                  .or('shipping_unit.ilike.%MGT%,shipping_unit.ilike.%T&T%'),
+              applyMarketFilter(
+                  supabase
+                      .from(table)
+                      .select(selectQuery)
+                      .or('shipping_unit.ilike.%MGT%,shipping_unit.ilike.%T&T%')
+              ),
               { dateFrom, dateTo, dateType }
           )
               .order('order_date', { ascending: false })
@@ -840,11 +852,13 @@ export const fetchFFMOrdersBatch = async ({
     const trackedPromise = trackedSkip
         ? Promise.resolve({ data: [], error: null })
         : applyFfmDateRange(
-              supabase
-                  .from(table)
-                  .select(selectQuery)
-                  .not('tracking_code', 'is', null)
-                  .neq('tracking_code', ''),
+              applyMarketFilter(
+                  supabase
+                      .from(table)
+                      .select(selectQuery)
+                      .not('tracking_code', 'is', null)
+                      .neq('tracking_code', '')
+              ),
               { dateFrom, dateTo, dateType }
           )
               .order('order_date', { ascending: false })
@@ -885,7 +899,7 @@ export const fetchFFMOrdersBatch = async ({
 };
 
 /** Tải toàn bộ FFM (lặp batch) — ưu tiên dùng fetchFFMOrdersBatch + gộp phía UI để hiện từng lô. */
-export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', dateTo = '', dateType = 'Ngày lên đơn' } = {}) => {
+export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', dateTo = '', dateType = 'Ngày lên đơn', market = '' } = {}) => {
     const merge = new Map();
     let state = {
         mgtFrom: 0,
@@ -907,7 +921,8 @@ export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', da
                 ordersTable,
                 dateFrom,
                 dateTo,
-                dateType
+                dateType,
+                market
             });
             for (const r of b.rows) {
                 if (r?.[PRIMARY_KEY_COLUMN]) merge.set(r[PRIMARY_KEY_COLUMN], r);
