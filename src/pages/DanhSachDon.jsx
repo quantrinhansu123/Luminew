@@ -29,6 +29,67 @@ import { fetchVanDonStaffNameList, isHanoiBranchTeamLabel } from '../utils/vanDo
  */
 const ORDERS_PAGE_SIZE = 1000;
 
+const DANH_SACH_DON_SELECT_COLUMNS = [
+  'id',
+  'order_code',
+  'order_date',
+  'customer_name',
+  'customer_phone',
+  'customer_address',
+  'city',
+  'state',
+  'zipcode',
+  'country',
+  'product',
+  'total_amount_vnd',
+  'payment_method',
+  'tracking_code',
+  'shipping_fee',
+  'marketing_staff',
+  'sale_staff',
+  'team',
+  'delivery_status',
+  'payment_status',
+  'note',
+  'created_at',
+  'cskh',
+  'delivery_staff',
+  'reconciled_amount',
+  'shipping_unit',
+  'accountant_confirm',
+  'payment_status_detail',
+  'reason',
+  'product_name_1',
+  'quantity_1',
+  'product_name_2',
+  'quantity_2',
+  'sale_price',
+  'payment_type',
+  'exchange_rate',
+  'total_vnd',
+  'payment_method_text',
+  'shipping_cost',
+  'reconciled_vnd',
+  'check_result',
+  'delivery_status_nb',
+  'carrier',
+  'shift',
+  'page_name',
+  'item_qty_1',
+  'item_name_2',
+  'item_qty_2',
+  'payment_currency',
+  'payment_bill',
+  'payment_image',
+  'log',
+  'canh_bao',
+  'tong_tien_vnd',
+  'feedback_pos',
+  'feedback_neg',
+  'ngay_doi_soat_bill',
+  'ngay_doi_soat_cuoc',
+].join(',');
+
 /** Cộng tiền từ ô lưới — cùng ý với báo cáo chi tiết / format số trên bảng. */
 function parseMoneyCell(v) {
   if (v == null || v === '') return 0;
@@ -42,6 +103,39 @@ function chunkArray(arr, size) {
   const out = [];
   for (let i = 0; i < a.length; i += size) out.push(a.slice(i, i + size));
   return out;
+}
+
+function normalizeSearchTextForDb(raw) {
+  return String(raw ?? '')
+    .trim()
+    .replace(/[(),%*]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120);
+}
+
+function applyDanhSachDonSearchFilter(query, rawSearchText) {
+  const search = normalizeSearchTextForDb(rawSearchText);
+  if (search.length < 2) return query;
+
+  const pattern = `%${search}%`;
+  return query.or(
+    [
+      `order_code.ilike.${pattern}`,
+      `tracking_code.ilike.${pattern}`,
+      `customer_name.ilike.${pattern}`,
+      `customer_phone.ilike.${pattern}`,
+      `customer_address.ilike.${pattern}`,
+      `city.ilike.${pattern}`,
+      `state.ilike.${pattern}`,
+      `zipcode.ilike.${pattern}`,
+      `country.ilike.${pattern}`,
+      `marketing_staff.ilike.${pattern}`,
+      `sale_staff.ilike.${pattern}`,
+      `cskh.ilike.${pattern}`,
+      `delivery_staff.ilike.${pattern}`,
+      `team.ilike.${pattern}`,
+    ].join(',')
+  );
 }
 
 /**
@@ -170,6 +264,7 @@ async function fetchDanhSachDonMergedRawOrders({
   selectedPersonnelNames,
   userName,
   selectColumns = '*',
+  searchText = '',
   skipImplicitFilters = false,
   /**
    * Nếu true: lọc nhân sự ngay ở query DB (ilike). Mặc định tắt để tránh lệch do dấu/format tên,
@@ -237,6 +332,9 @@ async function fetchDanhSachDonMergedRawOrders({
     if (startDate) base = base.gte('order_date', startDate);
     if (endDate) base = base.lte('order_date', endDate);
   }
+  if (!skipImplicitFilters) {
+    base = applyDanhSachDonSearchFilter(base, searchText);
+  }
 
   const supaData = await fetchAllPages(base, 'order_date');
 
@@ -245,6 +343,7 @@ async function fetchDanhSachDonMergedRawOrders({
     const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
     let qNull = applyTeamAndPersonnel(supabaseClient.from(ordersTableName).select(selectColumns));
     qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
+    qNull = applyDanhSachDonSearchFilter(qNull, searchText);
     try {
       const extraRows = await fetchAllPages(qNull, 'created_at');
       if (extraRows?.length) {
@@ -360,6 +459,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [selectedPersonnelEmails, setSelectedPersonnelEmails] = useState([]); // Danh sách email nhân sự đã chọn
   const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
   const [personnelEmailToNameMap, setPersonnelEmailToNameMap] = useState({}); // Map email -> name
+  const [personnelLoaded, setPersonnelLoaded] = useState(false);
 
 
   const [searchText, setSearchText] = useState('');
@@ -689,7 +789,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      console.log(`Loading data from Supabase (From: ${startDate} To: ${endDate})...`);
+      console.log(`Loading data from Supabase (From: ${startDate} To: ${endDate}, Search: ${debouncedSearchText || 'none'})...`);
 
       // --- TESTING MODE CHECK ---
       try {
@@ -767,7 +867,8 @@ function DanhSachDon({ dataSource = 'default' }) {
         isAdmin,
         selectedPersonnelNames,
         userName,
-        selectColumns: '*',
+        selectColumns: DANH_SACH_DON_SELECT_COLUMNS,
+        searchText: debouncedSearchText,
         skipImplicitFilters: false,
         applyPersonnelFilterInDb: false,
       });
@@ -1193,24 +1294,18 @@ function DanhSachDon({ dataSource = 'default' }) {
         setSelectedPersonnelEmails([]);
         setSelectedPersonnelNames([]);
         setPersonnelEmailToNameMap({});
+      } finally {
+        setPersonnelLoaded(true);
       }
     };
 
     loadSelectedPersonnel();
   }, []); // Load once on mount
 
-  // Reload data when selectedPersonnelNames changes (để áp dụng filter mới ở DB level)
   useEffect(() => {
-    if (selectedPersonnelNames.length >= 0) {
-      // Reload data khi selectedPersonnelNames thay đổi
-      console.log('🔄 Reloading data due to selectedPersonnelNames change:', selectedPersonnelNames.length);
-      loadData();
-    }
-  }, [selectedPersonnelNames.length]); // Chỉ reload khi số lượng thay đổi
-
-  useEffect(() => {
+    if (!personnelLoaded) return;
     loadData();
-  }, [startDate, endDate, role]); // Reload when dates change
+  }, [personnelLoaded, startDate, endDate, role, debouncedSearchText, selectedPersonnelNames.length]); // Reload when server-side filters change
 
   // Get unique values for filters - Bao gồm cả giá trị trống
   const uniqueMarkets = useMemo(() => {
@@ -2720,10 +2815,10 @@ function DanhSachDon({ dataSource = 'default' }) {
           // Thông tin khách hàng - Số điện thoại
           String(row["Phone*"] || '').toLowerCase().includes(searchLower) ||
           // Thông tin khách hàng - Địa chỉ
-          String(row["Add"] || '').toLowerCase().includes(searchLower) ||
-          String(row["City"] || '').toLowerCase().includes(searchLower) ||
-          String(row["State"] || '').toLowerCase().includes(searchLower) ||
-          String(row["Zipcode"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Địa chỉ"] || row["Add"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Thành phố"] || row["City"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Tỉnh/Bang"] || row["State"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Mã bưu điện"] || row["Zipcode"] || '').toLowerCase().includes(searchLower) ||
           // Khu vực
           String(row["Khu vực"] || '').toLowerCase().includes(searchLower) ||
           // Tên nhân viên - Marketing, Sale, CSKH, Vận đơn
