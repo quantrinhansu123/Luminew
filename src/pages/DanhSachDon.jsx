@@ -29,7 +29,7 @@ import { fetchVanDonStaffNameList, isHanoiBranchTeamLabel } from '../utils/vanDo
  */
 const ORDERS_PAGE_SIZE = 1000;
 
-const DANH_SACH_DON_SELECT_COLUMNS = [
+const DANH_SACH_DON_BASE_SELECT_COLUMNS = [
   'id',
   'order_code',
   'order_date',
@@ -82,11 +82,22 @@ const DANH_SACH_DON_SELECT_COLUMNS = [
   'log',
   'canh_bao',
   'tong_tien_vnd',
-  'feedback_pos',
-  'feedback_neg',
   'ngay_doi_soat_bill',
   'ngay_doi_soat_cuoc',
-].join(',');
+];
+
+const DANH_SACH_DON_HCM_EXTRA_SELECT_COLUMNS = [
+  'feedback_pos',
+  'feedback_neg',
+];
+
+function getDanhSachDonSelectColumns(ordersTableName) {
+  const columns = [...DANH_SACH_DON_BASE_SELECT_COLUMNS];
+  if (ordersTableName === 'order_code_hcm') {
+    columns.push(...DANH_SACH_DON_HCM_EXTRA_SELECT_COLUMNS);
+  }
+  return columns.join(',');
+}
 
 /** Cộng tiền từ ô lưới — cùng ý với báo cáo chi tiết / format số trên bảng. */
 function parseMoneyCell(v) {
@@ -865,7 +876,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         isAdmin,
         selectedPersonnelNames,
         userName,
-        selectColumns: DANH_SACH_DON_SELECT_COLUMNS,
+        selectColumns: getDanhSachDonSelectColumns(ordersTableName),
         searchText: debouncedSearchText,
         skipImplicitFilters: false,
         applyPersonnelFilterInDb: false,
