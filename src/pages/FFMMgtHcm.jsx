@@ -3892,7 +3892,7 @@ function FFMMgtHcm() {
       {/* Header */}
       <div className="bg-white rounded-lg shadow-sm p-2 mb-2">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             {variant !== 'TT' && (
               <img
                 src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
@@ -3903,6 +3903,27 @@ function FFMMgtHcm() {
             <h2 className="text-lg font-bold text-gray-700">
               {variant === 'TT' ? 'HỆ THỐNG QUẢN LÝ LUMI-T&T' : 'HỆ THỐNG QUẢN LÝ SPEEGO'}
             </h2>
+            <div className="flex items-center gap-1 overflow-x-auto min-w-[220px] max-w-[620px]">
+              {FFM_MARKET_TABS.map((market) => {
+                const active = market === activeMarketTab;
+                return (
+                  <button
+                    key={market}
+                    type="button"
+                    onClick={() => handleMarketTabChange(market)}
+                    disabled={loading && !active}
+                    className={`shrink-0 px-2.5 py-1 rounded text-xs font-semibold border transition ${
+                      active
+                        ? 'bg-[#F37021] border-[#F37021] text-white shadow-sm'
+                        : 'bg-white border-gray-200 text-gray-700 hover:bg-orange-50 hover:border-orange-200'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    title={active ? 'Thị trường đang tải trong RAM' : 'Chuyển tab sẽ xả dữ liệu thị trường cũ khỏi RAM'}
+                  >
+                    {market}
+                  </button>
+                );
+              })}
+            </div>
             <div className="flex items-center gap-1.5 text-xs">
               <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
               <span
@@ -3922,33 +3943,6 @@ function FFMMgtHcm() {
               </span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-2 px-2 py-1.5">
-        <div className="flex items-center gap-1 overflow-x-auto">
-          {FFM_MARKET_TABS.map((market) => {
-            const active = market === activeMarketTab;
-            return (
-              <button
-                key={market}
-                type="button"
-                onClick={() => handleMarketTabChange(market)}
-                disabled={loading && !active}
-                className={`shrink-0 px-3 py-1.5 rounded text-xs font-semibold border transition ${
-                  active
-                    ? 'bg-[#F37021] border-[#F37021] text-white shadow-sm'
-                    : 'bg-white border-gray-200 text-gray-700 hover:bg-orange-50 hover:border-orange-200'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-                title={active ? 'Thị trường đang tải trong RAM' : 'Chuyển tab sẽ xả dữ liệu thị trường cũ khỏi RAM'}
-              >
-                {market}
-              </button>
-            );
-          })}
-          <span className="ml-auto shrink-0 text-[11px] text-gray-500 px-2">
-            Đang tải: <strong>{activeMarketTab}</strong>
-          </span>
         </div>
       </div>
 
