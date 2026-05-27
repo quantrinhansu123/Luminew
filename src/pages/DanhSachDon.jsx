@@ -75,8 +75,6 @@ const DANH_SACH_DON_SELECT_COLUMNS = [
   'carrier',
   'shift',
   'page_name',
-  'item_qty_1',
-  'item_name_2',
   'item_qty_2',
   'payment_currency',
   'payment_bill',
