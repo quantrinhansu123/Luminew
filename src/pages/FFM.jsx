@@ -31,17 +31,27 @@ import {
 } from '../utils/ffmDeliveryStatusFilter';
 import * as XLSX from 'xlsx';
 import FfmAggregateHistoryModal from '../components/FfmAggregateHistoryModal';
+import {
+  FFM_RAM_MAX_ROWS,
+  createFfmThrottledMergeSync,
+  getFfmMgtMergedBatchPlan,
+  isFfmMergeAtRamCap,
+} from './ffmLoadPerf';
 
 const FFM_HCM_SUPABASE_TABLE = 'order_code_hcm';
 const FFM_ROW_SOURCE_TABLE_KEY = '__ffmSourceTable';
-const FFM_MGT_MERGED_FIRST_BATCH_TOTAL = 1000;
-const FFM_MGT_MERGED_NEXT_BATCH_TOTAL = 2000;
 /** Debounce delay (ms) cho ghi pendingChanges vào localStorage — tránh serialize liên tục khi sửa nhanh. */
 const FFM_LS_DEBOUNCE_MS = 1500;
 /** Tách khỏi Vận đơn — trước đây chung `speegoPendingChanges` gây trộn hàng đợi. */
 const FFM_PENDING_LS_KEY = 'speegoPendingChanges_ffm';
-const FFM_MARKET_TABS = ['US', 'Nhật Bản', 'Canada', 'Hàn Quốc', 'Úc', 'Anh', 'CĐ Nhật Bản'];
+const FFM_MARKET_TAB_ALL = 'All';
+const FFM_MARKET_TABS = [FFM_MARKET_TAB_ALL, 'US', 'Nhật Bản', 'Canada', 'Hàn Quốc', 'Úc', 'Anh', 'CĐ Nhật Bản'];
 const FFM_ACTIVE_MARKET_LS_KEY = 'ffm_active_market_tab';
+
+function resolveFfmMarketParam(marketTab) {
+  const tab = String(marketTab || '').trim();
+  return !tab || tab === FFM_MARKET_TAB_ALL || tab === 'Tất cả' ? '' : tab;
+}
 
 /** Giá trị Team / chi nhánh từ row (FFM) */
 function getTeamStringFFM(row) {
@@ -508,6 +518,8 @@ function FFM({ variant = 'MGT' }) {
 
 
   const [allData, setAllData] = useState([]);
+  /** Debounce khi tải nền — tránh quét allData mỗi batch cho dropdown lọc. */
+  const [filterCatalogRows, setFilterCatalogRows] = useState([]);
   const [loading, setLoading] = useState(false);
   // Only ORDER_MANAGEMENT mode - BILL_OF_LADING removed
   const viewMode = 'ORDER_MANAGEMENT';
@@ -627,6 +639,15 @@ function FFM({ variant = 'MGT' }) {
   /** Tự động gọi batch tiếp sau lô đầu cho đến khi hết (tránh thiếu đơn nếu không bấm «Tải thêm»). */
   const [ffmBackgroundLoading, setFfmBackgroundLoading] = useState(false);
   const ffmLoadGenRef = useRef(0);
+
+  useEffect(() => {
+    if (!ffmBackgroundLoading) {
+      setFilterCatalogRows(allData);
+      return undefined;
+    }
+    const t = setTimeout(() => setFilterCatalogRows(allData), 900);
+    return () => clearTimeout(t);
+  }, [allData, ffmBackgroundLoading]);
 
   useEffect(() => {
     return () => {
@@ -791,7 +812,7 @@ function FFM({ variant = 'MGT' }) {
     if (!dateFrom || !dateTo) return undefined;
     const timer = setTimeout(() => {
       setCurrentPage(1);
-      void loadData({ dateFrom, dateTo, dateType: omDateType, market: activeMarketTab });
+      void loadData({ dateFrom, dateTo, dateType: omDateType, market: resolveFfmMarketParam(activeMarketTab) });
     }, 350);
     return () => clearTimeout(timer);
   }, [dateFrom, dateTo, omDateType]);
@@ -985,7 +1006,7 @@ function FFM({ variant = 'MGT' }) {
       dateFrom: dateRangeOverride.dateFrom ?? dateFrom,
       dateTo: dateRangeOverride.dateTo ?? dateTo,
       dateType: dateRangeOverride.dateType ?? omDateType,
-      market: dateRangeOverride.market ?? activeMarketTab,
+      market: resolveFfmMarketParam(dateRangeOverride.market ?? activeMarketTab),
     };
 
     setLoading(true);
@@ -994,8 +1015,9 @@ function FFM({ variant = 'MGT' }) {
     try {
       // Cả MGT và TT đều fetch từ 2 bảng (orders + order_code_hcm)
       if (variant === 'MGT' || variant === 'TT') {
-        const perTableFirstBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_FIRST_BATCH_TOTAL / 2));
-        const perTableNextBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_NEXT_BATCH_TOTAL / 2));
+        const batchPlan = getFfmMgtMergedBatchPlan(ffmDateRangeArgs.market);
+        const perTableFirstBatch = Math.max(1, Math.floor(batchPlan.firstTotal / 2));
+        const perTableNextBatch = Math.max(1, Math.floor(batchPlan.nextTotal / 2));
         ffmMergeRef.current = new Map();
         ffmMgtMergedCursorRef.current = {
           orders: { mgtFrom: 0, trackedFrom: 0, mgtExhausted: false, trackedExhausted: false },
@@ -1058,78 +1080,116 @@ function FFM({ variant = 'MGT' }) {
         setFfmHasMore(hasMore);
 
         if (hasMore) {
-          addToast(`✅ Đã hiển thị ${firstList.length} đơn đầu tiên, đang tải nền...`, 'success', 2500);
-          setFfmBackgroundLoading(true);
-          void (async () => {
-            try {
-              while (loadGen === ffmLoadGenRef.current) {
-                const c = ffmMgtMergedCursorRef.current;
-                const ordersDone = c.orders.mgtExhausted && c.orders.trackedExhausted;
-                const hcmDone = c.hcm.mgtExhausted && c.hcm.trackedExhausted;
-                if (ordersDone && hcmDone) break;
+          if (batchPlan.autoBackgroundLoad) {
+            addToast(`✅ Đã hiển thị ${firstList.length} đơn đầu tiên, đang tải nền...`, 'success', 2500);
+            setFfmBackgroundLoading(true);
+            const mergeSync = createFfmThrottledMergeSync({
+              getMergeMap: () => ffmMergeRef.current,
+              assignSortedRows: assignRowIndexByOrderDate,
+              runTransition: startTransition,
+              setAllData,
+              getLoadGen: () => ffmLoadGenRef.current,
+              loadGenRef: ffmLoadGenRef,
+            });
+            void (async () => {
+              try {
+                while (loadGen === ffmLoadGenRef.current) {
+                  const c = ffmMgtMergedCursorRef.current;
+                  const ordersDone = c.orders.mgtExhausted && c.orders.trackedExhausted;
+                  const hcmDone = c.hcm.mgtExhausted && c.hcm.trackedExhausted;
+                  if (ordersDone && hcmDone) break;
 
-                const [nextOrders, nextHcm] = await Promise.all([
-                  ordersDone
-                    ? Promise.resolve(null)
-                    : API.fetchFFMOrdersBatch({
-                        ...c.orders,
-                        pageSize: perTableNextBatch,
-                        ordersTable: 'orders',
-                        ...ffmDateRangeArgs
-                      }),
-                  hcmDone
-                    ? Promise.resolve(null)
-                    : API.fetchFFMOrdersBatch({
-                        ...c.hcm,
-                        pageSize: perTableNextBatch,
-                        ordersTable: FFM_HCM_SUPABASE_TABLE,
-                        ...ffmDateRangeArgs
-                      }),
-                ]);
+                  const [nextOrders, nextHcm] = await Promise.all([
+                    ordersDone
+                      ? Promise.resolve(null)
+                      : API.fetchFFMOrdersBatch({
+                          ...c.orders,
+                          pageSize: perTableNextBatch,
+                          ordersTable: 'orders',
+                          ...ffmDateRangeArgs,
+                        }),
+                    hcmDone
+                      ? Promise.resolve(null)
+                      : API.fetchFFMOrdersBatch({
+                          ...c.hcm,
+                          pageSize: perTableNextBatch,
+                          ordersTable: FFM_HCM_SUPABASE_TABLE,
+                          ...ffmDateRangeArgs,
+                        }),
+                  ]);
 
-                if (loadGen !== ffmLoadGenRef.current) return;
+                  if (loadGen !== ffmLoadGenRef.current) return;
 
-                if (nextOrders) {
-                  c.orders = {
-                    mgtFrom: nextOrders.nextMgtFrom,
-                    trackedFrom: nextOrders.nextTrackedFrom,
-                    mgtExhausted: nextOrders.mgtExhausted,
-                    trackedExhausted: nextOrders.trackedExhausted,
-                  };
-                  for (const r of withFfmSourceTable(nextOrders.rows || [], 'orders')) {
-                    const id = r?.[PRIMARY_KEY_COLUMN];
-                    if (id) ffmMergeRef.current.set(id, r);
+                  if (nextOrders) {
+                    c.orders = {
+                      mgtFrom: nextOrders.nextMgtFrom,
+                      trackedFrom: nextOrders.nextTrackedFrom,
+                      mgtExhausted: nextOrders.mgtExhausted,
+                      trackedExhausted: nextOrders.trackedExhausted,
+                    };
+                    for (const r of withFfmSourceTable(nextOrders.rows || [], 'orders')) {
+                      const id = r?.[PRIMARY_KEY_COLUMN];
+                      if (id) ffmMergeRef.current.set(id, r);
+                    }
+                  }
+                  if (nextHcm) {
+                    c.hcm = {
+                      mgtFrom: nextHcm.nextMgtFrom,
+                      trackedFrom: nextHcm.nextTrackedFrom,
+                      mgtExhausted: nextHcm.mgtExhausted,
+                      trackedExhausted: nextHcm.trackedExhausted,
+                    };
+                    for (const r of withFfmSourceTable(nextHcm.rows || [], FFM_HCM_SUPABASE_TABLE)) {
+                      const id = r?.[PRIMARY_KEY_COLUMN];
+                      if (id) ffmMergeRef.current.set(id, r);
+                    }
+                  }
+
+                  if (isFfmMergeAtRamCap(ffmMergeRef.current, batchPlan.ramMaxRows)) {
+                    mergeSync.flush();
+                    setFfmHasMore(true);
+                    addToast(
+                      `Đã nạp tối đa ${batchPlan.ramMaxRows.toLocaleString('vi-VN')} đơn trong RAM. Thu hẹp ngày/lọc hoặc bấm «Tải thêm đơn».`,
+                      'info',
+                      6000
+                    );
+                    break;
+                  }
+                  mergeSync.scheduleSync();
+                }
+
+                if (loadGen === ffmLoadGenRef.current) {
+                  mergeSync.flush();
+                  const c = ffmMgtMergedCursorRef.current;
+                  const stillMore =
+                    !c.orders.mgtExhausted ||
+                    !c.orders.trackedExhausted ||
+                    !c.hcm.mgtExhausted ||
+                    !c.hcm.trackedExhausted;
+                  setFfmHasMore(stillMore);
+                  if (!stillMore) {
+                    addToast(`✅ Đã tải đủ ${ffmMergeRef.current.size} đơn`, 'success', 2200);
                   }
                 }
-                if (nextHcm) {
-                  c.hcm = {
-                    mgtFrom: nextHcm.nextMgtFrom,
-                    trackedFrom: nextHcm.nextTrackedFrom,
-                    mgtExhausted: nextHcm.mgtExhausted,
-                    trackedExhausted: nextHcm.trackedExhausted,
-                  };
-                  for (const r of withFfmSourceTable(nextHcm.rows || [], FFM_HCM_SUPABASE_TABLE)) {
-                    const id = r?.[PRIMARY_KEY_COLUMN];
-                    if (id) ffmMergeRef.current.set(id, r);
-                  }
+              } catch (bgErr) {
+                console.error('[FFM MGT] Tải nền lỗi:', bgErr);
+                if (loadGen === ffmLoadGenRef.current) {
+                  setFfmHasMore(true);
+                  addToast(`⚠️ Tải nền lỗi: ${bgErr.message || bgErr}`, 'error', 5000);
                 }
-                setAllData(assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values())));
+              } finally {
+                mergeSync.cancel();
+                if (loadGen === ffmLoadGenRef.current) setFfmBackgroundLoading(false);
               }
-
-              if (loadGen === ffmLoadGenRef.current) {
-                setFfmHasMore(false);
-                addToast(`✅ Đã tải đủ ${ffmMergeRef.current.size} đơn`, 'success', 2200);
-              }
-            } catch (bgErr) {
-              console.error('[FFM MGT] Tải nền lỗi:', bgErr);
-              if (loadGen === ffmLoadGenRef.current) {
-                setFfmHasMore(true);
-                addToast(`⚠️ Tải nền lỗi: ${bgErr.message || bgErr}`, 'error', 5000);
-              }
-            } finally {
-              if (loadGen === ffmLoadGenRef.current) setFfmBackgroundLoading(false);
-            }
-          })();
+            })();
+          } else {
+            addToast(
+              `✅ Hiển thị ${firstList.length} đơn (tab All). Bấm «Tải thêm đơn» khi cần — không tự tải hết để tránh lag.`,
+              'info',
+              5500
+            );
+            setFfmHasMore(true);
+          }
         } else {
           addToast(`✅ Đã tải ${firstList.length} đơn`, 'success', 2000);
         }
@@ -1299,14 +1359,23 @@ function FFM({ variant = 'MGT' }) {
   const loadMoreFfmData = async () => {
     if (!ffmHasMore || loadingMore || loading || ffmBackgroundLoading) return;
     if (typeof API.fetchFFMOrdersBatch !== 'function') return;
-    const ffmDateRangeArgs = { dateFrom, dateTo, dateType: omDateType, market: activeMarketTab };
+    const ffmDateRangeArgs = { dateFrom, dateTo, dateType: omDateType, market: resolveFfmMarketParam(activeMarketTab) };
+    const batchPlan = getFfmMgtMergedBatchPlan(ffmDateRangeArgs.market);
+    if (isFfmMergeAtRamCap(ffmMergeRef.current, batchPlan.ramMaxRows)) {
+      addToast(
+        `Đã đạt giới hạn ${batchPlan.ramMaxRows.toLocaleString('vi-VN')} đơn trong RAM. Thu hẹp khoảng ngày hoặc chọn tab thị trường cụ thể.`,
+        'info',
+        5500
+      );
+      return;
+    }
 
     setLoadingMore(true);
     try {
       // Cả MGT và TT đều dùng cùng logic merge 2 bảng
       if (variant === 'MGT' || variant === 'TT') {
         const c = ffmMgtMergedCursorRef.current;
-        const perTableNextBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_NEXT_BATCH_TOTAL / 2));
+        const perTableNextBatch = Math.max(1, Math.floor(batchPlan.nextTotal / 2));
         const ordersDone = c.orders.mgtExhausted && c.orders.trackedExhausted;
         const hcmDone = c.hcm.mgtExhausted && c.hcm.trackedExhausted;
         if (ordersDone && hcmDone) {
@@ -1356,10 +1425,25 @@ function FFM({ variant = 'MGT' }) {
           }
         }
         const mergedList = assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values()));
-        setAllData(mergedList);
-        const hasMore = !(c.orders.mgtExhausted && c.orders.trackedExhausted && c.hcm.mgtExhausted && c.hcm.trackedExhausted);
+        startTransition(() => setAllData(mergedList));
+        const atCap = isFfmMergeAtRamCap(ffmMergeRef.current, batchPlan.ramMaxRows);
+        const hasMore =
+          !atCap &&
+          !(c.orders.mgtExhausted && c.orders.trackedExhausted && c.hcm.mgtExhausted && c.hcm.trackedExhausted);
         setFfmHasMore(hasMore);
-        addToast(hasMore ? `Đã tải thêm — hiện ${mergedList.length} đơn.` : `Đã tải xong — ${mergedList.length} đơn.`, 'success', 2200);
+        if (atCap) {
+          addToast(
+            `Đã tải ${mergedList.length} đơn (giới hạn RAM). Thu hẹp bộ lọc nếu cần đủ dữ liệu.`,
+            'info',
+            5000
+          );
+        } else {
+          addToast(
+            hasMore ? `Đã tải thêm — hiện ${mergedList.length} đơn.` : `Đã tải xong — ${mergedList.length} đơn.`,
+            'success',
+            2200
+          );
+        }
         return;
       }
 
@@ -1442,7 +1526,7 @@ function FFM({ variant = 'MGT' }) {
       dateFrom: currentYearRange.from,
       dateTo: currentYearRange.to,
       dateType: 'Ngày lên đơn',
-      market: activeMarketTab,
+      market: resolveFfmMarketParam(activeMarketTab),
     });
   };
   /** Ghi pendingChanges vào localStorage — **debounced** để tránh JSON.stringify liên tục khi sửa nhanh (gây jank / OOM trên máy RAM ít). */
@@ -1971,20 +2055,21 @@ function FFM({ variant = 'MGT' }) {
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
+    const source = filterCatalogRows.length > 0 ? filterCatalogRows : allData;
     if (key === 'Trạng thái giao hàng') {
-      allData.forEach((row) => {
+      source.forEach((row) => {
         const val = getFfmOrderMgmtDeliveryStatusForRow(row);
         if (val) values.add(val);
       });
       return Array.from(values).sort();
     }
     const keyMapped = COLUMN_MAPPING[key] || key;
-    allData.forEach((row) => {
+    source.forEach((row) => {
       const val = String(row[key] || row[keyMapped] || row[key.replace(/ /g, '_')] || '').trim();
       if (val) values.add(val);
     });
     return Array.from(values).sort();
-  }, [allData]);
+  }, [allData, filterCatalogRows]);
 
   // Teams list - chỉ hiển thị Hà Nội nếu user có quyền
   const teams = useMemo(() => {
@@ -2396,6 +2481,7 @@ function FFM({ variant = 'MGT' }) {
   }, [pendingChanges, addToast]);
 
   const releaseFfmLoadedRows = useCallback(() => {
+    // Hủy mọi vòng tải / merge nền còn đang chạy (đổi tab, reload, unmount).
     ffmLoadGenRef.current += 1;
     ffmMergeRef.current = new Map();
     ffmCursorRef.current = {
@@ -2408,11 +2494,44 @@ function FFM({ variant = 'MGT' }) {
       orders: { mgtFrom: 0, trackedFrom: 0, mgtExhausted: false, trackedExhausted: false },
       hcm: { mgtFrom: 0, trackedFrom: 0, mgtExhausted: false, trackedExhausted: false },
     };
+    allDataMapRef.current = new Map();
+    changeHistoryRef.current = [];
+    historyIndexRef.current = -1;
+    dbQueueRef.current = [];
+    updateQueue.current = new Map();
+    if (pendingLsTimerRef.current != null) {
+      clearTimeout(pendingLsTimerRef.current);
+      pendingLsTimerRef.current = null;
+    }
+    if (ffmRealtimeFetchTimerRef.current != null) {
+      clearTimeout(ffmRealtimeFetchTimerRef.current);
+      ffmRealtimeFetchTimerRef.current = null;
+    }
+    ffmRealtimeOrderCodesRef.current.clear();
+    isSelecting.current = false;
+    clearFfDragDomSelection();
+    ffmDragCellMapRef.current = null;
+    ffmDragPrevBoundsRef.current = null;
+    const dragL = dragListenersRef.current;
+    if (dragL?.move) {
+      document.removeEventListener('mousemove', dragL.move);
+      document.removeEventListener('mouseup', dragL.up);
+      dragListenersRef.current = { move: null, up: null };
+    }
+    const fillL = fillDragListenersRef.current;
+    if (fillL?.move) {
+      document.removeEventListener('mousemove', fillL.move);
+      document.removeEventListener('mouseup', fillL.up);
+      fillDragListenersRef.current = { move: null, up: null };
+    }
     setAllData([]);
+    setFilterCatalogRows([]);
     setCurrentPage(1);
     setFfmHasMore(false);
     setFfmBackgroundLoading(false);
     setLoadingMore(false);
+    setLoading(false);
+    setIsDraggingSelection(false);
     setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
     setCopiedSelection(null);
   }, []);
@@ -2457,10 +2576,16 @@ function FFM({ variant = 'MGT' }) {
 
     localStorage.setItem(FFM_ACTIVE_MARKET_LS_KEY, market);
     releaseFfmLoadedRows();
-    setActiveMarketTab(market);
-    setLocalFilterValues((prev) => ({ ...prev, market: [] }));
-    setFilterValues((prev) => ({ ...prev, market: [] }));
-    await loadData({ market });
+    startTransition(() => {
+      setActiveMarketTab(market);
+      setLocalFilterValues((prev) => ({ ...prev, market: [] }));
+      setFilterValues((prev) => ({ ...prev, market: [] }));
+    });
+    // Cho React commit state rỗng + GC trước khi fetch tab mới (giảm lag khi đổi tab).
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+    await loadData({ market: resolveFfmMarketParam(market) });
   }, [activeMarketTab, loading, savePendingBeforeMarketSwitch, releaseFfmLoadedRows]);
 
   const handleDiscardAllPending = useCallback(() => {
@@ -2638,6 +2763,7 @@ function FFM({ variant = 'MGT' }) {
   const totalPages = Math.ceil(getFilteredData.length / effectiveRowsPerPage);
 
   const markedRowsInFilteredData = useMemo(() => {
+    if (markedRows.size === 0) return [];
     return getFilteredData
       .map((row, index) => ({ row, index, orderId: row[PRIMARY_KEY_COLUMN] }))
       .filter(({ orderId }) => markedRows.has(orderId));
@@ -4346,6 +4472,12 @@ function FFM({ variant = 'MGT' }) {
                     : 'Số đơn sau bộ lọc / số đơn đã tải (đã nạp đủ lô FFM). Đồng bộ realtime vẫn có thể cập nhật từng dòng.'
                 }
               >
+                {allData.length >= FFM_RAM_MAX_ROWS && (
+                  <span className="text-amber-700 font-medium" title="Giới hạn bộ nhớ — dùng lọc hoặc tab thị trường">
+                    {' '}
+                    (tối đa RAM)
+                  </span>
+                )}
                 {getFilteredData.length !== allData.length
                   ? `${getFilteredData.length.toLocaleString('vi-VN')} / ${allData.length.toLocaleString('vi-VN')} sau lọc`
                   : `${allData.length.toLocaleString('vi-VN')} đơn hàng`}

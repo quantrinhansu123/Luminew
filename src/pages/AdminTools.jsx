@@ -51,6 +51,105 @@ const GLOBAL_SETTINGS_ID = 'global_config';
 const CSKH_ORDER_TABLE_HN = 'orders';
 const CSKH_ORDER_TABLE_HCM = 'order_code_hcm';
 
+/** Map tableId (card) → tên bảng Supabase thật. */
+function resolveAdminToolsTableName(tableId) {
+    if (['cskh_all', 'cskh_money', 'cskh_report', 'sale_orders', 'delivery_orders', 'delivery_reports', 'mkt_orders'].includes(tableId)) {
+        return 'orders';
+    }
+    if (tableId === 'sale_reports') return 'sales_reports';
+    if (tableId === 'mkt_reports') return 'detail_reports';
+    return tableId;
+}
+
+const ADMIN_TOOLS_BASE_TABLE_CARDS = [
+    { id: 'sale_reports', name: 'Xem báo cáo (Sale)', desc: 'Dữ liệu báo cáo doanh số Sale' },
+    { id: 'delivery_orders', name: 'Quản lý vận đơn', desc: 'Danh sách vận đơn (Delivery)' },
+    { id: 'mkt_reports', name: 'Xem báo cáo (MKT)', desc: 'Báo cáo chi tiết Marketing (detail_reports)' },
+    { id: 'cskh_report', name: 'Xem báo cáo CSKH', desc: 'Dữ liệu nguồn cho báo cáo CSKH' },
+    { id: 'users', name: 'Quản lý nhân sự (Users)', desc: 'Danh sách tài khoản và nhân sự hệ thống' },
+];
+
+/** Bổ sung backup ZIP — bỏ qua nếu trùng bảng đã có ở BASE (orders, sales_reports, detail_reports). */
+const ADMIN_TOOLS_EXTRA_BACKUP_TABLE_CARDS = [
+    { id: 'bill_uploaded_history', name: 'Lịch sử upload bill', desc: 'bill_uploaded_history' },
+    { id: 'cuoc_uploaded_history', name: 'Lịch sử upload cước', desc: 'cuoc_uploaded_history' },
+    { id: 'danh_sach_van_don', name: 'Danh sách vận đơn (master)', desc: 'danh_sach_van_don' },
+    { id: 'exchange_rates', name: 'Tỷ giá', desc: 'exchange_rates' },
+    { id: 'ffm_push_logs', name: 'FFM push logs (HN)', desc: 'ffm_push_logs' },
+    { id: 'ffm_push_logs_hcm', name: 'FFM push logs (HCM)', desc: 'ffm_push_logs_hcm' },
+    { id: 'history_chia_don', name: 'Lịch sử chia đơn', desc: 'history_chia_don' },
+    { id: 'marketing_pages', name: 'Marketing pages', desc: 'marketing_pages' },
+    { id: 'marketing_report_hcm', name: 'Báo cáo MKT HCM', desc: 'marketing_report_hcm' },
+    { id: 'order_code_hcm', name: 'Đơn HCM', desc: 'order_code_hcm' },
+    { id: 'sale_report_hcm', name: 'Báo cáo Sale HCM', desc: 'sale_report_hcm' },
+];
+
+function buildAdminToolsAvailableTables() {
+    const seen = new Set();
+    const out = [];
+    for (const card of [...ADMIN_TOOLS_BASE_TABLE_CARDS, ...ADMIN_TOOLS_EXTRA_BACKUP_TABLE_CARDS]) {
+        const real = resolveAdminToolsTableName(card.id);
+        if (seen.has(real)) continue;
+        seen.add(real);
+        out.push(card);
+    }
+    return out;
+}
+
+/** Cột lọc ngày khi backup (mặc định created_at). */
+const BACKUP_TABLE_DATE_META = {
+    orders: { col: 'order_date', excludeRdTeam: true },
+    order_code_hcm: { col: 'order_date' },
+    sales_reports: { col: 'date' },
+    sale_report_hcm: { col: 'date' },
+    detail_reports: { col: 'Ngày' },
+    marketing_report_hcm: { col: 'Ngày' },
+    bill_uploaded_history: { col: 'synced_at' },
+    cuoc_uploaded_history: { col: 'synced_at' },
+    exchange_rates: { col: 'id', skipDateFilter: true },
+};
+
+function applyBackupDateFilters(query, tableName, dateFrom, dateTo) {
+    const meta = BACKUP_TABLE_DATE_META[tableName] || { col: 'created_at' };
+    if (meta.excludeRdTeam && tableName === 'orders') {
+        query = query.neq('team', 'RD');
+    }
+    if (meta.skipDateFilter || (!dateFrom && !dateTo)) return query;
+    if (dateFrom) query = query.gte(meta.col, dateFrom);
+    if (dateTo) query = query.lte(meta.col, dateTo);
+    return query;
+}
+
+/** Tải đủ bảng (phân trang 1000/lô) — dùng cho backup ZIP / tải JSON. */
+async function fetchBackupTableRows(tableName, { dateFrom = '', dateTo = '', singlePageLimit = null } = {}) {
+    const meta = BACKUP_TABLE_DATE_META[tableName] || { col: 'created_at' };
+    const orderCol = meta.col;
+
+    if (singlePageLimit != null && !dateFrom && !dateTo) {
+        let query = supabase.from(tableName).select('*');
+        query = applyBackupDateFilters(query, tableName, dateFrom, dateTo);
+        const { data, error } = await query.limit(singlePageLimit);
+        if (error) throw error;
+        return data || [];
+    }
+
+    const PAGE_SIZE = 1000;
+    const all = [];
+    let from = 0;
+    for (let page = 0; page < 500; page++) {
+        let query = supabase.from(tableName).select('*');
+        query = applyBackupDateFilters(query, tableName, dateFrom, dateTo);
+        query = query.order(orderCol, { ascending: false }).range(from, from + PAGE_SIZE - 1);
+        const { data, error } = await query;
+        if (error) throw error;
+        const chunk = data || [];
+        all.push(...chunk);
+        if (chunk.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+    }
+    return all;
+}
+
 const ACCOUNT_TEMPLATE_ROWS = [
     {
         email: 'user01@example.com',
@@ -997,27 +1096,7 @@ const AdminTools = () => {
         }
     }, [dbProducts]);
 
-    const AVAILABLE_TABLES = [
-        // SALES
-        // { id: 'sale_orders', name: 'Danh sách đơn (Sale)', desc: 'Danh sách đơn hàng của bộ phận Sale' },
-        { id: 'sale_reports', name: 'Xem báo cáo (Sale)', desc: 'Dữ liệu báo cáo doanh số Sale' },
-
-        // LOGISTICS (Vận đơn)
-        { id: 'delivery_orders', name: 'Quản lý vận đơn', desc: 'Danh sách vận đơn (Delivery)' },
-        // { id: 'delivery_reports', name: 'Báo cáo vận đơn', desc: 'Dữ liệu báo cáo vận đơn' },
-
-        // MARKETING
-        // { id: 'mkt_orders', name: 'Danh sách đơn (MKT)', desc: 'Danh sách đơn hàng Marketing' },
-        { id: 'mkt_reports', name: 'Xem báo cáo (MKT)', desc: 'Báo cáo chi tiết Marketing (detail_reports)' },
-
-        // CSKH (Customer Service)
-        // { id: 'cskh_all', name: 'Danh sách đơn (CSKH)', desc: 'Toàn bộ đơn hàng (Dùng cho CSKH)' },
-        // { id: 'cskh_money', name: 'Đơn đã thu tiền/cần CS (CSKH)', desc: 'Đơn hàng có trạng thái thu tiền/cần xử lý' },
-        { id: 'cskh_report', name: 'Xem báo cáo CSKH', desc: 'Dữ liệu nguồn cho báo cáo CSKH' },
-
-        // SYSTEM
-        { id: 'users', name: 'Quản lý nhân sự (Users)', desc: 'Danh sách tài khoản và nhân sự hệ thống' },
-    ];
+    const AVAILABLE_TABLES = useMemo(() => buildAdminToolsAvailableTables(), []);
 
     const handleDownloadTable = async (tableId) => {
         const tableName = getRealTableName(tableId);
@@ -1031,36 +1110,11 @@ const AdminTools = () => {
         try {
             toast.info(`Đang tải dữ liệu [${tableId}]...`);
 
-            // Custom logic for filtered downloads can go here
-            let query = supabase.from(tableName).select('*');
-
-            // --- DATE FILTER LOGIC ---
-            if (dateFrom || dateTo) {
-                // Determine date column based on table
-                let dateCol = 'created_at';
-                if (tableName === 'orders') {
-                    // EXCLUDE R&D DATA for Admin Tools/General Reporting
-                    query = query.neq('team', 'RD');
-
-                    if (dateFrom) query = query.gte('order_date', dateFrom);
-                    if (dateTo) query = query.lte('order_date', dateTo);
-                } else if (tableName === 'sales_reports') {
-                    if (dateFrom) query = query.gte('date', dateFrom);
-                    if (dateTo) query = query.lte('date', dateTo);
-                } else if (tableName === 'detail_reports') {
-                    if (dateFrom) query = query.gte('Ngày', dateFrom);
-                    if (dateTo) query = query.lte('Ngày', dateTo);
-                } else {
-                    if (dateFrom) query = query.gte('created_at', dateFrom);
-                    if (dateTo) query = query.lte('created_at', dateTo);
-                }
-            } else {
-                // Default limit if no filter
-                query = query.limit(10000);
-            }
-
-            const { data, error } = await query;
-            if (error) throw error;
+            const data = await fetchBackupTableRows(tableName, {
+                dateFrom,
+                dateTo,
+                singlePageLimit: dateFrom || dateTo ? null : 10000,
+            });
 
             const jsonString = JSON.stringify(data, null, 2);
             const blob = new Blob([jsonString], { type: "application/json" });
@@ -1376,36 +1430,24 @@ const AdminTools = () => {
 
             const zip = new JSZip();
 
-            // Loop through ALL defined cards in AVAILABLE_TABLES to simulate distinct downloads
+            let backedUp = 0;
+            let skipped = 0;
             for (const card of AVAILABLE_TABLES) {
                 const tableId = card.id;
-                const tableName = getRealTableName(tableId);
+                const tableName = resolveAdminToolsTableName(tableId);
 
-                let query = supabase.from(tableName).select('*');
-
-                // Reuse query logic from handleDownloadTable
-                if (tableName === 'orders') {
-                    query = query.neq('team', 'RD');
-                    if (dateFrom) query = query.gte('order_date', dateFrom);
-                    if (dateTo) query = query.lte('order_date', dateTo);
-                } else {
-                    let dateCol = 'created_at';
-                    if (tableName === 'sales_reports') dateCol = 'date';
-                    if (tableName === 'detail_reports') dateCol = 'Ngày';
-
-                    if (dateFrom) query = query.gte(dateCol, dateFrom);
-                    if (dateTo) query = query.lte(dateCol, dateTo);
+                try {
+                    const data = await fetchBackupTableRows(tableName, { dateFrom, dateTo });
+                    const safeName = card.name.replace(/\//g, '-');
+                    zip.file(`${safeName}.json`, JSON.stringify(data, null, 2));
+                    backedUp += 1;
+                } catch (fetchErr) {
+                    console.error(`Error fetching ${tableId} (${tableName})`, fetchErr);
+                    skipped += 1;
                 }
-
-                const { data, error } = await query;
-                if (error) {
-                    console.error(`Error fetching ${tableId}`, error);
-                    continue; // Skip failed table but continue others
-                }
-
-                // Save file using Vietnamese Name (sanitized)
-                const safeName = card.name.replace(/\//g, '-');
-                zip.file(`${safeName}.json`, JSON.stringify(data, null, 2));
+            }
+            if (skipped > 0) {
+                toast.warn(`Một số bảng lỗi (${skipped}/${AVAILABLE_TABLES.length}) — xem console.`);
             }
 
             const content = await zip.generateAsync({ type: "blob" });
@@ -1418,7 +1460,7 @@ const AdminTools = () => {
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
 
-            toast.success("✅ Đã tải backup toàn bộ (ZIP) thành công!");
+            toast.success(`✅ Đã tải backup ZIP (${backedUp} bảng${skipped ? `, ${skipped} lỗi` : ''})!`);
         } catch (err) {
             console.error("Download All Error:", err);
             toast.error(`❌ Lỗi backup: ${err.message}`);
@@ -1428,16 +1470,7 @@ const AdminTools = () => {
     // --- UPLOAD LOGIC ---
     const [selectedUploadTableId, setSelectedUploadTableId] = useState(null);
 
-    const getRealTableName = (tableId) => {
-        if (['cskh_all', 'cskh_money', 'cskh_report', 'sale_orders', 'delivery_orders', 'delivery_reports', 'mkt_orders'].includes(tableId)) {
-            return 'orders';
-        } else if (tableId === 'sale_reports') {
-            return 'sales_reports';
-        } else if (tableId === 'mkt_reports') {
-            return 'detail_reports';
-        }
-        return tableId;
-    };
+    const getRealTableName = (tableId) => resolveAdminToolsTableName(tableId);
 
     const handleUploadCardClick = (tableId) => {
         setSelectedUploadTableId(tableId);

@@ -32,6 +32,12 @@ import {
 } from '../utils/ffmDeliveryStatusFilter';
 import * as XLSX from 'xlsx';
 import FfmAggregateHistoryModal from '../components/FfmAggregateHistoryModal';
+import {
+  FFM_RAM_MAX_ROWS,
+  createFfmThrottledMergeSync,
+  getFfmHcmBatchPlan,
+  isFfmMergeAtRamCap,
+} from './ffmLoadPerf';
 
 function ffmLocalYmd(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -474,6 +480,7 @@ function FFMMgtHcm() {
 
 
   const [allData, setAllData] = useState([]);
+  const [filterCatalogRows, setFilterCatalogRows] = useState([]);
   const [loading, setLoading] = useState(false);
   // Only ORDER_MANAGEMENT mode - BILL_OF_LADING removed
   const viewMode = 'ORDER_MANAGEMENT';
@@ -583,6 +590,15 @@ function FFMMgtHcm() {
   /** Tự động gọi batch tiếp sau lô đầu cho đến khi hết (tránh thiếu đơn nếu không bấm «Tải thêm»). */
   const [ffmBackgroundLoading, setFfmBackgroundLoading] = useState(false);
   const ffmLoadGenRef = useRef(0);
+
+  useEffect(() => {
+    if (!ffmBackgroundLoading) {
+      setFilterCatalogRows(allData);
+      return undefined;
+    }
+    const t = setTimeout(() => setFilterCatalogRows(allData), 900);
+    return () => clearTimeout(t);
+  }, [allData, ffmBackgroundLoading]);
 
   useEffect(() => {
     return () => {
@@ -927,6 +943,7 @@ function FFMMgtHcm() {
       dateType: dateRangeOverride.dateType ?? omDateType,
       market: resolveFfmMarketParam(dateRangeOverride.market ?? activeMarketTab),
     };
+    const batchPlan = getFfmHcmBatchPlan(ffmDateRangeArgs.market);
 
     setLoading(true);
     setFfmHasMore(false);
@@ -944,7 +961,7 @@ function FFMMgtHcm() {
         const b = await API.fetchFFMOrdersBatch({
           mgtFrom: 0,
           trackedFrom: 0,
-          pageSize: FFM_FIRST_BATCH_SIZE,
+          pageSize: batchPlan.firstSize,
           mgtExhausted: false,
           trackedExhausted: false,
           ordersTable: FFM_HCM_SUPABASE_TABLE,
@@ -984,68 +1001,99 @@ function FFMMgtHcm() {
         if (mergedList.length === 2 && mergedList[0][PRIMARY_KEY_COLUMN] === 'DEMO001') {
           addToast('⚠️ Đang sử dụng dữ liệu demo do API lỗi. Kiểm tra kết nối mạng.', 'error', 8000);
         } else if (hasMore) {
-          addToast(
-            `✅ Hiển thị ${mergedList.length} đơn trước — đang tải đầy đủ trong nền.`,
-            'success',
-            3500
-          );
-          setFfmBackgroundLoading(true);
-          void (async () => {
-            try {
-              while (loadGen === ffmLoadGenRef.current) {
-                const c = ffmCursorRef.current;
-                if (c.mgtExhausted && c.trackedExhausted) break;
+          if (batchPlan.autoBackgroundLoad) {
+            addToast(
+              `✅ Hiển thị ${mergedList.length} đơn trước — đang tải đầy đủ trong nền.`,
+              'success',
+              3500
+            );
+            setFfmBackgroundLoading(true);
+            const mergeSync = createFfmThrottledMergeSync({
+              getMergeMap: () => ffmMergeRef.current,
+              assignSortedRows: assignRowIndexByOrderDate,
+              runTransition: startTransition,
+              setAllData,
+              getLoadGen: () => ffmLoadGenRef.current,
+              loadGenRef: ffmLoadGenRef,
+            });
+            void (async () => {
+              try {
+                while (loadGen === ffmLoadGenRef.current) {
+                  const c = ffmCursorRef.current;
+                  if (c.mgtExhausted && c.trackedExhausted) break;
 
-                const next = await API.fetchFFMOrdersBatch({
-                  mgtFrom: c.mgtFrom,
-                  trackedFrom: c.trackedFrom,
-                  pageSize: FFM_NEXT_BATCH_SIZE,
-                  mgtExhausted: c.mgtExhausted,
-                  trackedExhausted: c.trackedExhausted,
-                  ordersTable: FFM_HCM_SUPABASE_TABLE,
-                  ...ffmDateRangeArgs
-                });
+                  const next = await API.fetchFFMOrdersBatch({
+                    mgtFrom: c.mgtFrom,
+                    trackedFrom: c.trackedFrom,
+                    pageSize: batchPlan.nextSize,
+                    mgtExhausted: c.mgtExhausted,
+                    trackedExhausted: c.trackedExhausted,
+                    ordersTable: FFM_HCM_SUPABASE_TABLE,
+                    ...ffmDateRangeArgs,
+                  });
 
-                if (loadGen !== ffmLoadGenRef.current) return;
+                  if (loadGen !== ffmLoadGenRef.current) return;
 
-                ffmCursorRef.current = {
-                  mgtFrom: next.nextMgtFrom,
-                  trackedFrom: next.nextTrackedFrom,
-                  mgtExhausted: next.mgtExhausted,
-                  trackedExhausted: next.trackedExhausted
-                };
+                  ffmCursorRef.current = {
+                    mgtFrom: next.nextMgtFrom,
+                    trackedFrom: next.nextTrackedFrom,
+                    mgtExhausted: next.mgtExhausted,
+                    trackedExhausted: next.trackedExhausted,
+                  };
 
-                for (const r of next.rows) {
-                  const id = r[PRIMARY_KEY_COLUMN];
-                  if (id) ffmMergeRef.current.set(id, r);
+                  for (const r of next.rows) {
+                    const id = r[PRIMARY_KEY_COLUMN];
+                    if (id) ffmMergeRef.current.set(id, r);
+                  }
+
+                  if (isFfmMergeAtRamCap(ffmMergeRef.current, batchPlan.ramMaxRows)) {
+                    mergeSync.flush();
+                    setFfmHasMore(true);
+                    addToast(
+                      `Đã nạp tối đa ${batchPlan.ramMaxRows.toLocaleString('vi-VN')} đơn trong RAM. Thu hẹp lọc hoặc bấm «Tải thêm đơn».`,
+                      'info',
+                      6000
+                    );
+                    break;
+                  }
+                  mergeSync.scheduleSync();
                 }
 
-                const fullList = assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values()));
-                setAllData(fullList);
+                if (loadGen === ffmLoadGenRef.current) {
+                  mergeSync.flush();
+                  const c = ffmCursorRef.current;
+                  const stillMore = !c.mgtExhausted || !c.trackedExhausted;
+                  setFfmHasMore(stillMore);
+                  if (!stillMore) {
+                    addToast(`✅ Đã tải đủ ${ffmMergeRef.current.size} đơn FFM`, 'success', 2500);
+                  }
+                }
+              } catch (bgErr) {
+                console.error('[FFM] Tải nền:', bgErr);
+                if (loadGen === ffmLoadGenRef.current) {
+                  const c = ffmCursorRef.current;
+                  setFfmHasMore(!c.mgtExhausted || !c.trackedExhausted);
+                  addToast(
+                    `⚠️ Tải nền lỗi: ${bgErr.message || bgErr}. Bấm «Tải thêm đơn» để thử tiếp.`,
+                    'error',
+                    6500
+                  );
+                }
+              } finally {
+                mergeSync.cancel();
+                if (loadGen === ffmLoadGenRef.current) {
+                  setFfmBackgroundLoading(false);
+                }
               }
-
-              if (loadGen === ffmLoadGenRef.current) {
-                setFfmHasMore(false);
-                const n = ffmMergeRef.current.size;
-                addToast(`✅ Đã tải đủ ${n} đơn FFM`, 'success', 2500);
-              }
-            } catch (bgErr) {
-              console.error('[FFM] Tải nền:', bgErr);
-              if (loadGen === ffmLoadGenRef.current) {
-                const c = ffmCursorRef.current;
-                setFfmHasMore(!c.mgtExhausted || !c.trackedExhausted);
-                addToast(
-                  `⚠️ Tải nền lỗi: ${bgErr.message || bgErr}. Bấm «Tải thêm đơn» để thử tiếp.`,
-                  'error',
-                  6500
-                );
-              }
-            } finally {
-              if (loadGen === ffmLoadGenRef.current) {
-                setFfmBackgroundLoading(false);
-              }
-            }
-          })();
+            })();
+          } else {
+            addToast(
+              `✅ Hiển thị ${mergedList.length} đơn (Tất cả). Bấm «Tải thêm đơn» khi cần — không tự tải hết để tránh lag.`,
+              'info',
+              5500
+            );
+            setFfmHasMore(true);
+          }
         } else {
           addToast(`✅ Đã tải ${mergedList.length} đơn hàng`, 'success', 2000);
         }
@@ -1087,6 +1135,15 @@ function FFMMgtHcm() {
       dateType: omDateType,
       market: resolveFfmMarketParam(activeMarketTab),
     };
+    const batchPlan = getFfmHcmBatchPlan(ffmDateRangeArgs.market);
+    if (isFfmMergeAtRamCap(ffmMergeRef.current, batchPlan.ramMaxRows)) {
+      addToast(
+        `Đã đạt giới hạn ${batchPlan.ramMaxRows.toLocaleString('vi-VN')} đơn trong RAM. Thu hẹp khoảng ngày hoặc chọn tab thị trường.`,
+        'info',
+        5500
+      );
+      return;
+    }
 
     setLoadingMore(true);
     try {
@@ -1094,7 +1151,7 @@ function FFMMgtHcm() {
       const b = await API.fetchFFMOrdersBatch({
         mgtFrom: c.mgtFrom,
         trackedFrom: c.trackedFrom,
-        pageSize: FFM_NEXT_BATCH_SIZE,
+        pageSize: batchPlan.nextSize,
         mgtExhausted: c.mgtExhausted,
         trackedExhausted: c.trackedExhausted,
         ordersTable: FFM_HCM_SUPABASE_TABLE,
@@ -1114,18 +1171,27 @@ function FFMMgtHcm() {
       }
 
       const mergedList = assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values()));
-      setAllData(mergedList);
+      startTransition(() => setAllData(mergedList));
 
-      const hasMore = !b.mgtExhausted || !b.trackedExhausted;
+      const atCap = isFfmMergeAtRamCap(ffmMergeRef.current, batchPlan.ramMaxRows);
+      const hasMore = !atCap && (!b.mgtExhausted || !b.trackedExhausted);
       setFfmHasMore(hasMore);
 
-      addToast(
-        hasMore
-          ? `Đã gộp thêm — hiện ${mergedList.length} đơn (còn dữ liệu, bấm tiếp nếu cần).`
-          : `Đã tải xong — ${mergedList.length} đơn.`,
-        'success',
-        2500
-      );
+      if (atCap) {
+        addToast(
+          `Đã tải ${mergedList.length} đơn (giới hạn RAM). Thu hẹp bộ lọc nếu cần đủ dữ liệu.`,
+          'info',
+          5000
+        );
+      } else {
+        addToast(
+          hasMore
+            ? `Đã gộp thêm — hiện ${mergedList.length} đơn (còn dữ liệu, bấm tiếp nếu cần).`
+            : `Đã tải xong — ${mergedList.length} đơn.`,
+          'success',
+          2500
+        );
+      }
     } catch (err) {
       console.error('loadMoreFfmData error:', err);
       addToast(`❌ Lỗi tải thêm: ${err.message}`, 'error', 5000);
@@ -1645,20 +1711,21 @@ function FFMMgtHcm() {
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
+    const source = filterCatalogRows.length > 0 ? filterCatalogRows : allData;
     if (key === 'Trạng thái giao hàng') {
-      allData.forEach((row) => {
+      source.forEach((row) => {
         const val = getFfmOrderMgmtDeliveryStatusForRow(row);
         if (val) values.add(val);
       });
       return Array.from(values).sort();
     }
     const keyMapped = COLUMN_MAPPING[key] || key;
-    allData.forEach((row) => {
+    source.forEach((row) => {
       const val = String(row[key] || row[keyMapped] || row[key.replace(/ /g, '_')] || '').trim();
       if (val) values.add(val);
     });
     return Array.from(values).sort();
-  }, [allData]);
+  }, [allData, filterCatalogRows]);
 
   // Teams list - chỉ hiển thị Hà Nội nếu user có quyền
   const teams = useMemo(() => {
@@ -2045,11 +2112,44 @@ function FFMMgtHcm() {
       mgtExhausted: false,
       trackedExhausted: false,
     };
+    allDataMapRef.current = new Map();
+    changeHistoryRef.current = [];
+    historyIndexRef.current = -1;
+    dbQueueRef.current = [];
+    updateQueue.current = new Map();
+    if (pendingLsTimerRef.current != null) {
+      clearTimeout(pendingLsTimerRef.current);
+      pendingLsTimerRef.current = null;
+    }
+    if (ffmRealtimeFetchTimerRef.current != null) {
+      clearTimeout(ffmRealtimeFetchTimerRef.current);
+      ffmRealtimeFetchTimerRef.current = null;
+    }
+    ffmRealtimeOrderCodesRef.current.clear();
+    isSelecting.current = false;
+    clearFfDragDomSelection();
+    ffmDragCellMapRef.current = null;
+    ffmDragPrevBoundsRef.current = null;
+    const dragL = dragListenersRef.current;
+    if (dragL?.move) {
+      document.removeEventListener('mousemove', dragL.move);
+      document.removeEventListener('mouseup', dragL.up);
+      dragListenersRef.current = { move: null, up: null };
+    }
+    const fillL = fillDragListenersRef.current;
+    if (fillL?.move) {
+      document.removeEventListener('mousemove', fillL.move);
+      document.removeEventListener('mouseup', fillL.up);
+      fillDragListenersRef.current = { move: null, up: null };
+    }
     setAllData([]);
+    setFilterCatalogRows([]);
     setCurrentPage(1);
     setFfmHasMore(false);
     setFfmBackgroundLoading(false);
     setLoadingMore(false);
+    setLoading(false);
+    setIsDraggingSelection(false);
     setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
     setCopiedSelection(null);
   }, []);
@@ -2094,9 +2194,14 @@ function FFMMgtHcm() {
 
     localStorage.setItem(FFM_HCM_ACTIVE_MARKET_LS_KEY, market);
     releaseFfmLoadedRows();
-    setActiveMarketTab(market);
-    setLocalFilterValues((prev) => ({ ...prev, market: [] }));
-    setFilterValues((prev) => ({ ...prev, market: [] }));
+    startTransition(() => {
+      setActiveMarketTab(market);
+      setLocalFilterValues((prev) => ({ ...prev, market: [] }));
+      setFilterValues((prev) => ({ ...prev, market: [] }));
+    });
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
     await loadData({ market: resolveFfmMarketParam(market) });
   }, [activeMarketTab, loading, savePendingBeforeMarketSwitch, releaseFfmLoadedRows]);
 
@@ -2272,6 +2377,7 @@ function FFMMgtHcm() {
   const totalPages = Math.ceil(getFilteredData.length / effectiveRowsPerPage);
 
   const markedRowsInFilteredData = useMemo(() => {
+    if (markedRows.size === 0) return [];
     return getFilteredData
       .map((row, index) => ({ row, index, orderId: row[PRIMARY_KEY_COLUMN] }))
       .filter(({ orderId }) => markedRows.has(orderId));
@@ -3993,6 +4099,12 @@ function FFMMgtHcm() {
                     : 'Số đơn sau bộ lọc / số đơn đã tải (đã nạp đủ lô FFM HCM). Realtime vẫn có thể cập nhật từng dòng.'
                 }
               >
+                {allData.length >= FFM_RAM_MAX_ROWS && (
+                  <span className="text-amber-700 font-medium" title="Giới hạn bộ nhớ">
+                    {' '}
+                    (tối đa RAM)
+                  </span>
+                )}
                 {getFilteredData.length !== allData.length
                   ? `${getFilteredData.length.toLocaleString('vi-VN')} / ${allData.length.toLocaleString('vi-VN')} sau lọc`
                   : `${allData.length.toLocaleString('vi-VN')} đơn hàng`}
