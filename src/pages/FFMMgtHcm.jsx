@@ -52,8 +52,14 @@ const FFM_HCM_SUPABASE_TABLE = 'order_code_hcm';
 const FFM_LS_DEBOUNCE_MS = 1500;
 const FFM_HCM_PENDING_LS_KEY = 'speegoPendingChanges_ffm_mgt_hcm';
 const FFM_HCM_MARKED_ROWS_LS_KEY = 'ffm_marked_rows_hcm';
-const FFM_MARKET_TABS = ['US', 'Nhật Bản', 'Canada', 'Hàn Quốc', 'Úc', 'Anh', 'CĐ Nhật Bản'];
+const FFM_MARKET_TAB_ALL = 'Tất cả';
+const FFM_MARKET_TABS = [FFM_MARKET_TAB_ALL, 'US', 'Nhật Bản', 'Canada', 'Hàn Quốc', 'Úc', 'Anh', 'CĐ Nhật Bản'];
 const FFM_HCM_ACTIVE_MARKET_LS_KEY = 'ffm_hcm_active_market_tab';
+
+function resolveFfmMarketParam(marketTab) {
+  const tab = String(marketTab || '').trim();
+  return !tab || tab === FFM_MARKET_TAB_ALL ? '' : tab;
+}
 
 /** Giá trị Team / chi nhánh từ row (FFM) */
 function getTeamStringFFM(row) {
@@ -132,6 +138,10 @@ function assignRowIndexByOrderDate(rows) {
 /** Lô đầu nhỏ để lên UI nhanh; các lô sau rộng hơn. */
 const FFM_FIRST_BATCH_SIZE = 400;
 const FFM_NEXT_BATCH_SIZE = 1000;
+/** Copy vùng quá lớn dễ spike RAM; giới hạn mềm để tránh treo tab. */
+const FFM_COPY_MAX_CELLS = 120000;
+/** Flush buffer theo số dòng để giảm peak object tạm khi copy. */
+const FFM_COPY_FLUSH_EVERY_ROWS = 300;
 /** Kéo chuột ≥ px này thì coi là bôi vùng; nhỏ hơn thì coi là click để focus ô (sau mouseup). */
 const DRAG_FOCUS_THRESHOLD_PX = 5;
 const FFM_ORDER_CODE_FILTER_KEY = 'ffm_filter_order_code';
@@ -724,7 +734,7 @@ function FFMMgtHcm() {
     if (!dateFrom || !dateTo) return undefined;
     const timer = setTimeout(() => {
       setCurrentPage(1);
-      void loadData({ dateFrom, dateTo, dateType: omDateType, market: activeMarketTab });
+      void loadData({ dateFrom, dateTo, dateType: omDateType, market: resolveFfmMarketParam(activeMarketTab) });
     }, 350);
     return () => clearTimeout(timer);
   }, [dateFrom, dateTo, omDateType]);
@@ -915,7 +925,7 @@ function FFMMgtHcm() {
       dateFrom: dateRangeOverride.dateFrom ?? dateFrom,
       dateTo: dateRangeOverride.dateTo ?? dateTo,
       dateType: dateRangeOverride.dateType ?? omDateType,
-      market: dateRangeOverride.market ?? activeMarketTab,
+      market: resolveFfmMarketParam(dateRangeOverride.market ?? activeMarketTab),
     };
 
     setLoading(true);
@@ -1071,7 +1081,12 @@ function FFMMgtHcm() {
   const loadMoreFfmData = async () => {
     if (!ffmHasMore || loadingMore || loading || ffmBackgroundLoading) return;
     if (typeof API.fetchFFMOrdersBatch !== 'function') return;
-    const ffmDateRangeArgs = { dateFrom, dateTo, dateType: omDateType, market: activeMarketTab };
+    const ffmDateRangeArgs = {
+      dateFrom,
+      dateTo,
+      dateType: omDateType,
+      market: resolveFfmMarketParam(activeMarketTab),
+    };
 
     setLoadingMore(true);
     try {
@@ -1150,7 +1165,7 @@ function FFMMgtHcm() {
       dateFrom: currentYearRange.from,
       dateTo: currentYearRange.to,
       dateType: 'Ngày lên đơn',
-      market: activeMarketTab,
+      market: resolveFfmMarketParam(activeMarketTab),
     });
   };
   const savePendingToLocalStorage = useCallback((newPending, newLegacy = new Map()) => {
@@ -1743,6 +1758,7 @@ function FFMMgtHcm() {
     if (dbQueueRef.current.length === 0) return;
 
     isProcessingQueue.current = true;
+    const manualSaveRun = manualSaveRequestedRef.current;
     try {
       while (dbQueueRef.current.length > 0) {
         // Take everything currently in queue as a single batch
@@ -1806,8 +1822,12 @@ function FFMMgtHcm() {
     } finally {
       isProcessingQueue.current = false;
       manualSaveRequestedRef.current = false;
+      if (manualSaveRun && pendingChangesRef.current.size === 0) {
+        flushTransientUiMemory();
+        addToast('Đã lưu xong và xả bộ nhớ tạm', 'success', 1800);
+      }
     }
-  }, [addToast, removeToast, deepCloneMapOfMaps]);
+  }, [addToast, removeToast, deepCloneMapOfMaps, flushTransientUiMemory]);
 
   /**
    * @param {Array} changesArray
@@ -2077,7 +2097,7 @@ function FFMMgtHcm() {
     setActiveMarketTab(market);
     setLocalFilterValues((prev) => ({ ...prev, market: [] }));
     setFilterValues((prev) => ({ ...prev, market: [] }));
-    await loadData({ market });
+    await loadData({ market: resolveFfmMarketParam(market) });
   }, [activeMarketTab, loading, savePendingBeforeMarketSwitch, releaseFfmLoadedRows]);
 
   const handleDiscardAllPending = useCallback(() => {
@@ -2523,6 +2543,20 @@ function FFMMgtHcm() {
     }
   }, []);
 
+  /** Xả cache UI tạm sau khi lưu thành công để giảm RAM; không reload trang/dữ liệu. */
+  const flushTransientUiMemory = useCallback(() => {
+    removeDragListeners();
+    removeFillDragListeners();
+    clearFfDragDomSelection();
+    ffmDragCellMapRef.current = null;
+    ffmDragPrevBoundsRef.current = null;
+    setIsDraggingSelection(false);
+    setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
+    setCopiedSelection(null);
+    changeHistoryRef.current = [];
+    historyIndexRef.current = -1;
+  }, [removeDragListeners, removeFillDragListeners, clearFfDragDomSelection]);
+
   const updateDragFromCell = useCallback(
     (r, c) => {
       if (!isSelecting.current) return;
@@ -2794,7 +2828,19 @@ function FFMMgtHcm() {
 
     const viewData = paginatedDataRef.current;
     const columns = currentColumnsRef.current;
-    const copiedRows = [];
+    const rowCount = Math.max(0, Math.min(bounds.maxRow, viewData.length - 1) - bounds.minRow + 1);
+    const colCount = Math.max(0, Math.min(bounds.maxCol, columns.length - 1) - bounds.minCol + 1);
+    const cellCount = rowCount * colCount;
+
+    if (cellCount > FFM_COPY_MAX_CELLS) {
+      return {
+        error: `Vùng copy quá lớn (${cellCount.toLocaleString('vi-VN')} ô). Giới hạn ${FFM_COPY_MAX_CELLS.toLocaleString('vi-VN')} ô để tránh nặng RAM.`,
+      };
+    }
+
+    const chunks = [];
+    let lineBuffer = [];
+    let bufferedRows = 0;
 
     for (let r = bounds.minRow; r <= bounds.maxRow && r < viewData.length; r++) {
       const rowData = [];
@@ -2809,11 +2855,20 @@ function FFMMgtHcm() {
         }
         rowData.push(String(val));
       }
-      copiedRows.push(rowData);
+      lineBuffer.push(rowData.join('\t'));
+      bufferedRows += 1;
+      if (bufferedRows >= FFM_COPY_FLUSH_EVERY_ROWS) {
+        chunks.push(lineBuffer.join('\n'));
+        lineBuffer = [];
+        bufferedRows = 0;
+      }
     }
 
-    const text = copiedRows.map((row) => row.join('\t')).join('\n');
-    return { text, bounds };
+    if (lineBuffer.length > 0) {
+      chunks.push(lineBuffer.join('\n'));
+    }
+
+    return { text: chunks.join('\n'), bounds, rowCount, colCount };
   }, [getBoundsForCopy]);
 
   const handleClearSelection = useCallback(() => {
@@ -2901,6 +2956,10 @@ function FFMMgtHcm() {
 
       const payload = buildCopyPayload();
       if (!payload) return;
+      if (payload.error) {
+        addToast(payload.error, 'error', 3500);
+        return;
+      }
 
       try {
         e.preventDefault();
@@ -2916,7 +2975,7 @@ function FFMMgtHcm() {
         endCol: payload.bounds.maxCol
       });
       addToast(
-        `📋 Đã copy ${payload.bounds.maxRow - payload.bounds.minRow + 1} hàng × ${payload.bounds.maxCol - payload.bounds.minCol + 1} cột`,
+        `📋 Đã copy ${payload.rowCount} hàng × ${payload.colCount} cột`,
         'info',
         2000
       );

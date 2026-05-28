@@ -563,6 +563,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Số lượng mặt hàng 1',
     'Số lượng mặt hàng 2',
     'Loại tiền thanh toán',
+    'Giá bán',
+    'Tỉ giá',
     'Ca',
     'Mã Tracking',
     'Trạng thái giao hàng',
@@ -749,6 +751,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Loại tiền thanh toán": String(
       item.payment_currency ?? item.paymentCurrency ?? item.payment_type ?? ''
     ).trim(),
+    "Giá bán": item.sale_price ?? '',
+    "Tỉ giá": item.exchange_rate ?? '',
     "Tên mặt hàng 1": item.product_name_1 || item.product,
     "Số lượng mặt hàng 1": item.quantity_1 ?? item.item_qty_1 ?? '',
     "Tên mặt hàng 2": item.product_name_2 ?? item.item_name_2 ?? '',
