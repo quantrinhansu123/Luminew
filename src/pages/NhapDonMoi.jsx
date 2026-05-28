@@ -1558,6 +1558,12 @@ export default function NhapDonMoi({ isEdit = false }) {
             return;
         }
 
+        // Validation - Nhân viên marketing bắt buộc cho cả tạo mới và edit
+        if (!String(selectedMkt || "").trim()) {
+            alert("⚠️ Vui lòng chọn Nhân viên marketing! Đây là trường bắt buộc.");
+            return;
+        }
+
         // Validation - Khu vực bắt buộc cho cả tạo mới và edit
         if (!formData.country || formData.country.trim() === "") {
             alert("⚠️ Vui lòng chọn Khu vực! Đây là trường bắt buộc.");
@@ -2169,7 +2175,12 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 <DatePicker value={date} onChange={setDate} className="w-full" />
                                             </div>
                                             <div className="space-y-2">
-                                                <Label htmlFor="nv-mkt">Nhân viên marketing</Label>
+                                                <Label
+                                                    htmlFor="nv-mkt"
+                                                    className={cn(submitAttempted && !String(selectedMkt || '').trim() && 'text-red-600 font-bold')}
+                                                >
+                                                    Nhân viên marketing*
+                                                </Label>
                                                 <Popover open={isMktOpen} onOpenChange={setIsMktOpen}>
                                                     <div className="relative" ref={mktRef}>
                                                         <PopoverAnchor asChild>
@@ -2191,7 +2202,10 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                             if (mktRef.current) setMktPopoverWidth(mktRef.current.offsetWidth);
                                                                             setIsMktOpen(true);
                                                                         }}
-                                                                        className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
+                                                                        className={cn(
+                                                                            "pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]",
+                                                                            submitAttempted && !String(selectedMkt || '').trim() && 'border-red-500 ring-1 ring-red-300'
+                                                                        )}
                                                                     />
                                                                 ) : (
                                                                     (() => {
@@ -2207,7 +2221,10 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                         if (mktRef.current) setMktPopoverWidth(mktRef.current.offsetWidth);
                                                                                         setIsMktOpen(true);
                                                                                     }}
-                                                                                    className="bg-gray-100 cursor-pointer text-gray-700 font-medium pr-8"
+                                                                                    className={cn(
+                                                                                        "bg-gray-100 cursor-pointer text-gray-700 font-medium pr-8",
+                                                                                        submitAttempted && !String(selectedMkt || '').trim() && 'border-red-500 ring-1 ring-red-300'
+                                                                                    )}
                                                                                     placeholder="Tự động theo Page (click để chọn tùy chọn đặc biệt)..."
                                                                                 />
                                                                             );
@@ -2229,7 +2246,10 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                     if (mktRef.current) setMktPopoverWidth(mktRef.current.offsetWidth);
                                                                                     setIsMktOpen(true);
                                                                                 }}
-                                                                                className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
+                                                                                className={cn(
+                                                                                    "pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]",
+                                                                                    submitAttempted && !String(selectedMkt || '').trim() && 'border-red-500 ring-1 ring-red-300'
+                                                                                )}
                                                                             />
                                                                         );
                                                                     })()

@@ -252,7 +252,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
         }
     };
 
-    // Count orders for a staff member within date range
+    // Count orders for a staff member within date range (theo ngày chia đơn).
     const countOrdersForStaff = async (staffName) => {
         if (!staffName || !startDate || !endDate) return 0;
 
@@ -261,8 +261,8 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                 .from(ordersTableName)
                 .select('*', { count: 'exact', head: true })
                 .eq('delivery_staff', staffName)
-                .gte('order_date', startDate)
-                .lte('order_date', endDate);
+                .gte('ngay_chia_van_don', startDate)
+                .lte('ngay_chia_van_don', endDate);
 
             if (error) throw error;
             return count || 0;
@@ -1165,7 +1165,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                         title="Số đơn tự động đếm theo bộ lọc ngày"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">
-                                        Tự động đếm theo bộ lọc ngày (từ {startDate} đến {endDate})
+                                        Tự động đếm theo ngày chia đơn (từ {startDate} đến {endDate})
                                     </p>
                                 </div>
                             </div>

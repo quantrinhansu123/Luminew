@@ -51,9 +51,6 @@ const DON_CHIA_CSKH_PAGE_SIZE = 1000;
 /** Mặc định khớp menu Home + rbac (`/don-chia-cskh`). */
 const DEFAULT_DON_CHIA_ACCESS_CODES = ['CSKH_PAID'];
 
-/** Gỡ gán CSKH khỏi đơn — chỉ dùng cho nút admin trên trang này */
-const CSKH_BULK_CLEAR_TARGET_NAME = 'Lê Ngọc Đài Trang';
-
 function mapDonChiaOrderToFriendly(item) {
   const tracking = resolveTrackingFromOrder(item);
   return {
@@ -1285,6 +1282,7 @@ function DonChiaCSKH({
       // Map column name to database column
       const dbColumnMap = {
         'Trạng thái cskh': 'cskh_status',
+        'CSKH': 'cskh',
       };
       
       const dbColumn = dbColumnMap[columnName] || columnName.toLowerCase().replace(/\s+/g, '_');
@@ -1303,6 +1301,9 @@ function DonChiaCSKH({
           if (columnName === 'Trạng thái cskh') {
             next.cskh_status = newValue != null ? String(newValue) : '';
           }
+          if (columnName === 'CSKH') {
+            next._cskh_raw = newValue != null ? String(newValue) : '';
+          }
           return next;
         }
         return item;
@@ -1313,6 +1314,9 @@ function DonChiaCSKH({
           const next = { ...item, [columnName]: newValue };
           if (columnName === 'Trạng thái cskh') {
             next.cskh_status = newValue != null ? String(newValue) : '';
+          }
+          if (columnName === 'CSKH') {
+            next._cskh_raw = newValue != null ? String(newValue) : '';
           }
           return next;
         }
@@ -1533,7 +1537,7 @@ function DonChiaCSKH({
 
   const normCskh = (s) => String(s ?? '').trim().toLowerCase();
 
-  /** Admin: gỡ cskh chỉ cho đơn đang hiển thị sau bộ lọc + đúng tên CSKH_BULK_CLEAR_TARGET_NAME. */
+  /** Admin: xóa toàn bộ tên CSKH trên các đơn đang hiển thị sau bộ lọc. */
   const handleClearCskhBulkForTarget = async () => {
     if (!isStrictAdminForCskhClear()) {
       toast.error('Chỉ Admin mới được thao tác này.');
@@ -1541,29 +1545,26 @@ function DonChiaCSKH({
     }
     if (clearingCskhBulk) return;
 
-    const targetNorm = normCskh(CSKH_BULK_CLEAR_TARGET_NAME);
-    if (!targetNorm) return;
-
     setClearingCskhBulk(true);
     try {
       const ids = [
         ...new Set(
           filteredData
-            .filter((row) => row.id && normCskh(row['CSKH']) === targetNorm)
+            .filter((row) => row.id && normCskh(row['CSKH']))
             .map((row) => row.id)
         ),
       ];
 
       if (ids.length === 0) {
         toast.info(
-          `Không có đơn nào trong bộ lọc hiện tại đang gán CSKH "${CSKH_BULK_CLEAR_TARGET_NAME}".`
+          'Không có đơn nào trong bộ lọc hiện tại đang có tên ở cột CSKH.'
         );
         return;
       }
 
       if (
         !window.confirm(
-          `Gỡ gán CSKH "${CSKH_BULK_CLEAR_TARGET_NAME}" khỏi ${ids.length} đơn trong bộ lọc hiện tại?\nTrường CSKH sẽ để trống. Thao tác không hoàn tác tự động.`
+          `Xoá tên nhân sự trong cột CSKH cho ${ids.length} đơn đang khớp bộ lọc hiện tại?\nTrường CSKH sẽ để trống. Thao tác không hoàn tác tự động.`
         )
       ) {
         return;
@@ -1577,7 +1578,7 @@ function DonChiaCSKH({
       }
 
       toast.success(
-        `Đã gỡ CSKH "${CSKH_BULK_CLEAR_TARGET_NAME}" khỏi ${ids.length} đơn (theo bộ lọc).`
+        `Đã xoá tên nhân sự cột CSKH trên ${ids.length} đơn (theo bộ lọc).`
       );
       await loadData();
     } catch (err) {
@@ -1681,14 +1682,14 @@ function DonChiaCSKH({
                   onClick={handleClearCskhBulkForTarget}
                   disabled={loading || clearingCskhBulk}
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                  title={`Chỉ Admin: gỡ CSKH "${CSKH_BULK_CLEAR_TARGET_NAME}" chỉ trên các đơn đang khớp bộ lọc trang`}
+                  title="Chỉ Admin: xóa tên nhân sự trong cột CSKH trên các đơn đang khớp bộ lọc trang"
                 >
                   {clearingCskhBulk ? (
                     <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
                   ) : (
                     <Trash2 className="w-4 h-4" />
                   )}
-                  {clearingCskhBulk ? 'Đang xử lý...' : `Gỡ CSKH: ${CSKH_BULK_CLEAR_TARGET_NAME}`}
+                  {clearingCskhBulk ? 'Đang xử lý...' : 'Xoá tên nhân sự trong cột CSKH theo bộ lọc'}
                 </button>
               )}
             </div>
@@ -2297,6 +2298,33 @@ function DonChiaCSKH({
                         if (['Tổng tiền VNĐ', 'Tiền Hàng', 'Phí ship', 'Phí Chung'].includes(col)) {
                           const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
                           value = num.toLocaleString('vi-VN') + ' ₫';
+                        }
+
+                        // Admin: cho phép chỉnh CSKH trực tiếp bằng dropdown.
+                        if (col === 'CSKH' && isAdmin()) {
+                          return (
+                            <td
+                              key={col}
+                              className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <select
+                                value={value || ''}
+                                onChange={(e) => {
+                                  const newValue = e.target.value;
+                                  handleCellChange(row.id, col, newValue);
+                                }}
+                                className="w-full min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                              >
+                                <option value="">(Trống)</option>
+                                {uniqueCSKH.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                          );
                         }
 
                         // Render editable cell for "Trạng thái cskh" with dropdown
