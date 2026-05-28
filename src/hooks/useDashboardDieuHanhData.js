@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase/config';
-import {
-  dedupeMktDetailReportRows,
-  overlayHcmMarketingReportRowsFromOrders,
-} from '../services/mktRecalcSoDonThucTeFromOrders';
+import { dedupeMktDetailReportRows } from '../services/mktRecalcSoDonThucTeFromOrders';
 import {
   normalizeMktHcmDetailReportRow,
   normalizeMktHnDetailReportRow,
@@ -15,6 +12,7 @@ import {
   buildLastFourPeriodBuckets,
   buildDashboardModel,
   mapMktRow,
+  mapOrderToMktActualRow,
   mapOrderToVanDonRow,
   mapSalesReportRow,
   mapUserRow,
@@ -45,6 +43,17 @@ async function fetchPagedQuery(buildQuery) {
 
 function mktRowHasName(row) {
   return Boolean(String(row?.['Tên'] ?? row?.ten ?? row?.name ?? '').trim());
+}
+
+function clearMktActuals(row) {
+  return {
+    ...row,
+    orders: 0,
+    ordersForCloseRate: 0,
+    revenue: 0,
+    revenueForAdsRate: 0,
+    cancelOrders: 0,
+  };
 }
 
 async function loadMktTable(tableName, from, to, allowedTeams = []) {
@@ -109,16 +118,9 @@ async function loadUsersTable() {
 }
 
 async function loadOrdersTable(tableName, from, to) {
-  const isHcm = String(tableName || '').trim() === 'order_code_hcm';
   const baseSelect =
-    'id,order_code,order_date,created_at,country,delivery_staff,delivery_status_nb,delivery_status,check_result,payment_status,payment_status_detail,total_amount_vnd,tong_tien_vnd,van_don_line_total_vnd,sale_price,goods_amount,tracking_code,shipping_unit,reconciled_vnd,reconciled_amount,payment_bill,payment_image,ngayupbill,team';
-  const selectCandidates = isHcm
-    ? [
-        `${baseSelect},marketing_staff,product,shift,total_vnd`,
-        `${baseSelect},marketing_staff,product,shift`,
-        baseSelect,
-      ]
-    : [baseSelect];
+    'id,order_code,order_date,created_at,country,marketing_staff,product,product_name_1,delivery_staff,delivery_status_nb,delivery_status,check_result,payment_status,payment_status_detail,total_amount_vnd,total_vnd,tong_tien_vnd,van_don_line_total_vnd,sale_price,goods_amount,tracking_code,shipping_unit,reconciled_vnd,reconciled_amount,payment_bill,payment_image,ngayupbill,team,shift';
+  const selectCandidates = [baseSelect];
 
   let lastError = null;
   for (const selectStr of selectCandidates) {
@@ -200,15 +202,14 @@ export default function useDashboardDieuHanhData({ activeTab = 'company', period
         hn.map(normalizeMktHnDetailReportRow).filter(mktRowHasName)
       );
       const hcmMktRows = dedupeMktDetailReportRows(
-        overlayHcmMarketingReportRowsFromOrders(
-          hcm.map(normalizeMktHcmDetailReportRow).filter(mktRowHasName),
-          ordersHcm
-        )
+        hcm.map(normalizeMktHcmDetailReportRow).filter(mktRowHasName)
       );
 
       const mappedMkt = [
-        ...hnMktRows.map((r) => mapMktRow(r, 'hn')).filter(Boolean),
-        ...hcmMktRows.map((r) => mapMktRow(r, 'hcm')).filter(Boolean),
+        ...hnMktRows.map((r) => mapMktRow(r, 'hn')).filter(Boolean).map(clearMktActuals),
+        ...hcmMktRows.map((r) => mapMktRow(r, 'hcm')).filter(Boolean).map(clearMktActuals),
+        ...ordersHn.map((r) => mapOrderToMktActualRow(r, 'hn')).filter(Boolean),
+        ...ordersHcm.map((r) => mapOrderToMktActualRow(r, 'hcm')).filter(Boolean),
       ];
 
       let mappedVd = [

@@ -275,6 +275,26 @@ export function calcDelta(current, previous) {
   return (cur - prev) / Math.abs(prev);
 }
 
+function averageNumbers(values) {
+  const nums = values.map((value) => Number(value || 0)).filter((value) => Number.isFinite(value));
+  if (nums.length === 0) return 0;
+  return nums.reduce((sum, value) => sum + value, 0) / nums.length;
+}
+
+function averagePreviousPeriodValue(periodRows, key) {
+  return averageNumbers((periodRows || []).slice(0, -1).map((row) => row?.[key]));
+}
+
+function averagePreviousMetricRaw(periodRows, label) {
+  const target = normalizeText(label);
+  return averageNumbers(
+    (periodRows || []).slice(0, -1).map((row) => {
+      const metric = row?.metrics?.find((item) => normalizeText(item.label) === target);
+      return metric?.raw;
+    })
+  );
+}
+
 export function statusKind(value, threshold, direction) {
   if (threshold == null) return 'good';
   const n = Number(value || 0);
@@ -320,6 +340,42 @@ export function mapMktRow(row, source) {
     revenue: revenueActual,
     revenueForAdsRate: isHcm ? revenueInput : revenueActual,
     cancelOrders: parseNumberLoose(getFirst(row, ['Số đơn hoàn hủy thực tế', 'Số đơn hoàn hủy', 'So don huy'])),
+  };
+}
+
+function orderMktStaffName(row) {
+  return normalizePick(row?.marketing_staff || row?.nhanvien_maketing || row?.nhan_vien_marketing || 'Không xác định');
+}
+
+function isCanceledOrder(row) {
+  return normalizeText(row?.check_result) === 'huy';
+}
+
+export function mapOrderToMktActualRow(row, branch) {
+  const date = normalizeYmd(row?.order_date) || normalizeYmd(row?.created_at);
+  if (!date) return null;
+  const canceled = isCanceledOrder(row);
+  const amount = resolveOrderMoney(row);
+  const netOrder = canceled ? 0 : 1;
+  const netRevenue = canceled ? 0 : amount;
+  const isHcm = branch === 'hcm';
+  return {
+    source: isHcm ? 'hcm-orders' : 'hn-orders',
+    branch,
+    branchLabel: isHcm ? 'Hồ Chí Minh' : 'Hà Nội',
+    date,
+    monthKey: monthKeyFromYmd(date),
+    name: orderMktStaffName(row),
+    team: isHcm ? 'MKT - Đức Anh' : 'HN-MKT',
+    product: normalizePick(row?.product || row?.product_name_1 || ''),
+    market: normalizePick(row?.country || ''),
+    messages: 0,
+    adsCost: 0,
+    orders: netOrder,
+    ordersForCloseRate: netOrder,
+    revenue: netRevenue,
+    revenueForAdsRate: netRevenue,
+    cancelOrders: canceled ? 1 : 0,
   };
 }
 
@@ -851,7 +907,7 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
     ...metric,
     value: current[metric.key],
     display: formatByType(current[metric.key], metric.format),
-    delta: calcDelta(current[metric.key], previous?.[metric.key]),
+    delta: calcDelta(current[metric.key], averagePreviousPeriodValue(monthly, metric.key)),
     status: statusKind(current[metric.key], metric.threshold, metric.direction),
     note: thresholdText(metric),
   }));
@@ -995,7 +1051,7 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
     branchRows,
     departmentRows,
     selectedDepartmentValue,
-    selectedDepartment,
+    selectedDepartment: attachDepartmentMetricDeltas(selectedDepartment, departmentPeriodRows),
     departmentPeriodRows,
     personOptions,
     allIndividualRows,
@@ -1125,9 +1181,9 @@ function buildIndividualRows({ selectedDepartmentValue, filteredMktRows, filtere
         risk: a.active === 0,
         metrics: [
           { label: 'Trạng thái', value: a.active ? 'Active' : 'Inactive', status: a.active ? 'good' : 'danger' },
-          { label: 'TL giữ người', value: formatPercent(ratio(a.active, a.total)), status: ratio(a.active, a.total) < 0.9 ? 'danger' : 'good' },
-          { label: 'Tuyển mới', value: formatNumber(a.newHires), status: 'good' },
-          { label: 'Tổng dòng', value: formatNumber(a.total), status: 'good' },
+          { label: 'TL giữ người', value: formatPercent(ratio(a.active, a.total)), raw: ratio(a.active, a.total), status: ratio(a.active, a.total) < 0.9 ? 'danger' : 'good' },
+          { label: 'Tuyển mới', value: formatNumber(a.newHires), raw: a.newHires, status: 'good' },
+          { label: 'Tổng dòng', value: formatNumber(a.total), raw: a.total, status: 'good' },
         ],
       }))
       .filter((r) => person === 'all' || r.label === person)
@@ -1148,10 +1204,10 @@ function buildIndividualRows({ selectedDepartmentValue, filteredMktRows, filtere
         third: selectedDepartmentValue === 'rnd' ? formatNumber(a.orders) : formatPercent(ratio(a.cancelOrders, a.orders)),
         risk: selectedDepartmentValue === 'sale' && (ratio(a.orders, a.messages) < 0.08 || ratio(a.cancelOrders, a.orders) > 0.08),
         metrics: [
-          { label: selectedDepartmentValue === 'rnd' ? 'SP qua bước' : 'Doanh thu', value: selectedDepartmentValue === 'rnd' ? formatNumber(a.products.size) : formatMoney(a.revenue), status: 'good' },
-          { label: selectedDepartmentValue === 'cskh' ? 'Mua lại' : 'TL chốt', value: selectedDepartmentValue === 'cskh' ? formatPercent(ratio(a.customerOld + a.crossSale, a.orders || a.responses)) : formatPercent(ratio(a.orders, a.messages)), status: selectedDepartmentValue === 'sale' && ratio(a.orders, a.messages) < 0.08 ? 'danger' : 'good' },
-          { label: 'Số đơn', value: formatNumber(a.orders), status: 'good' },
-          { label: 'TL hủy', value: formatPercent(ratio(a.cancelOrders, a.orders)), status: ratio(a.cancelOrders, a.orders) > 0.08 ? 'danger' : 'good' },
+          { label: selectedDepartmentValue === 'rnd' ? 'SP qua bước' : 'Doanh thu', value: selectedDepartmentValue === 'rnd' ? formatNumber(a.products.size) : formatMoney(a.revenue), raw: selectedDepartmentValue === 'rnd' ? a.products.size : a.revenue, status: 'good' },
+          { label: selectedDepartmentValue === 'cskh' ? 'Mua lại' : 'TL chốt', value: selectedDepartmentValue === 'cskh' ? formatPercent(ratio(a.customerOld + a.crossSale, a.orders || a.responses)) : formatPercent(ratio(a.orders, a.messages)), raw: selectedDepartmentValue === 'cskh' ? ratio(a.customerOld + a.crossSale, a.orders || a.responses) : ratio(a.orders, a.messages), status: selectedDepartmentValue === 'sale' && ratio(a.orders, a.messages) < 0.08 ? 'danger' : 'good' },
+          { label: 'Số đơn', value: formatNumber(a.orders), raw: a.orders, status: 'good' },
+          { label: 'TL hủy', value: formatPercent(ratio(a.cancelOrders, a.orders)), raw: ratio(a.cancelOrders, a.orders), status: ratio(a.cancelOrders, a.orders) > 0.08 ? 'danger' : 'good' },
         ],
       }))
       .filter((r) => person === 'all' || r.label === person)
@@ -1198,6 +1254,16 @@ function buildDepartmentPeriodRows({ selectedDepartmentValue, monthBuckets, filt
       trendDisplay: cfg.trendFormat(cfg.trendValue),
     };
   });
+}
+
+function attachDepartmentMetricDeltas(departmentConfig, periodRows) {
+  return {
+    ...departmentConfig,
+    metrics: (departmentConfig.metrics || []).map((metric) => {
+      if (metric.raw == null) return metric;
+      return { ...metric, delta: calcDelta(metric.raw, averagePreviousMetricRaw(periodRows, metric.label)) };
+    }),
+  };
 }
 
 function snapshotIndividual(name, bucket, ctx) {
@@ -1269,6 +1335,22 @@ function snapshotIndividualMetricRawMap(name, bucket, ctx) {
   }
   const agg = emptySalesAgg(bucket.label);
   filteredSalesRows.filter((r) => rowInBucket(r, bucket) && r.teamKind === selectedDepartmentValue && nameFilter(r)).forEach((r) => addSales(agg, r));
+  if (selectedDepartmentValue === 'cskh') {
+    return new Map([
+      ['Doanh thu', agg.revenue],
+      ['Mua lại', ratio(agg.customerOld + agg.crossSale, agg.orders || agg.responses)],
+      ['Số đơn', agg.orders],
+      ['TL hủy', ratio(agg.cancelOrders, agg.orders)],
+    ]);
+  }
+  if (selectedDepartmentValue === 'rnd') {
+    return new Map([
+      ['SP qua bước', agg.products.size],
+      ['TL chốt', ratio(agg.orders, agg.messages)],
+      ['Số đơn', agg.orders],
+      ['TL hủy', ratio(agg.cancelOrders, agg.orders)],
+    ]);
+  }
   return new Map([
     ['Doanh thu', agg.revenue],
     ['TL chốt', ratio(agg.orders, agg.messages)],
@@ -1278,15 +1360,22 @@ function snapshotIndividualMetricRawMap(name, bucket, ctx) {
 }
 
 function attachIndividualMetricDeltas(rows, ctx) {
-  const previousBucket = ctx.monthBuckets?.[ctx.monthBuckets.length - 2];
-  if (!previousBucket) return rows;
+  const previousBuckets = (ctx.monthBuckets || []).slice(0, -1);
+  if (previousBuckets.length === 0) return rows;
   return rows.map((row) => {
-    const previous = snapshotIndividualMetricRawMap(row.label, previousBucket, ctx);
+    const previousByLabel = new Map();
+    previousBuckets.forEach((bucket) => {
+      const snapshot = snapshotIndividualMetricRawMap(row.label, bucket, ctx);
+      snapshot.forEach((value, label) => {
+        if (!previousByLabel.has(label)) previousByLabel.set(label, []);
+        previousByLabel.get(label).push(value);
+      });
+    });
     return {
       ...row,
       metrics: (row.metrics || []).map((metric) => {
-        if (metric.raw == null || !previous.has(metric.label)) return metric;
-        return { ...metric, delta: calcDelta(metric.raw, previous.get(metric.label)) };
+        if (metric.raw == null || !previousByLabel.has(metric.label)) return metric;
+        return { ...metric, delta: calcDelta(metric.raw, averageNumbers(previousByLabel.get(metric.label))) };
       }),
     };
   });
@@ -1309,9 +1398,27 @@ function buildIndividualPeriodRows(ctx) {
   });
 }
 
-function buildAlerts({ companyKpis, departmentRows, individualRows, current }) {
+const TEMP_DISABLED_COMPANY_ALERT_KEYS = new Set(['deliverySuccessRate', 'collectionRate']);
+const TEMP_DISABLED_DEPARTMENT_ALERTS = new Set(['delivery:ty le thu tien']);
+const UNTRACKED_ZERO_ALERT_DEPARTMENTS = new Set(['hcns', 'rnd']);
+
+function departmentAlertKey(dept, metric) {
+  return `${dept?.value || ''}:${normalizeText(metric?.label)}`;
+}
+
+function isUntrackedZeroDepartmentMetric(dept, metric) {
+  if (!UNTRACKED_ZERO_ALERT_DEPARTMENTS.has(dept?.value)) return false;
+  const raw = Number(metric?.raw ?? 0);
+  return Number.isFinite(raw) && raw === 0;
+}
+
+function deliveryStaleCount(row) {
+  return Number(String(row?.third || '').replace(/\D/g, ''));
+}
+
+function buildAlerts({ companyKpis, departmentRows, individualRows }) {
   const companyAlerts = companyKpis
-    .filter((kpi) => kpi.status === 'danger')
+    .filter((kpi) => kpi.status === 'danger' && !TEMP_DISABLED_COMPANY_ALERT_KEYS.has(kpi.key))
     .map((kpi) => ({
       type: 'company',
       level: kpi.direction === 'min' ? 'bad' : 'warn',
@@ -1324,7 +1431,12 @@ function buildAlerts({ companyKpis, departmentRows, individualRows, current }) {
   const departmentAlerts = departmentRows
     .flatMap((dept) =>
       dept.metrics
-        .filter((metric) => metric.danger)
+        .filter(
+          (metric) =>
+            metric.danger &&
+            !TEMP_DISABLED_DEPARTMENT_ALERTS.has(departmentAlertKey(dept, metric)) &&
+            !isUntrackedZeroDepartmentMetric(dept, metric)
+        )
         .map((metric) => ({
           type: 'department',
           level: metric.direction === 'min' ? 'bad' : 'warn',
@@ -1336,29 +1448,16 @@ function buildAlerts({ companyKpis, departmentRows, individualRows, current }) {
     );
 
   const individualAlerts = individualRows
-    .filter((row) => row.risk)
+    .filter((row) => row.risk && (row.team !== 'Vận đơn' || deliveryStaleCount(row) > 0))
     .slice(0, 8)
     .map((row) => ({
       type: 'individual',
-      level: row.team === 'Vận đơn' && Number(String(row.third).replace(/\D/g, '')) > 0 ? 'bad' : 'warn',
+      level: row.team === 'Vận đơn' && deliveryStaleCount(row) > 0 ? 'bad' : 'warn',
       title: `${row.label} - ${row.team}`,
-      body: row.team === 'Vận đơn' ? `Có ${row.third} đơn chưa xử lý quá 24h hoặc tỷ lệ thu tiền thấp.` : `KPI chính hiện tại: ${row.secondary}.`,
+      body: row.team === 'Vận đơn' ? `Có ${row.third} đơn chưa xử lý quá 24h.` : `KPI chính hiện tại: ${row.secondary}.`,
       target: `${row.label} + ${row.team}`,
       channel: row.team === 'Vận đơn' ? 'Zalo hằng ngày 08:00' : 'Zalo T2/T5 08:00',
     }));
 
-  const okAlerts = [
-    current.deliverySuccessRate >= 0.9
-      ? {
-          type: 'company',
-          level: 'ok',
-          title: 'Tỉ lệ giao thành công ổn định',
-          body: `Giao thành công hiện đạt ${formatPercent(current.deliverySuccessRate)}.`,
-          target: 'Ban Giám đốc',
-          channel: 'Theo dõi hằng ngày',
-        }
-      : null,
-  ].filter(Boolean);
-
-  return [...companyAlerts, ...departmentAlerts, ...individualAlerts, ...okAlerts];
+  return [...companyAlerts, ...departmentAlerts, ...individualAlerts];
 }

@@ -66,6 +66,7 @@ export default function DepartmentTab({ data, department, setDepartment }) {
               key={metric.label}
               label={metric.label}
               display={metric.value}
+              delta={metric.delta}
               status={metric.danger ? 'danger' : 'good'}
               note={metric.threshold == null ? 'Theo dữ liệu thật' : `${metric.direction === 'max' ? 'Cảnh báo khi >' : 'Cảnh báo khi <'} ${formatByType(metric.threshold, metric.format)}`}
             />
