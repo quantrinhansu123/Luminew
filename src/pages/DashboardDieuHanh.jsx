@@ -242,7 +242,7 @@ export default function DashboardDieuHanh() {
           <CompanyTab data={data} />
         </TabsContent>
         <TabsContent value="department" className="m-0 outline-none ring-0 focus-visible:ring-0 data-[state=inactive]:hidden">
-          <DepartmentTab data={data} department={department} setDepartment={setDepartment} />
+          <DepartmentTab data={data} department={department} setDepartment={setDepartment} team={team} setTeam={setTeam} />
         </TabsContent>
         <TabsContent value="individual" className="m-0 outline-none ring-0 focus-visible:ring-0 data-[state=inactive]:hidden">
           <IndividualTab data={data} team={team} setTeam={setTeam} person={person} setPerson={setPerson} />

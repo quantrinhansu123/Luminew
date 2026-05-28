@@ -755,18 +755,26 @@ export function getDepartmentConfig(value, ctx) {
   }
 
   if (value === 'sale') {
-    const source = sale.orders || sale.revenue || sale.messages ? sale : { ...sale, revenue: mkt.revenue, orders: mkt.orders, messages: mkt.messages, cancelOrders: mkt.cancelOrders };
+    const hasActualOrderData = Boolean(mkt.orders || mkt.revenue || mkt.cancelOrders);
+    const source = {
+      ...sale,
+      revenue: hasActualOrderData ? mkt.revenue : sale.revenue,
+      orders: hasActualOrderData ? mkt.orders : sale.orders,
+      closeOrders: hasActualOrderData ? (mkt.ordersForCloseRate || mkt.orders) : sale.orders,
+      messages: sale.messages || mkt.messages,
+      cancelOrders: hasActualOrderData ? mkt.cancelOrders : sale.cancelOrders,
+    };
     return {
       value,
       label: 'Sale',
       revenue: source.revenue,
       trendLabel: 'Tỉ lệ chốt đơn',
-      trendValue: ratio(source.orders, source.messages),
+      trendValue: ratio(source.closeOrders, source.messages),
       trendFormat: formatPercent,
-      risk: ratio(source.orders, source.messages) < 0.08 || ratio(source.cancelOrders, source.orders) > 0.08,
+      risk: ratio(source.closeOrders, source.messages) < 0.08 || ratio(source.cancelOrders, source.orders) > 0.08,
       metrics: [
         { label: 'Doanh thu', value: formatMoney(source.revenue), raw: source.revenue, format: 'money' },
-        { label: 'Tỉ lệ chốt đơn', value: formatPercent(ratio(source.orders, source.messages)), raw: ratio(source.orders, source.messages), format: 'percent', danger: ratio(source.orders, source.messages) < 0.08, threshold: 0.08, direction: 'min' },
+        { label: 'Tỉ lệ chốt đơn', value: formatPercent(ratio(source.closeOrders, source.messages)), raw: ratio(source.closeOrders, source.messages), format: 'percent', danger: ratio(source.closeOrders, source.messages) < 0.08, threshold: 0.08, direction: 'min' },
         { label: 'Tỷ lệ Hủy', value: formatPercent(ratio(source.cancelOrders, source.orders)), raw: ratio(source.cancelOrders, source.orders), format: 'percent', danger: ratio(source.cancelOrders, source.orders) > 0.08, threshold: 0.08, direction: 'max' },
         { label: 'Số đơn', value: formatNumber(source.orders), raw: source.orders, format: 'number' },
       ],
@@ -915,11 +923,6 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
   const departmentRows = DEPARTMENT_FILTERS.map((item) =>
     getDepartmentConfig(item.value, { current, salesRows: filteredSalesRows, usersRows: filteredUsersRows })
   );
-  const selectedDepartment = getDepartmentConfig(selectedDepartmentValue, {
-    current,
-    salesRows: filteredSalesRows,
-    usersRows: filteredUsersRows,
-  });
 
   const branchRows = BRANCHES.filter((item) => item.value !== 'all').map((item) => {
     const bMkt = emptyMktAgg(item.label);
@@ -974,6 +977,17 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
     ? filteredVanDonRowsHistory.filter((r) => matchesOptionalFilter(r.team, selectedTeam))
     : filteredVanDonRowsHistory;
 
+  const selectedDepartmentMkt = emptyMktAgg('Bộ phận MKT');
+  const selectedDepartmentVd = emptyVdAgg('Bộ phận vận đơn');
+  teamFilteredMktRows.forEach((r) => addMkt(selectedDepartmentMkt, r));
+  teamFilteredVanDonRows.forEach((r) => addVd(selectedDepartmentVd, r));
+  const selectedDepartmentCurrent = finalizeCompany(selectedDepartmentMkt, selectedDepartmentVd);
+  const selectedDepartment = getDepartmentConfig(selectedDepartmentValue, {
+    current: selectedDepartmentCurrent,
+    salesRows: teamFilteredSalesRows,
+    usersRows: teamFilteredUsersRows,
+  });
+
   const personOptions = buildPersonOptions({
     selectedDepartmentValue,
     filteredMktRows: teamFilteredMktRows,
@@ -1013,10 +1027,10 @@ export function buildDashboardModel({ mktRows, vanDonRows, salesRows, usersRows,
   const departmentPeriodRows = buildDepartmentPeriodRows({
     selectedDepartmentValue,
     monthBuckets: periodBuckets,
-    filteredMktRows: filteredMktRowsHistory,
-    filteredSalesRows: filteredSalesRowsHistory,
-    filteredUsersRows,
-    filteredVanDonRows: filteredVanDonRowsHistory,
+    filteredMktRows: teamFilteredMktRowsHistory,
+    filteredSalesRows: teamFilteredSalesRowsHistory,
+    filteredUsersRows: teamFilteredUsersRows,
+    filteredVanDonRows: teamFilteredVanDonRowsHistory,
   });
 
   const individualPeriodRows = buildIndividualPeriodRows({

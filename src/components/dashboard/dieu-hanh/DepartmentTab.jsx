@@ -1,6 +1,7 @@
 import KpiCard from './KpiCard';
 import MetricTable from './MetricTable';
 import MiniTrendChart from './MiniTrendChart';
+import SearchableFilterSelect from './SearchableFilterSelect';
 import StatusBadge from './StatusBadge';
 import { DEPARTMENT_FILTERS, formatByType } from '../../../utils/dashboardDieuHanhMetrics';
 
@@ -16,15 +17,16 @@ function chartUnit(metric) {
   return '';
 }
 
-export default function DepartmentTab({ data, department, setDepartment }) {
+export default function DepartmentTab({ data, department, setDepartment, team, setTeam }) {
   const selected = data.selectedDepartment;
+  const selectedTeamLabel = team === 'all' ? 'Tất cả team' : team;
 
   return (
     <div className="space-y-4">
       <section className="lumi-dieu-hanh-panel rounded-lg border bg-white p-3 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="lumi-section-title">Chọn team</span>
+            <span className="lumi-section-title">Chọn bộ phận</span>
             <select
               value={data.selectedDepartmentValue}
               onChange={(e) => setDepartment(e.target.value)}
@@ -50,8 +52,17 @@ export default function DepartmentTab({ data, department, setDepartment }) {
                 </button>
               ))}
             </div>
+            <SearchableFilterSelect
+              label="Team"
+              value={team}
+              onChange={setTeam}
+              options={data.teamOptions || []}
+              allLabel="Tất cả team"
+              placeholder="Tìm team..."
+              className="w-[190px]"
+            />
           </div>
-          <div className="text-xs font-bold text-[#69768c]">Đang xem: {selected.label}</div>
+          <div className="text-xs font-bold text-[#69768c]">Đang xem: {selected.label} · {selectedTeamLabel}</div>
         </div>
       </section>
 
