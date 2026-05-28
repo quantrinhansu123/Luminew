@@ -31,6 +31,8 @@
             background-color: var(--bg-light);
             color: var(--text-dark);
             line-height: 1.45;
+            min-height: 100vh;
+            box-sizing: border-box;
         }
 
         /* Animation cho nội dung */
@@ -41,6 +43,8 @@
             animation: fadeIn 0.5s;
             background-color: #fff;
             border-radius: 8px;
+            min-height: calc(100vh - 36px);
+            box-sizing: border-box;
         }
 
         @keyframes fadeIn {
@@ -183,19 +187,25 @@
         .table-wrapper {
             position: relative;
             overflow: auto;
-            max-height: calc(100vh - 150px);
-            min-height: 360px;
+            max-height: calc(100vh - 90px);
+            min-height: 68vh;
             background: white;
             border-radius: 5px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
             margin-top: 0;
         }
 
+        @media (max-height: 860px) {
+            .table-wrapper {
+                min-height: 52vh;
+            }
+        }
+
         #ProductAreaReport table {
             border-collapse: collapse;
-            width: max-content;
-            max-width: 100%;
-            min-width: 0;
+            width: 100%;
+            max-width: none;
+            min-width: 100%;
             font-size: 16px;
             box-shadow: none;
         }
