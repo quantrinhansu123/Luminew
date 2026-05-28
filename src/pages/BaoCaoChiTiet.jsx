@@ -354,6 +354,8 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         'Trạng thái giao hàng',
         'Ngày đối soát bill',
         'Ngày đối soát cước',
+        'Giá bán',
+        'Tỉ giá',
         'Tổng tiền VNĐ',
         'Page'
     ];
@@ -493,6 +495,8 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         "Zipcode": item.zipcode,
         "Mặt hàng": item.product,
         "Tên mặt hàng 1": item.product_name_1 || item.product,
+        "Giá bán": item.sale_price ?? item.goods_amount ?? '',
+        "Tỉ giá": item.exchange_rate ?? '',
         "Tổng tiền VNĐ": item.total_amount_vnd,
         "Hình thức thanh toán": item.payment_method_text || item.payment_method, // payment_method_text is new
         "Mã Tracking": item.tracking_code,
@@ -1862,6 +1866,11 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
                                                 if (col === 'Tổng tiền VNĐ') {
                                                     const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
                                                     value = num.toLocaleString('vi-VN') + ' ₫';
+                                                }
+
+                                                if (col === 'Giá bán' || col === 'Tỉ giá') {
+                                                    const num = parseFloat(String(value).replace(/[^\d.-]/g, ''));
+                                                    value = Number.isFinite(num) ? num.toLocaleString('vi-VN') : value;
                                                 }
 
                                                 return (
