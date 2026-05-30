@@ -1294,6 +1294,14 @@ export default function BaoCaoMarketing({
     }
   };
 
+  const normalizeMktProductOption = (value) => String(value || '').trim().toLowerCase();
+
+  const isKnownMktProduct = (value) => {
+    const normalized = normalizeMktProductOption(value);
+    if (!normalized) return false;
+    return (appData.productList || []).some((product) => normalizeMktProductOption(product) === normalized);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -1304,6 +1312,31 @@ export default function BaoCaoMarketing({
 
     setLoading(true);
     updateStatus('Bắt đầu gửi dữ liệu lên Supabase...');
+
+    const missingProductRowIndex = tableRows.findIndex((r) => !String(r?.data?.Sản_phẩm ?? '').trim());
+    if (missingProductRowIndex !== -1) {
+      setResponseMsg({
+        text: `Vui lòng chọn Sản_phẩm cho dòng ${missingProductRowIndex + 1}. Đây là trường bắt buộc.`,
+        isSuccess: false,
+        visible: true,
+      });
+      setLoading(false);
+      return;
+    }
+
+    const invalidProductRowIndex = tableRows.findIndex((r) => {
+      const product = String(r?.data?.Sản_phẩm ?? '').trim();
+      return product && (appData.productList || []).length > 0 && !isKnownMktProduct(product);
+    });
+    if (invalidProductRowIndex !== -1) {
+      setResponseMsg({
+        text: `Sản_phẩm ở dòng ${invalidProductRowIndex + 1} phải chọn từ danh sách sản phẩm hệ thống.`,
+        isSuccess: false,
+        visible: true,
+      });
+      setLoading(false);
+      return;
+    }
 
     const missingCaRow = tableRows.find((r) => !String(r?.data?.ca ?? '').trim());
     if (missingCaRow) {

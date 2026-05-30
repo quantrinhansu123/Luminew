@@ -1229,6 +1229,13 @@ export default function NhapDonMoi({ isEdit = false }) {
         return visibleProducts.filter(p => p.toLowerCase().includes(productSearch.toLowerCase()));
     }, [visibleProducts, productSearch]);
 
+    const selectedProductMain = String(formData.productMain || "").trim();
+    const productMainExistsInList = useMemo(() => {
+        if (!selectedProductMain) return false;
+        return visibleProducts.some((p) => String(p || "").trim().toLowerCase() === selectedProductMain.toLowerCase());
+    }, [selectedProductMain, visibleProducts]);
+    const canEditAutoProductItems = productMainExistsInList;
+
     /** Mở/đóng picker mặt hàng chính — khi đóng: nếu gõ trùng 1 tên trong danh sách thì gán luôn. */
     const applyProductPickerOpen = useCallback(
         (open) => {
@@ -1567,6 +1574,22 @@ export default function NhapDonMoi({ isEdit = false }) {
         // Validation - Khu vực bắt buộc cho cả tạo mới và edit
         if (!formData.country || formData.country.trim() === "") {
             alert("⚠️ Vui lòng chọn Khu vực! Đây là trường bắt buộc.");
+            return;
+        }
+
+        // Validation - Mặt hàng chính bắt buộc và phải chọn từ danh sách hệ thống
+        const selectedProduct = String(formData.productMain || "").trim();
+        const knownProduct =
+            !selectedProduct ||
+            visibleProducts.some((p) => String(p || "").trim().toLowerCase() === selectedProduct.toLowerCase());
+        if (!selectedProduct) {
+            alert("⚠️ Vui lòng chọn Mặt hàng (Chính)! Đây là trường bắt buộc.");
+            setActiveTab("thong-tin-don");
+            return;
+        }
+        if (!knownProduct) {
+            alert("⚠️ Mặt hàng (Chính) phải chọn từ danh sách sản phẩm hệ thống.");
+            setActiveTab("thong-tin-don");
             return;
         }
 
@@ -2628,7 +2651,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 {/* Row 1: Main Product & Order Code */}
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                     <div className="space-y-2">
-                                                        <Label htmlFor="productMain">Mặt hàng (Chính)</Label>
+                                                        <Label htmlFor="productMain">
+                                                            Mặt hàng (Chính)<span className="text-red-500"> *</span>
+                                                        </Label>
                                                         <Popover open={isProductOpen} onOpenChange={applyProductPickerOpen}>
                                                             <div className="relative" ref={productRef}>
                                                                 <PopoverAnchor asChild>
@@ -2652,7 +2677,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                 }
                                                                                 applyProductPickerOpen(true);
                                                                             }}
-                                                                            className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] bg-white"
+                                                                            aria-invalid={!productMainExistsInList}
+                                                                            required
+                                                                            className={`pr-8 w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] bg-white ${submitAttempted && !productMainExistsInList ? "border-red-500 bg-red-50" : "border-gray-300"}`}
                                                                         />
                                                                         <ChevronDown
                                                                             className="absolute right-3 top-3 h-4 w-4 opacity-50 cursor-pointer"
@@ -2724,11 +2751,25 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gray-50 p-3 rounded-md">
                                                     <div className="md:col-span-3 space-y-2">
                                                         <Label htmlFor="mathang1">Tên mặt hàng 1</Label>
-                                                        <Input id="mathang1" value={formData.mathang1} onChange={handleInputChange} placeholder="Tự động..." />
+                                                        <Input
+                                                            id="mathang1"
+                                                            value={formData.mathang1}
+                                                            onChange={handleInputChange}
+                                                            placeholder="Chọn mặt hàng chính trước..."
+                                                            disabled={!canEditAutoProductItems}
+                                                            className={!canEditAutoProductItems ? "bg-gray-100 cursor-not-allowed" : ""}
+                                                        />
                                                     </div>
                                                     <div className="space-y-2">
                                                         <Label htmlFor="sl1">Số lượng 1</Label>
-                                                        <Input id="sl1" type="number" value={formData.sl1} onChange={handleInputChange} />
+                                                        <Input
+                                                            id="sl1"
+                                                            type="number"
+                                                            value={formData.sl1}
+                                                            onChange={handleInputChange}
+                                                            disabled={!canEditAutoProductItems}
+                                                            className={!canEditAutoProductItems ? "bg-gray-100 cursor-not-allowed" : ""}
+                                                        />
                                                     </div>
                                                 </div>
 
@@ -2736,11 +2777,25 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gray-50 p-3 rounded-md">
                                                     <div className="md:col-span-3 space-y-2">
                                                         <Label htmlFor="mathang2">Tên mặt hàng 2 (Auto)</Label>
-                                                        <Input id="mathang2" value={formData.mathang2} onChange={handleInputChange} placeholder="Tự động..." />
+                                                        <Input
+                                                            id="mathang2"
+                                                            value={formData.mathang2}
+                                                            onChange={handleInputChange}
+                                                            placeholder="Chọn mặt hàng chính trước..."
+                                                            disabled={!canEditAutoProductItems}
+                                                            className={!canEditAutoProductItems ? "bg-gray-100 cursor-not-allowed" : ""}
+                                                        />
                                                     </div>
                                                     <div className="space-y-2">
                                                         <Label htmlFor="sl2">Số lượng 2</Label>
-                                                        <Input id="sl2" type="number" value={formData.sl2 || ""} onChange={handleInputChange} />
+                                                        <Input
+                                                            id="sl2"
+                                                            type="number"
+                                                            value={formData.sl2 || ""}
+                                                            onChange={handleInputChange}
+                                                            disabled={!canEditAutoProductItems}
+                                                            className={!canEditAutoProductItems ? "bg-gray-100 cursor-not-allowed" : ""}
+                                                        />
                                                     </div>
                                                 </div>
 

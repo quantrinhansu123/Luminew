@@ -324,6 +324,14 @@ function ReportForm({
     return value.replace(/[^0-9]/g, '');
   };
 
+  const normalizeOptionValue = (value) => String(value || '').trim().toLowerCase();
+
+  const isKnownProduct = (value) => {
+    const normalized = normalizeOptionValue(value);
+    if (!normalized) return false;
+    return productOptions.some((product) => normalizeOptionValue(product) === normalized);
+  };
+
   const handleReportChange = (e, reportIndex) => {
     const { name, value } = e.target;
     const numberFields = ['cpqc', 'mess_cmt', 'response', 'orders'];
@@ -396,6 +404,7 @@ function ReportForm({
       if (!report.date) newErrors[`${index}-date`] = 'Required';
       if (!report.shift) newErrors[`${index}-shift`] = 'Required';
       if (!report.product?.trim()) newErrors[`${index}-product`] = 'Required';
+      else if (productOptions.length > 0 && !isKnownProduct(report.product)) newErrors[`${index}-product`] = 'Required';
       if (!report.market?.trim()) newErrors[`${index}-market`] = 'Required';
       if (!report.mess_cmt) newErrors[`${index}-mess_cmt`] = 'Required';
       if (!report.response) newErrors[`${index}-response`] = 'Required';
