@@ -372,9 +372,9 @@ export function mapOrderToMktActualRow(row, branch) {
     messages: 0,
     adsCost: 0,
     orders: netOrder,
-    ordersForCloseRate: netOrder,
+    ordersForCloseRate: 0,
     revenue: netRevenue,
-    revenueForAdsRate: netRevenue,
+    revenueForAdsRate: 0,
     cancelOrders: canceled ? 1 : 0,
   };
 }
@@ -760,7 +760,7 @@ export function getDepartmentConfig(value, ctx) {
       ...sale,
       revenue: hasActualOrderData ? mkt.revenue : sale.revenue,
       orders: hasActualOrderData ? mkt.orders : sale.orders,
-      closeOrders: hasActualOrderData ? (mkt.ordersForCloseRate || mkt.orders) : sale.orders,
+      closeOrders: hasActualOrderData ? mkt.orders : sale.orders,
       messages: sale.messages || mkt.messages,
       cancelOrders: hasActualOrderData ? mkt.cancelOrders : sale.cancelOrders,
     };

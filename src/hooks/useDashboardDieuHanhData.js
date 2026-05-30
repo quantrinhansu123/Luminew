@@ -49,9 +49,7 @@ function clearMktActuals(row) {
   return {
     ...row,
     orders: 0,
-    ordersForCloseRate: 0,
     revenue: 0,
-    revenueForAdsRate: 0,
     cancelOrders: 0,
   };
 }
