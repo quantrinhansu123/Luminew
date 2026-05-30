@@ -164,7 +164,7 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
         const { data, error: qErr } = await supabase
           .from('orders')
           .select(
-            'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, tong_tien_VND, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit'
+            'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit'
           )
           .gte('order_date', globalFrom)
           .lte('order_date', globalTo)
