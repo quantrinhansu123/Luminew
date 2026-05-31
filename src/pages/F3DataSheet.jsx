@@ -1,5 +1,7 @@
 import { Download, Layers, RefreshCw, Search, Settings, Truck, X } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import '../styles/selection.css';
+import { rafThrottle } from '../utils/throttle';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
@@ -33,6 +35,43 @@ import { F3_STATIC_DATA } from '../data/f3_static_data';
 // Supabase/PostgREST thường trả tối đa 1000 dòng mỗi request theo project setting.
 // Dùng đúng ngưỡng này để điều kiện phân trang không bị dừng sớm ở page 1.
 const ORDERS_PAGE_SIZE = 1000;
+/** Kéo chuột ≥ px thì coi là bôi vùng; nhỏ hơn thì coi là click ô. */
+const F3_DRAG_THRESHOLD_PX = 5;
+/** Cột không bôi chọn (control đặc biệt). */
+const F3_NON_DRAG_COLUMNS = new Set(['Payment Bill', 'Payment Image']);
+
+function getF3DragTargetCells() {
+  const root = document.querySelector('[data-f3-grid-root]');
+  return root
+    ? root.querySelectorAll('td[data-f3-r][data-f3-c]')
+    : document.querySelectorAll('td[data-f3-r][data-f3-c]');
+}
+
+function applyF3DragDomSelection(minR, maxR, minC, maxC) {
+  const DRAG = 'ffm-drag-select';
+  const edges = ['selection-border-top', 'selection-border-bottom', 'selection-border-left', 'selection-border-right'];
+  getF3DragTargetCells().forEach((el) => {
+    const r = +el.getAttribute('data-f3-r');
+    const c = +el.getAttribute('data-f3-c');
+    const inSel = r >= minR && r <= maxR && c >= minC && c <= maxC;
+    el.classList.remove(DRAG, ...edges);
+    if (inSel) {
+      el.classList.add(DRAG);
+      if (r === minR) el.classList.add('selection-border-top');
+      if (r === maxR) el.classList.add('selection-border-bottom');
+      if (c === minC) el.classList.add('selection-border-left');
+      if (c === maxC) el.classList.add('selection-border-right');
+    }
+  });
+}
+
+function clearF3DragDomSelection() {
+  const DRAG = 'ffm-drag-select';
+  const edges = ['selection-border-top', 'selection-border-bottom', 'selection-border-left', 'selection-border-right'];
+  getF3DragTargetCells().forEach((el) => {
+    el.classList.remove(DRAG, ...edges);
+  });
+}
 
 function chunkArray(arr, size) {
   const a = arr || [];
@@ -472,7 +511,24 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [isFillingHcmFromOrdersLookaside, setIsFillingHcmFromOrdersLookaside] = useState(false);
   const [hcmOrdersLookasideOpen, setHcmOrdersLookasideOpen] = useState(false);
   const [hcmOrdersLookasideRows, setHcmOrdersLookasideRows] = useState([]);
-  const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
+  const [selection, setSelection] = useState({
+    startRow: null,
+    startCol: null,
+    endRow: null,
+    endCol: null,
+  });
+  const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+  const f3ScrollContainerRef = useRef(null);
+  const f3DragCellMapRef = useRef(null);
+  const f3DragPrevBoundsRef = useRef(null);
+  const isSelecting = useRef(false);
+  const dragAnchorRef = useRef({ r: 0, c: 0 });
+  const dragEndRef = useRef({ r: 0, c: 0 });
+  const dragStartClientRef = useRef({ x: 0, y: 0 });
+  const dragListenersRef = useRef({ move: null, up: null });
+  const selectionRef = useRef(selection);
+  const paginatedDataRef = useRef([]);
+  const displayColumnsRef = useRef([]);
   /** Bôi đỏ dòng trùng bộ ba Name* / Phone* / Add trong phạm vi filteredData */
   const [highlightDupNamePhoneAdd, setHighlightDupNamePhoneAdd] = useState(false);
   const [deleting, setDeleting] = useState(false); // State for delete all process
@@ -3094,44 +3150,311 @@ function DanhSachDon({ dataSource = 'default' }) {
     [formatDate]
   );
 
-  // Handle Ctrl+C to copy selected row
-  useEffect(() => {
-    const handleKeyDown = async (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        if (selectedRowId === null) return;
-
-        const row = filteredData[selectedRowId];
-        if (!row) return;
-
-        e.preventDefault();
-
-        const rowValues = displayColumns.map((col) => getCellDisplayValueForRow(row, col));
-
-        const tsv = rowValues.join('\t');
-
-        try {
-          await navigator.clipboard.writeText(tsv);
-          toast.success("📋 Đã sao chép dòng vào bộ nhớ tạm!", {
-            autoClose: 2000,
-            hideProgressBar: true,
-          });
-        } catch (err) {
-          console.error('Copy failed:', err);
-          toast.error("❌ Sao chép thất bại");
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedRowId, filteredData, displayColumns, getCellDisplayValueForRow]);
-
   // Pagination
   const totalPages = Math.ceil(filteredData.length / rowsPerPage);
   const paginatedData = useMemo(() => {
     const start = (currentPage - 1) * rowsPerPage;
     return filteredData.slice(start, start + rowsPerPage);
   }, [filteredData, currentPage, rowsPerPage]);
+
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
+
+  useEffect(() => {
+    paginatedDataRef.current = paginatedData;
+  }, [paginatedData]);
+
+  useEffect(() => {
+    displayColumnsRef.current = displayColumns;
+  }, [displayColumns]);
+
+  const selectionBounds = useMemo(() => {
+    if (selection.startRow === null) return null;
+    return {
+      minRow: Math.min(selection.startRow, selection.endRow),
+      maxRow: Math.max(selection.startRow, selection.endRow),
+      minCol: Math.min(selection.startCol, selection.endCol),
+      maxCol: Math.max(selection.startCol, selection.endCol),
+    };
+  }, [selection]);
+
+  const getBoundsForCopy = useCallback(() => {
+    if (isSelecting.current) {
+      const sr = dragAnchorRef.current.r;
+      const sc = dragAnchorRef.current.c;
+      const er = dragEndRef.current.r;
+      const ec = dragEndRef.current.c;
+      return {
+        minRow: Math.min(sr, er),
+        maxRow: Math.max(sr, er),
+        minCol: Math.min(sc, ec),
+        maxCol: Math.max(sc, ec),
+      };
+    }
+    const currentSelection = selectionRef.current;
+    if (!currentSelection || currentSelection.startRow === null) return null;
+    const s = currentSelection;
+    return {
+      minRow: Math.min(s.startRow, s.endRow),
+      maxRow: Math.max(s.startRow, s.endRow),
+      minCol: Math.min(s.startCol, s.endCol),
+      maxCol: Math.max(s.startCol, s.endCol),
+    };
+  }, []);
+
+  const buildCopyPayload = useCallback(() => {
+    const bounds = getBoundsForCopy();
+    if (!bounds) return null;
+
+    const viewData = paginatedDataRef.current;
+    const columns = displayColumnsRef.current;
+    const copiedRows = [];
+
+    for (let r = bounds.minRow; r <= bounds.maxRow && r < viewData.length; r++) {
+      const row = viewData[r];
+      const rowData = [];
+      for (let c = bounds.minCol; c <= bounds.maxCol && c < columns.length; c++) {
+        const col = columns[c];
+        rowData.push(getCellDisplayValueForRow(row, col));
+      }
+      copiedRows.push(rowData);
+    }
+
+    return {
+      text: copiedRows.map((row) => row.join('\t')).join('\n'),
+      bounds,
+    };
+  }, [getBoundsForCopy, getCellDisplayValueForRow]);
+
+  const paintF3DragSelection = useCallback((minR, maxR, minC, maxC) => {
+    const cellMap = f3DragCellMapRef.current;
+    if (!cellMap || cellMap.size === 0) {
+      applyF3DragDomSelection(minR, maxR, minC, maxC);
+      f3DragPrevBoundsRef.current = { minR, maxR, minC, maxC };
+      return;
+    }
+    const DRAG = 'ffm-drag-select';
+    const edges = ['selection-border-top', 'selection-border-bottom', 'selection-border-left', 'selection-border-right'];
+    const prev = f3DragPrevBoundsRef.current;
+    if (prev && prev.minR === minR && prev.maxR === maxR && prev.minC === minC && prev.maxC === maxC) return;
+
+    if (prev) {
+      for (let r = prev.minR; r <= prev.maxR; r += 1) {
+        for (let c = prev.minC; c <= prev.maxC; c += 1) {
+          const el = cellMap.get(`${r}-${c}`);
+          if (el) el.classList.remove(DRAG, ...edges);
+        }
+      }
+    }
+
+    let missing = false;
+    for (let r = minR; r <= maxR; r += 1) {
+      for (let c = minC; c <= maxC; c += 1) {
+        const el = cellMap.get(`${r}-${c}`);
+        if (!el) {
+          missing = true;
+          continue;
+        }
+        el.classList.add(DRAG);
+        if (r === minR) el.classList.add('selection-border-top');
+        if (r === maxR) el.classList.add('selection-border-bottom');
+        if (c === minC) el.classList.add('selection-border-left');
+        if (c === maxC) el.classList.add('selection-border-right');
+      }
+    }
+    if (missing) applyF3DragDomSelection(minR, maxR, minC, maxC);
+    f3DragPrevBoundsRef.current = { minR, maxR, minC, maxC };
+  }, []);
+
+  const paintDragThrottled = useRef(
+    rafThrottle((minR, maxR, minC, maxC) => {
+      paintF3DragSelection(minR, maxR, minC, maxC);
+    })
+  ).current;
+
+  const buildF3DragCellMap = useCallback(() => {
+    const map = new Map();
+    getF3DragTargetCells().forEach((el) => {
+      const r = +el.getAttribute('data-f3-r');
+      const c = +el.getAttribute('data-f3-c');
+      if (Number.isFinite(r) && Number.isFinite(c)) map.set(`${r}-${c}`, el);
+    });
+    f3DragCellMapRef.current = map;
+    f3DragPrevBoundsRef.current = null;
+  }, []);
+
+  const removeDragListeners = useCallback(() => {
+    const L = dragListenersRef.current;
+    if (L.move) {
+      document.removeEventListener('mousemove', L.move);
+      document.removeEventListener('mouseup', L.up);
+      dragListenersRef.current = { move: null, up: null };
+    }
+  }, []);
+
+  const updateDragFromCell = useCallback(
+    (r, c) => {
+      if (!isSelecting.current) return;
+      if (dragEndRef.current.r === r && dragEndRef.current.c === c) return;
+      dragEndRef.current = { r, c };
+      const sr = dragAnchorRef.current.r;
+      const sc = dragAnchorRef.current.c;
+      paintDragThrottled(
+        Math.min(sr, r),
+        Math.max(sr, r),
+        Math.min(sc, c),
+        Math.max(sc, c)
+      );
+    },
+    [paintDragThrottled]
+  );
+
+  const handleF3CellMouseDown = useCallback(
+    (rowIndex, colIndex, e) => {
+      if (e.button !== 0) return;
+      if (e.target?.closest?.('select, input, textarea, button, [contenteditable="true"]')) return;
+      e.preventDefault();
+
+      if (e.shiftKey && selectionRef.current?.startRow !== null) {
+        setSelection((prev) => ({ ...prev, endRow: rowIndex, endCol: colIndex }));
+        return;
+      }
+
+      removeDragListeners();
+      dragStartClientRef.current = { x: e.clientX, y: e.clientY };
+      dragAnchorRef.current = { r: rowIndex, c: colIndex };
+      dragEndRef.current = { r: rowIndex, c: colIndex };
+      isSelecting.current = true;
+      setIsDraggingSelection(true);
+      setSelection({
+        startRow: rowIndex,
+        startCol: colIndex,
+        endRow: rowIndex,
+        endCol: colIndex,
+      });
+
+      buildF3DragCellMap();
+      paintF3DragSelection(rowIndex, rowIndex, colIndex, colIndex);
+
+      const onMove = (ev) => {
+        if (!isSelecting.current) return;
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        const td = el?.closest?.('td[data-f3-r]');
+        if (!td) return;
+        const tr = +td.getAttribute('data-f3-r');
+        const tc = +td.getAttribute('data-f3-c');
+        if (Number.isNaN(tr) || Number.isNaN(tc)) return;
+        updateDragFromCell(tr, tc);
+
+        const scrollEl = f3ScrollContainerRef.current;
+        if (scrollEl) {
+          const rect = scrollEl.getBoundingClientRect();
+          const margin = 48;
+          const maxSpeed = 20;
+          if (ev.clientY > rect.bottom - margin) {
+            scrollEl.scrollTop += Math.min(maxSpeed, Math.ceil(((ev.clientY - (rect.bottom - margin)) / margin) * maxSpeed));
+          } else if (ev.clientY < rect.top + margin) {
+            scrollEl.scrollTop -= Math.min(maxSpeed, Math.ceil(((rect.top + margin - ev.clientY) / margin) * maxSpeed));
+          }
+        }
+      };
+
+      const onUp = (ev) => {
+        removeDragListeners();
+        isSelecting.current = false;
+        clearF3DragDomSelection();
+        f3DragCellMapRef.current = null;
+        f3DragPrevBoundsRef.current = null;
+        const { r: er, c: ec } = dragEndRef.current;
+        const { r: sr, c: sc } = dragAnchorRef.current;
+        setIsDraggingSelection(false);
+        setSelection({ startRow: sr, startCol: sc, endRow: er, endCol: ec });
+      };
+
+      dragListenersRef.current = { move: onMove, up: onUp };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [removeDragListeners, updateDragFromCell, buildF3DragCellMap, paintF3DragSelection]
+  );
+
+  useEffect(() => {
+    return () => {
+      removeDragListeners();
+      clearF3DragDomSelection();
+      f3DragCellMapRef.current = null;
+      f3DragPrevBoundsRef.current = null;
+    };
+  }, [removeDragListeners]);
+
+  useEffect(() => {
+    const onCopy = (e) => {
+      const active = document.activeElement;
+      const isInInput =
+        active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+      if (isInInput && active && !active.closest('td[data-f3-r]')) return;
+
+      const bounds = getBoundsForCopy();
+      if (!bounds) return;
+
+      const payload = buildCopyPayload();
+      if (!payload?.text) return;
+
+      try {
+        e.preventDefault();
+        e.clipboardData.setData('text/plain', payload.text);
+        toast.success(
+          `📋 Đã copy ${payload.bounds.maxRow - payload.bounds.minRow + 1} dòng × ${payload.bounds.maxCol - payload.bounds.minCol + 1} cột`,
+          { autoClose: 2000, hideProgressBar: true }
+        );
+      } catch {
+        navigator.clipboard.writeText(payload.text).catch(() => {
+          toast.error('❌ Sao chép thất bại');
+        });
+      }
+    };
+    document.addEventListener('copy', onCopy, true);
+    return () => document.removeEventListener('copy', onCopy, true);
+  }, [getBoundsForCopy, buildCopyPayload]);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
+        clearF3DragDomSelection();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
+    clearF3DragDomSelection();
+  }, [currentPage, rowsPerPage, activeTab]);
+
+  /** Sau khi thả chuột: giữ viền/nền vùng chọn qua React (DOM drag chỉ dùng lúc đang kéo). */
+  const getF3CellSelectionClasses = useCallback(
+    (rIdx, cIdx) => {
+      if (isDraggingSelection || !selectionBounds) return '';
+      if (
+        rIdx < selectionBounds.minRow ||
+        rIdx > selectionBounds.maxRow ||
+        cIdx < selectionBounds.minCol ||
+        cIdx > selectionBounds.maxCol
+      ) {
+        return '';
+      }
+      let cls = '!bg-[#e3f2fd] ';
+      if (rIdx === selectionBounds.minRow) cls += 'selection-border-top ';
+      if (rIdx === selectionBounds.maxRow) cls += 'selection-border-bottom ';
+      if (cIdx === selectionBounds.minCol) cls += 'selection-border-left ';
+      if (cIdx === selectionBounds.maxCol) cls += 'selection-border-right ';
+      return cls;
+    },
+    [isDraggingSelection, selectionBounds]
+  );
 
   // Handle sort
   const handleSort = (column) => {
@@ -4444,7 +4767,14 @@ function DanhSachDon({ dataSource = 'default' }) {
         ) : (
           <>
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto">
+              <p className="px-4 py-2 text-xs text-gray-500 border-b border-gray-100">
+                Kéo chuột bôi đen nhiều ô/dòng → <kbd className="px-1 py-0.5 bg-gray-100 rounded text-[10px]">Ctrl+C</kbd> dán vào Excel. Giữ <kbd className="px-1 py-0.5 bg-gray-100 rounded text-[10px]">Shift</kbd> + click để mở rộng vùng chọn.
+              </p>
+              <div
+                ref={f3ScrollContainerRef}
+                data-f3-grid-root
+                className={`overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] ${isDraggingSelection ? 'f3-drag-active' : ''}`}
+              >
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
@@ -4498,21 +4828,23 @@ function DanhSachDon({ dataSource = 'default' }) {
                         const tKey = tripleNamePhoneAddKey(row);
                         const isDupRow =
                           highlightDupNamePhoneAdd && tKey && duplicateTripleKeysInFilter.has(tKey);
-                        const isSelected = selectedRowId === rowIndexFiltered;
-                        let trClass = 'cursor-pointer transition-colors ';
-                        if (isDupRow && isSelected) {
-                          trClass += 'bg-red-200 ring-2 ring-inset ring-blue-500 hover:bg-red-200';
+                        const inSelRange =
+                          selectionBounds &&
+                          index >= selectionBounds.minRow &&
+                          index <= selectionBounds.maxRow;
+                        let trClass = 'transition-colors ';
+                        if (isDupRow && inSelRange) {
+                          trClass += 'bg-red-200 hover:bg-red-100';
                         } else if (isDupRow) {
                           trClass += 'bg-red-100 hover:bg-red-50';
-                        } else if (isSelected) {
-                          trClass += 'bg-blue-100 hover:bg-blue-200';
+                        } else if (inSelRange) {
+                          trClass += 'bg-blue-50/80 hover:bg-blue-50';
                         } else {
                           trClass += 'hover:bg-gray-50';
                         }
                         return (
                           <tr
                             key={row[PRIMARY_KEY_COLUMN] || index}
-                            onClick={() => setSelectedRowId(rowIndexFiltered)}
                             className={trClass}
                           >
                             <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -4523,7 +4855,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                                 className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
                               />
                             </td>
-                            {displayColumns.map((col) => {
+                            {displayColumns.map((col, colIndex) => {
                               let value = getCellDisplayValueForRow(row, col);
 
                               // Special rendering for Payment Bill and Payment Image
@@ -4576,11 +4908,14 @@ function DanhSachDon({ dataSource = 'default' }) {
                               return (
                                 <td
                                   key={col}
-                                  className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50 transition-colors ${col === 'Loại tiền thanh toán' ? 'w-[150px]' : ''
+                                  data-f3-r={index}
+                                  data-f3-c={colIndex}
+                                  className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap transition-colors ${getF3CellSelectionClasses(index, colIndex)}${col === 'Loại tiền thanh toán' ? ' w-[150px]' : ''
                                     }`}
-                                  title={`${value || '-'} (Click để copy)`}
-                                  onClick={(e) => {
-                                    e.stopPropagation(); // Ngăn chặn select row khi click vào ô
+                                  title={`${value || '-'} (Kéo chọn vùng → Ctrl+C)`}
+                                  onMouseDown={(e) => handleF3CellMouseDown(index, colIndex, e)}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
                                     handleCellClick(e, value);
                                   }}
                                 >

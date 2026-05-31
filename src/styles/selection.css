@@ -6,7 +6,8 @@ td.ffm-drag-select {
 }
 
 /* Tắt transition hàng khi kéo — tránh repaint nặng */
-[data-ffm-grid-root].ffm-drag-active tbody tr {
+[data-ffm-grid-root].ffm-drag-active tbody tr,
+[data-f3-grid-root].f3-drag-active tbody tr {
   transition: none !important;
 }
 

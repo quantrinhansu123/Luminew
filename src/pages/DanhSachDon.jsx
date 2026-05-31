@@ -84,7 +84,21 @@ const DANH_SACH_DON_BASE_SELECT_COLUMNS = [
   'tong_tien_vnd',
   'ngay_doi_soat_bill',
   'ngay_doi_soat_cuoc',
+  'ngay_chia_van_don',
 ];
+
+/** Bộ lọc Từ/Đến ngày trên /danh-sach-don */
+export const DANH_SACH_DON_DATE_FILTER_TYPES = [
+  { value: 'order_date', label: 'Ngày lên đơn', dbCol: 'order_date', uiCol: 'Ngày lên đơn' },
+  { value: 'ngay_chia_van_don', label: 'Ngày chia đơn', dbCol: 'ngay_chia_van_don', uiCol: 'Ngày chia đơn' },
+];
+
+function getDanhSachDonDateFilterMeta(dateFilterType) {
+  return (
+    DANH_SACH_DON_DATE_FILTER_TYPES.find((t) => t.value === dateFilterType) ||
+    DANH_SACH_DON_DATE_FILTER_TYPES[0]
+  );
+}
 
 const DANH_SACH_DON_HCM_EXTRA_SELECT_COLUMNS = [
   'feedback_pos',
@@ -261,13 +275,15 @@ const HIDDEN_COLUMNS = [
 ];
 
 /**
- * Cùng phạm vi đơn như loadData: team, nhân sự, khoảng order_date + đơn order_date null (created_at trong khoảng).
+ * Cùng phạm vi đơn như loadData: team, nhân sự, khoảng ngày (order_date hoặc ngay_chia_van_don).
+ * Với order_date: thêm đơn order_date null nhưng created_at trong khoảng.
  */
 async function fetchDanhSachDonMergedRawOrders({
   supabaseClient,
   ordersTableName = 'orders',
   startDate,
   endDate,
+  dateFilterType = 'order_date',
   teamFilter,
   isAdmin,
   selectedPersonnelNames,
@@ -336,19 +352,22 @@ async function fetchDanhSachDonMergedRawOrders({
     return all;
   };
 
+  const { dbCol: dateDbCol } = getDanhSachDonDateFilterMeta(dateFilterType);
+  const filterByOrderDate = dateDbCol === 'order_date';
+
   let base = applyTeamAndPersonnel(supabaseClient.from(ordersTableName).select(selectColumns));
   if (!skipImplicitFilters) {
-    if (startDate) base = base.gte('order_date', startDate);
-    if (endDate) base = base.lte('order_date', endDate);
+    if (startDate) base = base.gte(dateDbCol, startDate);
+    if (endDate) base = base.lte(dateDbCol, endDate);
   }
   if (!skipImplicitFilters) {
     base = applyDanhSachDonSearchFilter(base, searchText);
   }
 
-  const supaData = await fetchAllPages(base, 'order_date');
+  const supaData = await fetchAllPages(base, dateDbCol);
 
   let mergedRaw = [...(supaData || [])];
-  if (!skipImplicitFilters && startDate && endDate) {
+  if (!skipImplicitFilters && filterByOrderDate && startDate && endDate) {
     const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
     let qNull = applyTeamAndPersonnel(supabaseClient.from(ordersTableName).select(selectColumns));
     qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
@@ -508,7 +527,10 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [endDate, setEndDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
-
+  const [dateFilterType, setDateFilterType] = useState(() => {
+    const saved = localStorage.getItem('danhSachDon_dateFilterType');
+    return DANH_SACH_DON_DATE_FILTER_TYPES.some((t) => t.value === saved) ? saved : 'order_date';
+  });
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -739,6 +761,9 @@ function DanhSachDon({ dataSource = 'default' }) {
   const mapSupabaseToUI = (item) => ({
     "Mã đơn hàng": item.order_code,
     "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
+    "Ngày chia đơn": item.ngay_chia_van_don
+      ? String(item.ngay_chia_van_don).trim().slice(0, 10)
+      : '',
     "Name*": item.customer_name,
     "Phone*": item.customer_phone,
     "Địa chỉ": item.customer_address,
@@ -876,6 +901,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         ordersTableName,
         startDate,
         endDate,
+        dateFilterType,
         teamFilter,
         isAdmin,
         selectedPersonnelNames,
@@ -1209,6 +1235,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         ordersTableName,
         startDate: normStart,
         endDate: normEnd,
+        dateFilterType: 'order_date',
         teamFilter,
         isAdmin,
         selectedPersonnelNames,
@@ -1318,7 +1345,11 @@ function DanhSachDon({ dataSource = 'default' }) {
   useEffect(() => {
     if (!personnelLoaded) return;
     loadData();
-  }, [personnelLoaded, startDate, endDate, role, debouncedSearchText, selectedPersonnelNames.length]); // Reload when server-side filters change
+  }, [personnelLoaded, startDate, endDate, dateFilterType, role, debouncedSearchText, selectedPersonnelNames.length]); // Reload when server-side filters change
+
+  useEffect(() => {
+    localStorage.setItem('danhSachDon_dateFilterType', dateFilterType);
+  }, [dateFilterType]);
 
   // Get unique values for filters - Bao gồm cả giá trị trống
   const uniqueMarkets = useMemo(() => {
@@ -2847,7 +2878,8 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     // Date Range Filter (áp dụng cho cả view thường và HCM)
     if (startDate || endDate) {
-      data = data.filter(row => isDateInRange(row["Ngày lên đơn"], startDate, endDate));
+      const { uiCol: dateUiCol } = getDanhSachDonDateFilterMeta(dateFilterType);
+      data = data.filter((row) => isDateInRange(row[dateUiCol], startDate, endDate));
     }
 
     // Market filter - Hỗ trợ multi-select và giá trị trống
@@ -3000,6 +3032,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     debouncedSearchText,
     startDate,
     endDate,
+    dateFilterType,
     isAdmin,
     isHcmView,
     filterMarket,
@@ -3666,7 +3699,25 @@ function DanhSachDon({ dataSource = 'default' }) {
             </div>
 
             {/* Date Range Filter */}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 items-end">
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Loại ngày</label>
+                <select
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white min-w-[148px]"
+                  value={dateFilterType}
+                  onChange={(e) => {
+                    setDateFilterType(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  title="Cột dùng cho bộ lọc Từ ngày / Đến ngày"
+                >
+                  {DANH_SACH_DON_DATE_FILTER_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Từ ngày</label>
                 <input
