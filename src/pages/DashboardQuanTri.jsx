@@ -8,6 +8,9 @@ import {
   readDashboardGlobalDateRange,
   writeDashboardGlobalDateRange,
 } from '../utils/dashboardGlobalDateRange';
+
+/** Khớp XemBaoCaoMKTLegacy / viewNsMoiNhanh*.html — iframe dashboard cần skip lọc nhân sự. */
+const MKT_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
 import { isExecutiveDashboardAudience } from '../utils/executiveAccess';
 import { getLastNDaysRangeLocal } from '../utils/nhanSuSaleLumiMoiLogic';
 import DashboardQuanTriBaoCaoTongPanel from '../components/dashboard/DashboardQuanTriBaoCaoTongPanel';
@@ -65,6 +68,24 @@ export default function DashboardQuanTri() {
     writeDashboardGlobalDateRange(globalFrom, globalTo);
   }, [globalFrom, globalTo]);
 
+  /** Dashboard quản trị: iframe MKT load thẳng HTML — ghi scope để Supabase không bị lọc về 0 dòng. */
+  useEffect(() => {
+    if (!allowed) return;
+    const payload = JSON.stringify({
+      v: 1,
+      skipPersonnelFilter: true,
+      allowedNames: [],
+      ts: Date.now(),
+      source: 'dashboard-quan-tri',
+    });
+    try {
+      localStorage.setItem(MKT_LEGACY_PERSONNEL_SCOPE_KEY, payload);
+      sessionStorage.setItem(MKT_LEGACY_PERSONNEL_SCOPE_KEY, payload);
+    } catch {
+      /* private mode / quota */
+    }
+  }, [allowed]);
+
   /**
    * Nếu chưa có stored range: tự pick khoảng ngày theo dữ liệu mới nhất trong DB.
    * Tránh tình trạng mặc định 3 ngày gần nhất theo máy nhưng DB chưa có data → dashboard trống.
@@ -77,27 +98,25 @@ export default function DashboardQuanTri() {
 
     (async () => {
       try {
-        const [saleMax, vanDonMax] = await Promise.all([
+        const [saleMax, vanDonMax, mktMax] = await Promise.all([
           supabase.from('sales_reports').select('date').order('date', { ascending: false }).limit(1),
           supabase.from('bao_cao_van_don').select('ngay').order('ngay', { ascending: false }).limit(1),
+          supabase.from('detail_reports').select('Ngày').order('Ngày', { ascending: false }).limit(1),
         ]);
         if (cancelled) return;
 
         const saleYmdRaw = (Array.isArray(saleMax?.data) ? saleMax.data[0]?.date : saleMax?.data?.date) || null;
         const vdYmdRaw = (Array.isArray(vanDonMax?.data) ? vanDonMax.data[0]?.ngay : vanDonMax?.data?.ngay) || null;
+        const mktYmdRaw =
+          (Array.isArray(mktMax?.data) ? mktMax.data[0]?.Ngày : mktMax?.data?.Ngày) || null;
 
         const saleYmd = String(saleYmdRaw || '').slice(0, 10);
         const vdYmd = String(vdYmdRaw || '').slice(0, 10);
+        const mktYmd = String(mktYmdRaw || '').slice(0, 10);
 
-        // Chọn ngày kết thúc theo "giao" dữ liệu để tab nào cũng có data:
-        // nếu sales_reports mới hơn bao_cao_van_don (hoặc ngược lại) mà dùng MAX, một tab sẽ trống.
-        // YYYY-MM-DD so sánh lexicographic được.
-        const toYmd =
-          saleYmd && vdYmd
-            ? saleYmd <= vdYmd
-              ? saleYmd
-              : vdYmd
-            : saleYmd || vdYmd || '';
+        // Chọn ngày kết thúc theo giao dữ liệu (Sale / VH / MKT) để mọi tab đều có số.
+        const candidateYmds = [saleYmd, vdYmd, mktYmd].filter((ymd) => /^\d{4}-\d{2}-\d{2}$/.test(ymd));
+        const toYmd = candidateYmds.length ? candidateYmds.sort()[0] : '';
         if (!toYmd || toYmd.length < 10) return;
 
         const d = new Date(Number(toYmd.slice(0, 4)), Number(toYmd.slice(5, 7)) - 1, Number(toYmd.slice(8, 10)));
@@ -119,7 +138,7 @@ export default function DashboardQuanTri() {
     };
   }, [storedGlobal?.from, storedGlobal?.to]);
 
-  useEffect(() => {
+  const postDashboardDateToIframes = useCallback(() => {
     const payload = { type: DASHBOARD_GLOBAL_DATE_MESSAGE_TYPE, from: globalFrom, to: globalTo };
     [iframeSaleRef, iframeMktRef, iframeCskhRef, iframeVhRef].forEach((r) => {
       try {
@@ -129,6 +148,10 @@ export default function DashboardQuanTri() {
       }
     });
   }, [globalFrom, globalTo]);
+
+  useEffect(() => {
+    postDashboardDateToIframes();
+  }, [postDashboardDateToIframes]);
 
   const saleIframeSrc = useMemo(() => {
     const q = new URLSearchParams({ dashboard_from: globalFrom, dashboard_to: globalTo });
@@ -262,7 +285,13 @@ export default function DashboardQuanTri() {
             <iframe ref={iframeSaleRef} title="Báo cáo Sale" src={iframeSrcByKey.sale} className="block min-h-[50vh] w-full flex-1 border-0 bg-white" />
           </TabsContent>
           <TabsContent value="mkt" className="m-0 flex min-h-0 flex-1 flex-col p-0 outline-none ring-0 focus-visible:ring-0 data-[state=inactive]:hidden">
-            <iframe ref={iframeMktRef} title="Báo cáo MKT" src={iframeSrcByKey.mkt} className="block min-h-[50vh] w-full flex-1 border-0 bg-white" />
+            <iframe
+              ref={iframeMktRef}
+              title="Báo cáo MKT"
+              src={iframeSrcByKey.mkt}
+              className="block min-h-[50vh] w-full flex-1 border-0 bg-white"
+              onLoad={postDashboardDateToIframes}
+            />
           </TabsContent>
           <TabsContent value="cskh" className="m-0 flex min-h-0 flex-1 flex-col p-0 outline-none ring-0 focus-visible:ring-0 data-[state=inactive]:hidden">
             <iframe ref={iframeCskhRef} title="Báo cáo CSKH" src={iframeSrcByKey.cskh} className="block min-h-[50vh] w-full flex-1 border-0 bg-white" />

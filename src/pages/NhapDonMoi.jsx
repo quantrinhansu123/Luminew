@@ -22,6 +22,44 @@ const ADMIN_MAIL = import.meta.env.VITE_ADMIN_MAIL || "admin@marketing.com";
 const FEEDBACK_COLUMNS_ENABLED = import.meta.env.VITE_ENABLE_FEEDBACK_COLUMNS === 'true';
 const SHIFT_GIUA_CA_HET_CA = "Giữa ca,Hết ca";
 
+const SPECIAL_MKT_NO_PAGE_OPTIONS = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
+
+/** Chuẩn hóa tên page khi gõ/dán (khoảng trắng, ký tự ẩn từ Excel). */
+function normalizePageSearchText(raw) {
+    return String(raw ?? '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\r\n|\r|\n/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ');
+}
+
+/** Tên page có chứa chuỗi đang gõ (không phân biệt hoa thường). */
+function pageNameMatchesQuery(pageName, query) {
+    const pn = normalizePageSearchText(pageName).toLowerCase();
+    const q = normalizePageSearchText(query).toLowerCase();
+    if (!q) return true;
+    return pn.includes(q);
+}
+
+function filterAndRankPages(pageList, query) {
+    const q = normalizePageSearchText(query);
+    if (!q) return pageList;
+    const ql = q.toLowerCase();
+    return pageList
+        .filter((p) => pageNameMatchesQuery(p.page_name, q))
+        .sort((a, b) => {
+            const aName = normalizePageSearchText(a.page_name).toLowerCase();
+            const bName = normalizePageSearchText(b.page_name).toLowerCase();
+            const aStarts = aName.startsWith(ql) ? 0 : 1;
+            const bStarts = bName.startsWith(ql) ? 0 : 1;
+            if (aStarts !== bStarts) return aStarts - bStarts;
+            const aIndex = aName.indexOf(ql);
+            const bIndex = bName.indexOf(ql);
+            if (aIndex !== bIndex) return aIndex - bIndex;
+            return aName.localeCompare(bName);
+        });
+}
+
 /**
  * Retry async function with exponential backoff.
  * Dùng cho recalc calls — tránh mất dữ liệu báo cáo khi mạng yếu / Supabase timeout.
@@ -1258,11 +1296,74 @@ export default function NhapDonMoi({ isEdit = false }) {
     // -------------------------------------------------------------------------
     // 2.5 FILTER LOGIC (Missing previously => Fixed)
     // -------------------------------------------------------------------------
-    const filteredPages = pages.filter(p => {
-        const matchesSearch = !pageSearch || (p.page_name || "").toLowerCase().includes(pageSearch.toLowerCase());
-        // REMOVED dependency on selectedMkt to allow switching to any page/staff
-        return matchesSearch;
-    });
+    const pageSuggestions = useMemo(() => {
+        return filterAndRankPages(pages, pageSearch);
+    }, [pages, pageSearch]);
+
+    const applyPagePickerOpen = useCallback(
+        (open) => {
+            if (open) {
+                const initial = normalizePageSearchText(selectedPage || pageSearch || "");
+                setPageSearch(initial);
+                setIsPageOpen(true);
+                if (pageRef.current) setPagePopoverWidth(pageRef.current.offsetWidth);
+                return;
+            }
+            const q = normalizePageSearchText(pageSearch);
+            if (q && Array.isArray(pages) && pages.length > 0) {
+                const matchedPage = pages.find(
+                    (p) => normalizePageSearchText(p?.page_name).toLowerCase() === q.toLowerCase()
+                );
+                if (matchedPage) {
+                    const canonical = normalizePageSearchText(matchedPage.page_name);
+                    setSelectedPage(canonical);
+                    setPageSearch(canonical);
+                    const mktStaff = String(matchedPage.mkt_staff || matchedPage.Mkt_staff || "").trim();
+                    const currentIsSpecial = selectedMkt && SPECIAL_MKT_NO_PAGE_OPTIONS.includes(selectedMkt);
+                    if (mktStaff && !currentIsSpecial) setSelectedMkt(mktStaff);
+                }
+            }
+            setIsPageOpen(false);
+        },
+        [pages, pageSearch, selectedPage, selectedMkt]
+    );
+
+    const handlePageInputChange = useCallback(
+        (rawValue) => {
+            const inputValue = normalizePageSearchText(rawValue);
+            setPageSearch(inputValue);
+            setSelectedPage(inputValue);
+            setIsPageOpen(true);
+            if (pageRef.current) setPagePopoverWidth(pageRef.current.offsetWidth);
+
+            if (!inputValue) {
+                const currentIsSpecial = selectedMkt && SPECIAL_MKT_NO_PAGE_OPTIONS.includes(selectedMkt);
+                if (!currentIsSpecial) setSelectedMkt("");
+                return;
+            }
+
+            if (!Array.isArray(pages) || pages.length === 0) return;
+
+            const matchedPage = pages.find(
+                (p) => normalizePageSearchText(p?.page_name).toLowerCase() === inputValue.toLowerCase()
+            );
+
+            if (matchedPage) {
+                const canonical = normalizePageSearchText(matchedPage.page_name);
+                setSelectedPage(canonical);
+                setPageSearch(canonical);
+                const mktStaff = String(matchedPage.mkt_staff || matchedPage.Mkt_staff || "").trim();
+                const currentIsSpecial = selectedMkt && SPECIAL_MKT_NO_PAGE_OPTIONS.includes(selectedMkt);
+                if (mktStaff && !currentIsSpecial) {
+                    setSelectedMkt(mktStaff);
+                }
+            } else {
+                const currentIsSpecial = selectedMkt && SPECIAL_MKT_NO_PAGE_OPTIONS.includes(selectedMkt);
+                if (!currentIsSpecial) setSelectedMkt("");
+            }
+        },
+        [pages, selectedMkt]
+    );
 
 
 
@@ -1423,7 +1524,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                 console.warn("Error parsing order datetime for date state:", e);
                 setDate(new Date());
             }
-            setSelectedPage(data.page_name || "");
+            const loadedPageName = normalizePageSearchText(data.page_name || "");
+            setSelectedPage(loadedPageName);
+            setPageSearch(loadedPageName);
             setSelectedMkt(data.marketing_staff || "");
             setSelectedSale(data.sale_staff || "");
             setTrangThaiDon(null); // Reset status check
@@ -2045,6 +2148,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             "creator_name": "",
         });
         setSelectedPage("");
+        setPageSearch("");
         setSelectedMkt("");
         // Reset to current user by default
         setSelectedSale(userName || "");
@@ -2341,113 +2445,68 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                         <RefreshCcw className={cn("w-3 h-3", loadingPages && "animate-spin")} /> Làm mới
                                                     </button>
                                                 </div>
-                                                <Popover open={isPageOpen} onOpenChange={setIsPageOpen}>
-                                                    <div className="relative" ref={pageRef}>
-                                                        <PopoverAnchor asChild>
-                                                            <div className="relative">
-                                                                <Input
-                                                                    placeholder="Chọn page..."
-                                                                    value={selectedPage}
-                                                                    onChange={(e) => {
-                                                                        try {
-                                                                            const inputValue = e.target.value.trim();
-                                                                            setSelectedPage(inputValue);
-                                                                            setIsPageOpen(true);
-
-                                                                            // Tự động điền MKT khi nhập/dán tên page đúng
-                                                                            if (inputValue && Array.isArray(pages) && pages.length > 0) {
-                                                                                // Tìm page có page_name khớp chính xác (case-insensitive)
-                                                                                const matchedPage = pages.find(p => {
-                                                                                    if (!p || typeof p !== 'object') return false;
-                                                                                    const pageName = (p.page_name || "").trim();
-                                                                                    return pageName.toLowerCase() === inputValue.toLowerCase();
-                                                                                });
-
-                                                                                if (matchedPage) {
-                                                                                    const mktStaff = matchedPage.mkt_staff || matchedPage.Mkt_staff || "";
-                                                                                    if (mktStaff) {
-                                                                                        console.log("✅ Auto-fill MKT từ page:", mktStaff);
-                                                                                        // Chỉ tự động điền nếu chưa chọn tùy chọn đặc biệt
-                                                                                        const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
-                                                                                        const currentIsSpecial = selectedMkt && specialMktOptions.includes(selectedMkt);
-                                                                                        if (!currentIsSpecial) {
-                                                                                            setSelectedMkt(String(mktStaff).trim());
-                                                                                        }
-                                                                                    }
-                                                                                } else {
-                                                                                    // Nếu không tìm thấy page, xóa MKT (trừ khi đã chọn tùy chọn đặc biệt)
-                                                                                    const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
-                                                                                    const currentIsSpecial = selectedMkt && specialMktOptions.includes(selectedMkt);
-                                                                                    if (!currentIsSpecial) {
-                                                                                        setSelectedMkt("");
-                                                                                    }
-                                                                                }
-                                                                            } else if (!inputValue) {
-                                                                                // Nếu xóa page, xóa MKT (trừ khi đã chọn tùy chọn đặc biệt)
-                                                                                const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
-                                                                                const currentIsSpecial = selectedMkt && specialMktOptions.includes(selectedMkt);
+                                                <div className="relative" ref={pageRef}>
+                                                    <Input
+                                                        id="ten-page"
+                                                        autoComplete="off"
+                                                        placeholder="Gõ để tìm page..."
+                                                        value={isPageOpen ? pageSearch : (selectedPage || "")}
+                                                        onChange={(e) => handlePageInputChange(e.target.value)}
+                                                        onFocus={() => applyPagePickerOpen(true)}
+                                                        onBlur={() => setTimeout(() => applyPagePickerOpen(false), 200)}
+                                                        disabled={loadingPages}
+                                                        className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
+                                                    />
+                                                    <ChevronDown
+                                                        className="absolute right-3 top-3 h-4 w-4 opacity-50 cursor-pointer"
+                                                        aria-hidden
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            applyPagePickerOpen(!isPageOpen);
+                                                        }}
+                                                    />
+                                                    {isPageOpen && (
+                                                        <div
+                                                            className="absolute z-[100] left-0 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-[300px] overflow-y-auto p-1"
+                                                            style={{ width: pagePopoverWidth === "auto" ? "100%" : pagePopoverWidth }}
+                                                            onMouseDown={(e) => e.preventDefault()}
+                                                        >
+                                                            {pageSuggestions.length === 0 ? (
+                                                                <div className="p-2 text-sm text-gray-500">Không tìm thấy kết quả.</div>
+                                                            ) : (
+                                                                pageSuggestions.map((p, idx) => {
+                                                                    const pageName = p.page_name || `Page ${idx}`;
+                                                                    const isSelected = selectedPage === pageName;
+                                                                    return (
+                                                                        <div
+                                                                            key={`${pageName}-${idx}`}
+                                                                            className={cn(
+                                                                                "flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-gray-100",
+                                                                                isSelected && "bg-gray-100 font-medium"
+                                                                            )}
+                                                                            onClick={() => {
+                                                                                const canonical = normalizePageSearchText(pageName);
+                                                                                setSelectedPage(canonical);
+                                                                                setPageSearch(canonical);
+                                                                                const currentIsSpecial = selectedMkt && SPECIAL_MKT_NO_PAGE_OPTIONS.includes(selectedMkt);
                                                                                 if (!currentIsSpecial) {
-                                                                                    setSelectedMkt("");
+                                                                                    const mktStaff = p.mkt_staff || p.Mkt_staff || "";
+                                                                                    setSelectedMkt(mktStaff.toString().trim());
                                                                                 }
-                                                                            }
-                                                                        } catch (error) {
-                                                                            console.error("❌ Error in page onChange:", error);
-                                                                            // Không block user input nếu có lỗi
-                                                                        }
-                                                                    }}
-                                                                    onFocus={() => {
-                                                                        if (pageRef.current) setPagePopoverWidth(pageRef.current.offsetWidth);
-                                                                    }}
-                                                                    onClick={() => {
-                                                                        if (pageRef.current) setPagePopoverWidth(pageRef.current.offsetWidth);
-                                                                        setIsPageOpen(true);
-                                                                    }}
-                                                                    disabled={loadingPages}
-                                                                    className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
-                                                                />
-                                                                <ChevronDown className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none" />
-                                                            </div>
-                                                        </PopoverAnchor>
-                                                        {isPageOpen && (
-                                                            <PopoverContent
-                                                                className="p-0 bg-white"
-                                                                align="start"
-                                                                style={{ width: pagePopoverWidth }}
-                                                                onOpenAutoFocus={(e) => e.preventDefault()}
-                                                            >
-                                                                <div className="max-h-[300px] overflow-y-auto p-1">
-                                                                    {filteredPages.length === 0 ? (
-                                                                        <div className="p-2 text-sm text-gray-500">Không tìm thấy kết quả.</div>
-                                                                    ) : (
-                                                                        filteredPages.map((p, idx) => {
-                                                                            const pageName = p.page_name || `Page ${idx}`;
-                                                                            const isSelected = selectedPage === pageName;
-                                                                            return (
-                                                                                <div key={idx} className={cn("flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-gray-100", isSelected && "bg-gray-100 font-medium")} onClick={() => {
-                                                                                    console.log("DEBUG: Selecting page:", p);
-                                                                                    setSelectedPage(pageName);
-                                                                                    // Tự động điền MKT từ page (trừ khi đã chọn tùy chọn đặc biệt)
-                                                                                    const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
-                                                                                    const currentIsSpecial = selectedMkt && specialMktOptions.includes(selectedMkt);
-                                                                                    if (!currentIsSpecial) {
-                                                                                        const mktStaff = p.mkt_staff || p.Mkt_staff || "";
-                                                                                        console.log("DEBUG: Setting MKT Staff to:", mktStaff);
-                                                                                        setSelectedMkt(mktStaff.toString().trim());
-                                                                                    }
-                                                                                    setIsPageOpen(false);
-                                                                                    setPageSearch("");
-                                                                                }}>
-                                                                                    <Check className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
-                                                                                    <span className="truncate">{pageName}</span>
-                                                                                </div>
-                                                                            );
-                                                                        })
-                                                                    )}
-                                                                </div>
-                                                            </PopoverContent>
-                                                        )}
-                                                    </div>
-                                                </Popover>
+                                                                                setIsPageOpen(false);
+                                                                            }}
+                                                                        >
+                                                                            <Check className={cn("mr-2 h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                                                                            <span className="truncate">{pageName}</span>
+                                                                        </div>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="phone">Phone*</Label>

@@ -887,11 +887,26 @@
       return q.in('Team', MKT_ALLOWED_TEAMS);
     }
 
+    /** Scope đã được host React ghi (xem-bao-cao-mkt) — khác default khi chưa cấu hình. */
+    function mktHasExplicitPersonnelScopeInStorage() {
+      try {
+        return !!(
+          localStorage.getItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY) ||
+          sessionStorage.getItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY)
+        );
+      } catch (e) {
+        return false;
+      }
+    }
+
     function applyMktPersonnelFilterToQuery(q) {
       MKT_PERSONNEL_SCOPE = readMktPersonnelScope();
       if (MKT_PERSONNEL_SCOPE.skipPersonnelFilter) return q;
       const names = MKT_PERSONNEL_SCOPE.allowedNames || [];
-      if (names.length === 0) return q.eq('id', MKT_EMPTY_ROW_ID);
+      if (names.length === 0) {
+        if (!mktHasExplicitPersonnelScopeInStorage()) return q;
+        return q.eq('id', MKT_EMPTY_ROW_ID);
+      }
       const normalizeNameForQuery = (str) => String(str || '').trim().replace(/\s+/g, ' ');
       const orConditions = names
         .filter((name) => String(name || '').trim().length > 0)
@@ -1523,6 +1538,7 @@
       const from = String(e.data.from || '').trim();
       const to = String(e.data.to || '').trim();
       applyLumiDashboardGlobalDatesToMktInputs(from, to);
+      persistMktFilterStatesFromDom();
       if (typeof fetchAndProcessData === 'function') {
         fetchAndProcessData();
       }
@@ -1666,6 +1682,10 @@
 
     async function fetchAndProcessData() {
       showLoader();
+      const savedFilters =
+        mktPersistedFilterStates ||
+        loadMktFilterStatesFromStorage() ||
+        captureAllMktFilterStates();
       try {
         const cacheKey = getMktDetailReportsCacheKey();
         const dateRange = getMktDateRangeForQuery();
@@ -1768,8 +1788,11 @@
         console.log(`   - Tổng hợp: ${masterData.length} bản ghi, ${employeeData.length} nhân viên`);
 
         setupInitialReportView();
-        populateAllFilters();
-        applyTab1Filters();
+        populateAllFilters(savedFilters);
+        restoreAllMktFilterStates(savedFilters);
+        mktPersistedFilterStates = savedFilters;
+        saveMktFilterStatesToStorage(savedFilters);
+        applyFiltersForVisibleTab();
       } catch (err) {
         console.error("Lỗi tải dữ liệu:", err);
         alert('Không thể tải dữ liệu từ Supabase (detail_reports). Vui lòng kiểm tra mạng, RLS và biến môi trường.');
@@ -1813,6 +1836,7 @@
       handleCheckbox('team-all-tab1', 'filter-team-tab1', target);
       handleCheckbox('market-all-tab1', 'filter-market-tab1', target);
       applyTab1Filters();
+      persistMktFilterStatesFromDom();
     }
 
     function handleTab3Filters(target) {
@@ -1821,6 +1845,7 @@
       handleCheckbox('team-all-tab3', 'filter-team-tab3', target);
       handleCheckbox('market-all-tab3', 'filter-market-tab3', target);
       applyTab3Filters();
+      persistMktFilterStatesFromDom();
     }
 
     const MKT_REFETCH_DATE_IDS = new Set([
@@ -1841,6 +1866,7 @@
       }
 
       if (target.matches('input[type="date"]') && MKT_REFETCH_DATE_IDS.has(target.id)) {
+        persistMktFilterStatesFromDom();
         if (mktRefetchTimer) {
           clearTimeout(mktRefetchTimer);
         }
@@ -1861,6 +1887,7 @@
             break;
           case 'MarketReport':
             applyTab4Filters();
+            persistMktFilterStatesFromDom();
             break;
         }
         hideLoader();
@@ -2042,10 +2069,139 @@
       });
     }
 
-    function populateAllFilters() {
-      if (!masterData.length) return;
+    const MKT_FILTER_PREFS_STORAGE_KEY = 'luminew.mktReport.filterPrefs';
+    /** Giữ bộ lọc khi đổi ngày — lưu ngay trước debounce / await. */
+    let mktPersistedFilterStates = null;
+    let mktLastFilterOptionsKey = '';
 
-      const products = [...new Set(masterData.map(r => r.sanPham).filter(Boolean))].sort();
+    function escapeFilterAttr(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;');
+    }
+
+    function isFilterValueChecked(typeState, value) {
+      if (!typeState) return true;
+      if (typeState.all || typeState.selected == null) return true;
+      return (typeState.selected || []).includes(value);
+    }
+
+    function captureCheckboxFilterState(prefix) {
+      const types = ['product', 'ca', 'team', 'market'];
+      const state = {};
+      types.forEach((type) => {
+        const allEl = document.getElementById(`${type}-all-${prefix}`);
+        const checkboxes = document.querySelectorAll(`.filter-${type}-${prefix}`);
+        if (!checkboxes.length) {
+          state[type] = { all: true, selected: null };
+          return;
+        }
+        const checked = Array.from(checkboxes).filter((cb) => cb.checked).map((cb) => cb.value);
+        const all = checked.length === checkboxes.length;
+        state[type] = { all, selected: all ? null : checked };
+        if (allEl) allEl.checked = all;
+      });
+      return state;
+    }
+
+    function captureSelectFilterState(id) {
+      const el = document.getElementById(id);
+      if (!el || !el.options || el.options.length === 0) return { all: true, selected: null };
+      const selected = Array.from(el.selectedOptions).map((o) => o.value);
+      const all = selected.length === 0 || selected.length >= el.options.length;
+      return { all, selected: all ? null : selected };
+    }
+
+    function captureAllMktFilterStates() {
+      return {
+        tab1: captureCheckboxFilterState('tab1'),
+        tab3: captureCheckboxFilterState('tab3'),
+        mkt: {
+          product: captureSelectFilterState('product-filter-mkt'),
+          market: captureSelectFilterState('market-filter-mkt'),
+          team: captureSelectFilterState('team-filter-mkt'),
+          ca: captureSelectFilterState('ca-filter-mkt'),
+        },
+      };
+    }
+
+    function saveMktFilterStatesToStorage(state) {
+      if (!state) return;
+      try {
+        sessionStorage.setItem(MKT_FILTER_PREFS_STORAGE_KEY, JSON.stringify(state));
+      } catch (e) { /* ignore */ }
+    }
+
+    function loadMktFilterStatesFromStorage() {
+      try {
+        const raw = sessionStorage.getItem(MKT_FILTER_PREFS_STORAGE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function persistMktFilterStatesFromDom() {
+      mktPersistedFilterStates = captureAllMktFilterStates();
+      saveMktFilterStatesToStorage(mktPersistedFilterStates);
+    }
+
+    function restoreCheckboxFilterState(prefix, typeState) {
+      if (!typeState) return;
+      ['product', 'ca', 'team', 'market'].forEach((type) => {
+        const ts = typeState[type];
+        if (!ts) return;
+        const allEl = document.getElementById(`${type}-all-${prefix}`);
+        const checkboxes = document.querySelectorAll(`.filter-${type}-${prefix}`);
+        if (!checkboxes.length) return;
+        if (ts.all || ts.selected == null) {
+          if (allEl) allEl.checked = true;
+          checkboxes.forEach((cb) => { cb.checked = true; });
+          return;
+        }
+        const wanted = new Set(ts.selected || []);
+        checkboxes.forEach((cb) => { cb.checked = wanted.has(cb.value); });
+        if (allEl) allEl.checked = [...checkboxes].every((cb) => cb.checked);
+      });
+    }
+
+    function restoreSelectFilterState(id, typeState) {
+      const el = document.getElementById(id);
+      if (!el || !typeState || !el.options || el.options.length === 0) return;
+      if (typeState.all || typeState.selected == null) {
+        Array.from(el.options).forEach((o) => { o.selected = true; });
+        return;
+      }
+      const wanted = new Set(typeState.selected || []);
+      Array.from(el.options).forEach((o) => { o.selected = wanted.has(o.value); });
+    }
+
+    function restoreAllMktFilterStates(saved) {
+      if (!saved) return;
+      restoreCheckboxFilterState('tab1', saved.tab1);
+      restoreCheckboxFilterState('tab3', saved.tab3);
+      if (saved.mkt) {
+        restoreSelectFilterState('product-filter-mkt', saved.mkt.product);
+        restoreSelectFilterState('market-filter-mkt', saved.mkt.market);
+        restoreSelectFilterState('team-filter-mkt', saved.mkt.team);
+        restoreSelectFilterState('ca-filter-mkt', saved.mkt.ca);
+      }
+    }
+
+    function applyFiltersForVisibleTab() {
+      const visibleTab = Array.from(document.querySelectorAll('.tab-content'))
+        .find((el) => el.style.display !== 'none');
+      const tabId = visibleTab ? visibleTab.id : 'DetailedReport';
+      if (tabId === 'DetailedReport') applyTab1Filters();
+      else if (tabId === 'KpiReport') applyTab3Filters();
+      else if (tabId === 'MarketReport') applyTab4Filters();
+    }
+
+    function computeFilterOptionSetsFromMasterData() {
+      const products = [...new Set(masterData.map((r) => r.sanPham).filter(Boolean))].sort();
       const normCaForFilterList = (v) =>
         String(v || '')
           .trim()
@@ -2064,51 +2220,124 @@
         const s = normCaForFilterList(c);
         return s.includes('giua ca') && s.includes('het ca');
       };
-      masterData
-        .map((r) => r.ca)
-        .forEach((rawCa) => {
-          if (!rawCa) return;
-          if (isCombinedCaDisplayLabel(rawCa)) return;
-          const norm = normCaForFilterList(rawCa);
-          if (!norm) return;
-          if (canonicalCaByNorm.has(norm)) return;
-          const display = String(rawCa)
-            .replace(/\u00a0/g, ' ')
-            .trim()
-            .replace(/\s+/g, ' ');
-          canonicalCaByNorm.set(norm, display);
-        });
+      masterData.map((r) => r.ca).forEach((rawCa) => {
+        if (!rawCa) return;
+        if (isCombinedCaDisplayLabel(rawCa)) return;
+        const norm = normCaForFilterList(rawCa);
+        if (!norm) return;
+        if (canonicalCaByNorm.has(norm)) return;
+        const display = String(rawCa).replace(/\u00a0/g, ' ').trim().replace(/\s+/g, ' ');
+        canonicalCaByNorm.set(norm, display);
+      });
       const cas = Array.from(canonicalCaByNorm.values()).sort((a, b) =>
         String(a).localeCompare(String(b), 'vi', { sensitivity: 'base' })
       );
-      const teams = [...new Set(masterData.map(r => r.team).filter(Boolean))].sort();
-      const markets = [...new Set(masterData.map(r => r.thiTruong).filter(Boolean))].sort();
+      const teams = [...new Set(masterData.map((r) => r.team).filter(Boolean))].sort();
+      const markets = [...new Set(masterData.map((r) => r.thiTruong).filter(Boolean))].sort();
+      return { products, cas, teams, markets };
+    }
 
-      const createCheckboxes = (items, className) => items.map(item => `<label class='indent'><input type='checkbox' class='${className}' value='${item}' checked> ${item}</label>`).join('');
-      const createMarketCheckboxes = (className) => {
+    function populateAllFilters(savedState) {
+      if (!masterData.length) return;
+
+      const { products, cas, teams, markets } = computeFilterOptionSetsFromMasterData();
+      const optionsKey = JSON.stringify({ products, cas, teams, markets });
+      const hasExistingFilters = !!document.querySelector('.filter-product-tab1');
+      if (hasExistingFilters && optionsKey === mktLastFilterOptionsKey && savedState) {
+        restoreAllMktFilterStates(savedState);
+        return;
+      }
+      mktLastFilterOptionsKey = optionsKey;
+
+      const createCheckboxes = (items, className, typeState) =>
+        items
+          .map((item) => {
+            const checked = isFilterValueChecked(typeState, item);
+            return `<label class='indent'><input type='checkbox' class='${className}' value='${escapeFilterAttr(item)}'${checked ? ' checked' : ''}> ${escapeFilterAttr(item)}</label>`;
+          })
+          .join('');
+
+      const createMarketCheckboxes = (className, typeState) => {
         let html = '';
-        Object.keys(MARKET_GROUPS).forEach(group => {
-          html += `<label><input type='checkbox' class='${className} filter-market-group' value='${group}' checked> <b>${group}</b></label>`;
-          html += MARKET_GROUPS[group].map(child => `<label class='indent'><input type='checkbox' class='${className}' value='${child}' checked> ${child}</label>`).join('');
+        Object.keys(MARKET_GROUPS).forEach((group) => {
+          const groupChecked = isFilterValueChecked(typeState, group);
+          html += `<label><input type='checkbox' class='${className} filter-market-group' value='${escapeFilterAttr(group)}'${groupChecked ? ' checked' : ''}> <b>${escapeFilterAttr(group)}</b></label>`;
+          html += MARKET_GROUPS[group]
+            .map((child) => {
+              const checked = isFilterValueChecked(typeState, child);
+              return `<label class='indent'><input type='checkbox' class='${className}' value='${escapeFilterAttr(child)}'${checked ? ' checked' : ''}> ${escapeFilterAttr(child)}</label>`;
+            })
+            .join('');
         });
-        const ungroupedMarkets = markets.filter(m => !Object.values(MARKET_GROUPS).flat().map(normalize).includes(normalize(m)));
-        html += createCheckboxes(ungroupedMarkets, className);
+        const ungroupedMarkets = markets.filter(
+          (m) => !Object.values(MARKET_GROUPS).flat().map(normalize).includes(normalize(m))
+        );
+        html += createCheckboxes(ungroupedMarkets, className, typeState);
         return html;
       };
 
-      ['tab1', 'tab3'].forEach(prefix => {
-        document.getElementById(`product-options-${prefix}`).innerHTML = createCheckboxes(products, `filter-product-${prefix}`);
-        document.getElementById(`ca-options-${prefix}`).innerHTML = createCheckboxes(cas, `filter-ca-${prefix}`);
-        document.getElementById(`team-options-${prefix}`).innerHTML = createCheckboxes(teams, `filter-team-${prefix}`);
-        document.getElementById(`market-options-${prefix}`).innerHTML = createMarketCheckboxes(`filter-market-${prefix}`);
+      const syncAllFlags = (prefix, tabState) => {
+        if (!tabState) return;
+        ['product', 'ca', 'team', 'market'].forEach((type) => {
+          const allEl = document.getElementById(`${type}-all-${prefix}`);
+          const ts = tabState[type];
+          if (!allEl || !ts) return;
+          if (ts.all || ts.selected == null) allEl.checked = true;
+          else {
+            const checkboxes = document.querySelectorAll(`.filter-${type}-${prefix}`);
+            allEl.checked = checkboxes.length > 0 && [...checkboxes].every((cb) => cb.checked);
+          }
+        });
+      };
+
+      ['tab1', 'tab3'].forEach((prefix) => {
+        const tabState = savedState ? savedState[prefix] : null;
+        document.getElementById(`product-options-${prefix}`).innerHTML = createCheckboxes(
+          products,
+          `filter-product-${prefix}`,
+          tabState ? tabState.product : null
+        );
+        document.getElementById(`ca-options-${prefix}`).innerHTML = createCheckboxes(
+          cas,
+          `filter-ca-${prefix}`,
+          tabState ? tabState.ca : null
+        );
+        document.getElementById(`team-options-${prefix}`).innerHTML = createCheckboxes(
+          teams,
+          `filter-team-${prefix}`,
+          tabState ? tabState.team : null
+        );
+        document.getElementById(`market-options-${prefix}`).innerHTML = createMarketCheckboxes(
+          `filter-market-${prefix}`,
+          tabState ? tabState.market : null
+        );
+        syncAllFlags(prefix, tabState);
       });
 
-      const createOptions = (items) => items.map(item => `<option value="${item}">${item}</option>`).join('');
-      document.getElementById('product-filter-mkt').innerHTML = createOptions(products);
-      document.getElementById('market-filter-mkt').innerHTML = createOptions(markets);
-      // THÊM CÁC BỘ LỌC MỚI CHO TAB MKT
-      document.getElementById('team-filter-mkt').innerHTML = createOptions(teams);
-      document.getElementById('ca-filter-mkt').innerHTML = createOptions(cas);
+      const mktState = savedState ? savedState.mkt : null;
+      const createOptions = (items, typeState) =>
+        items
+          .map((item) => {
+            const sel = isFilterValueChecked(typeState, item);
+            return `<option value="${escapeFilterAttr(item)}"${sel ? ' selected' : ''}>${escapeFilterAttr(item)}</option>`;
+          })
+          .join('');
+      document.getElementById('product-filter-mkt').innerHTML = createOptions(
+        products,
+        mktState ? mktState.product : null
+      );
+      document.getElementById('market-filter-mkt').innerHTML = createOptions(
+        markets,
+        mktState ? mktState.market : null
+      );
+      document.getElementById('team-filter-mkt').innerHTML = createOptions(
+        teams,
+        mktState ? mktState.team : null
+      );
+      document.getElementById('ca-filter-mkt').innerHTML = createOptions(
+        cas,
+        mktState ? mktState.ca : null
+      );
     }
 
     // =================================================================================
