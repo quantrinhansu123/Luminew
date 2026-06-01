@@ -1819,6 +1819,38 @@ function FFMMgtHcm() {
     }
   }, [allData, addToast, resetAggHistoryFiltersToDefaults]);
 
+  const removeDragListeners = useCallback(() => {
+    const L = dragListenersRef.current;
+    if (L.move) {
+      document.removeEventListener('mousemove', L.move);
+      document.removeEventListener('mouseup', L.up);
+      dragListenersRef.current = { move: null, up: null };
+    }
+  }, []);
+
+  const removeFillDragListeners = useCallback(() => {
+    const L = fillDragListenersRef.current;
+    if (L.move) {
+      document.removeEventListener('mousemove', L.move);
+      document.removeEventListener('mouseup', L.up);
+      fillDragListenersRef.current = { move: null, up: null };
+    }
+  }, []);
+
+  /** Xả cache UI tạm sau khi lưu thành công để giảm RAM; không reload trang/dữ liệu. */
+  const flushTransientUiMemory = useCallback(() => {
+    removeDragListeners();
+    removeFillDragListeners();
+    clearFfDragDomSelection();
+    ffmDragCellMapRef.current = null;
+    ffmDragPrevBoundsRef.current = null;
+    setIsDraggingSelection(false);
+    setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
+    setCopiedSelection(null);
+    changeHistoryRef.current = [];
+    historyIndexRef.current = -1;
+  }, [removeDragListeners, removeFillDragListeners]);
+
   const processDbQueue = useCallback(async () => {
     if (!manualSaveRequestedRef.current) return;
     if (isProcessingQueue.current) return;
@@ -2630,38 +2662,6 @@ function FFMMgtHcm() {
       paintFfDragSelection(minR, maxR, minC, maxC);
     })
   ).current;
-
-  const removeDragListeners = useCallback(() => {
-    const L = dragListenersRef.current;
-    if (L.move) {
-      document.removeEventListener('mousemove', L.move);
-      document.removeEventListener('mouseup', L.up);
-      dragListenersRef.current = { move: null, up: null };
-    }
-  }, []);
-
-  const removeFillDragListeners = useCallback(() => {
-    const L = fillDragListenersRef.current;
-    if (L.move) {
-      document.removeEventListener('mousemove', L.move);
-      document.removeEventListener('mouseup', L.up);
-      fillDragListenersRef.current = { move: null, up: null };
-    }
-  }, []);
-
-  /** Xả cache UI tạm sau khi lưu thành công để giảm RAM; không reload trang/dữ liệu. */
-  const flushTransientUiMemory = useCallback(() => {
-    removeDragListeners();
-    removeFillDragListeners();
-    clearFfDragDomSelection();
-    ffmDragCellMapRef.current = null;
-    ffmDragPrevBoundsRef.current = null;
-    setIsDraggingSelection(false);
-    setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
-    setCopiedSelection(null);
-    changeHistoryRef.current = [];
-    historyIndexRef.current = -1;
-  }, [removeDragListeners, removeFillDragListeners, clearFfDragDomSelection]);
 
   const updateDragFromCell = useCallback(
     (r, c) => {
