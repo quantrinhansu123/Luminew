@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from 'react';
+import { History, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
@@ -13,6 +14,31 @@ import {
 import { MktSearchableProductSelect } from '../components/mkt/MktSearchableProductSelect';
 
 const MktQuickAddModal = lazy(() => import('../components/MktQuickAddModal'));
+
+function formatAuditValue(value) {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'boolean') return value ? 'Có' : 'Không';
+  if (typeof value === 'object') return JSON.stringify(value);
+  const s = String(value);
+  return s.trim() ? s : '(trống)';
+}
+
+function getAuditOperationLabel(op) {
+  if (op === 'INSERT') return 'Tạo mới';
+  if (op === 'UPDATE') return 'Cập nhật';
+  if (op === 'DELETE') return 'Xóa';
+  return op || 'Thay đổi';
+}
+
+function getAuditFieldEntries(log) {
+  const fields = log?.changed_fields;
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return [];
+  return Object.entries(fields).map(([field, diff]) => ({
+    field,
+    oldValue: diff?.old,
+    newValue: diff?.new,
+  }));
+}
 
 /** Cố định tham chiếu — tránh modal điền nhanh coi `visibleColumns` đổi mỗi render và reset bảng. */
 const MKT_QUICK_ADD_DEFAULT_VISIBLE_COLUMNS = {};
@@ -305,6 +331,9 @@ export default function BaoCaoMarketing({
   const [status, setStatus] = useState('Đang khởi tạo ứng dụng...');
   const [responseMsg, setResponseMsg] = useState({ text: '', isSuccess: true, visible: false });
   const [mktQuickAddOpen, setMktQuickAddOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLogs, setHistoryLogs] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1302,6 +1331,38 @@ export default function BaoCaoMarketing({
     return (appData.productList || []).some((product) => normalizeMktProductOption(product) === normalized);
   };
 
+  const fetchMktReportHistory = async () => {
+    setHistoryOpen(true);
+    setHistoryLogs([]);
+    setHistoryLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('mkt_report_change_logs')
+        .select('*')
+        .eq('source_table', reportTableName)
+        .order('changed_at', { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+      setHistoryLogs(data || []);
+    } catch (error) {
+      console.error('fetchMktReportHistory:', error);
+      setResponseMsg({
+        text: 'Lỗi tải lịch sử sửa đổi: ' + (error.message || String(error)),
+        isSuccess: false,
+        visible: true,
+      });
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const closeHistoryModal = () => {
+    setHistoryOpen(false);
+    setHistoryLogs([]);
+    setHistoryLoading(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -1991,6 +2052,15 @@ export default function BaoCaoMarketing({
           >
             ⚡ Điền nhanh
           </button>
+          <button
+            type="button"
+            onClick={fetchMktReportHistory}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded text-sm font-semibold transition"
+            title={`Xem lịch sử sửa đổi của ${reportTableName}`}
+          >
+            <History className="w-4 h-4" />
+            Lịch sử
+          </button>
         </div>
 
         {/* Lưới nhập: một CSS Grid — header và ô dùng chung template cột → không lệch như table+sticky */}
@@ -2109,6 +2179,94 @@ export default function BaoCaoMarketing({
             skipTenRequiredForKeyMatch={!canPickMktReporterName}
           />
         </Suspense>
+
+        {historyOpen && (
+          <div className="fixed inset-0 z-[1060] flex items-center justify-center overflow-y-auto bg-black/50 p-4">
+            <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-xl">
+              <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Lịch sử sửa đổi báo cáo MKT</h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {pageTitle} · <span className="font-mono">{reportTableName}</span> · 100 thay đổi gần nhất
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeHistoryModal}
+                  className="rounded p-2 text-gray-600 hover:bg-gray-100"
+                  title="Đóng"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="max-h-[75vh] overflow-y-auto p-5">
+                {historyLoading ? (
+                  <div className="py-10 text-center text-gray-500">Đang tải lịch sử...</div>
+                ) : historyLogs.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 py-10 text-center text-gray-500">
+                    Chưa có lịch sử sửa đổi. Hãy chạy SQL audit trước, các thay đổi sau đó mới được ghi lại.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {historyLogs.map((log) => {
+                      const entries = getAuditFieldEntries(log);
+                      return (
+                        <div key={log.id} className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 bg-gray-50 px-4 py-3">
+                            <div>
+                              <div className="font-semibold text-gray-900">
+                                {getAuditOperationLabel(log.op)}
+                                <span className="ml-2 text-sm font-normal text-gray-500">
+                                  bởi {log.changed_by || 'unknown'}
+                                </span>
+                              </div>
+                              <div className="mt-0.5 text-xs text-gray-500">
+                                {log.changed_at ? new Date(log.changed_at).toLocaleString('vi-VN') : ''}
+                              </div>
+                            </div>
+                            <div className="text-right text-xs text-gray-500">
+                              <div>{log.reporter_name || 'Không rõ tên'}</div>
+                              <div>
+                                {log.report_date || 'Không rõ ngày'}
+                                {log.team ? ` · ${log.team}` : ''}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-sm">
+                              <thead className="bg-white">
+                                <tr className="border-b border-gray-100">
+                                  <th className="px-4 py-2 text-left font-semibold text-gray-700">Cột</th>
+                                  <th className="px-4 py-2 text-left font-semibold text-gray-700">Giá trị cũ</th>
+                                  <th className="px-4 py-2 text-left font-semibold text-gray-700">Giá trị mới</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {entries.map((entry) => (
+                                  <tr key={`${log.id}-${entry.field}`} className="border-b border-gray-50 last:border-b-0">
+                                    <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-800">{entry.field}</td>
+                                    <td className="max-w-xs break-words bg-red-50/60 px-4 py-2 text-red-700">
+                                      {formatAuditValue(entry.oldValue)}
+                                    </td>
+                                    <td className="max-w-xs break-words bg-green-50/60 px-4 py-2 text-green-700">
+                                      {formatAuditValue(entry.newValue)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
