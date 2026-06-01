@@ -124,6 +124,36 @@ function normalizeBulkTrackingCode(value) {
     .toLowerCase();
 }
 
+function getFfmOrderLookupTerms(fv = {}) {
+  const raw = [fv[FFM_ORDER_CODE_FILTER_KEY], fv.tracking_bulk_codes]
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean)
+    .join('\n');
+  if (!raw) return [];
+
+  return Array.from(
+    new Set(
+      raw
+        .split(/[\r\n,;\t]+/g)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function ffmOrderCodeMatchesTerm(row, term) {
+  const rawCode = String(row?.[PRIMARY_KEY_COLUMN] ?? row?.order_code ?? '').trim();
+  const rawTerm = String(term ?? '').trim();
+  if (!rawCode || !rawTerm) return false;
+  const rawCodeLower = rawCode.toLowerCase();
+  const rawTermLower = rawTerm.toLowerCase();
+  if (rawCodeLower.includes(rawTermLower)) return true;
+
+  const normCode = normalizeBulkTrackingCode(rawCode);
+  const normTerm = normalizeBulkTrackingCode(rawTerm);
+  return !!normTerm && normCode.includes(normTerm);
+}
+
 /** Sắp theo Ngày lên đơn giảm dần + gán rowIndex (khớp sort trong getFilteredData). */
 function assignRowIndexByOrderDate(rows) {
   const pk = PRIMARY_KEY_COLUMN;
@@ -651,6 +681,7 @@ function FFMMgtHcm() {
   const ffmRealtimeOrderCodesRef = useRef(new Set()); // Track order_code values pending a fetch
   const ffmRealtimeFetchTimerRef = useRef(null); // setTimeout handle for batching realtime events
   const ffmDateAutoLoadReadyRef = useRef(false);
+  const ffmOrderLookupKeyRef = useRef('');
 
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
@@ -846,6 +877,58 @@ function FFMMgtHcm() {
     }
     return id;
   }, [removeToast]);
+
+  useEffect(() => {
+    const terms = getFfmOrderLookupTerms(filterValues);
+    if (terms.length === 0 || typeof API.fetchFFMOrdersByOrderCodes !== 'function') {
+      ffmOrderLookupKeyRef.current = '';
+      return undefined;
+    }
+
+    const lookupKey = terms.join('\0');
+    if (ffmOrderLookupKeyRef.current === lookupKey) return undefined;
+    ffmOrderLookupKeyRef.current = lookupKey;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const lookupRows = await API.fetchFFMOrdersByOrderCodes({
+          ordersTable: FFM_HCM_SUPABASE_TABLE,
+          orderCodes: terms,
+        });
+        if (cancelled) return;
+
+        if (!lookupRows || lookupRows.length === 0) {
+          addToast(`Không tìm thấy mã đơn HCM: ${terms.join(', ')}`, 'info', 3000);
+          return;
+        }
+
+        startTransition(() => {
+          setAllData((prev) => {
+            const merged = new Map();
+            for (const row of prev || []) {
+              const id = row?.[PRIMARY_KEY_COLUMN];
+              if (id) merged.set(String(id), row);
+            }
+            for (const row of lookupRows) {
+              const id = row?.[PRIMARY_KEY_COLUMN];
+              if (id) merged.set(String(id), row);
+            }
+            ffmMergeRef.current = new Map(merged);
+            return assignRowIndexByOrderDate(Array.from(merged.values()));
+          });
+          setCurrentPage(1);
+        });
+      } catch (err) {
+        console.error('[FFM HCM] Tra cứu mã đơn lỗi:', err);
+        if (!cancelled) addToast(`Lỗi tra cứu mã đơn HCM: ${err?.message || err}`, 'error', 4500);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filterValues, addToast]);
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -1335,6 +1418,26 @@ function FFMMgtHcm() {
       data = data.filter(isFfmTtCarrierRow);
     }
 
+    const orderLookupTerms = getFfmOrderLookupTerms(fv);
+    if (orderLookupTerms.length > 0) {
+      const orderIndex = new Map();
+      orderLookupTerms.forEach((term, i) => {
+        const norm = normalizeBulkTrackingCode(term);
+        if (norm && !orderIndex.has(norm)) orderIndex.set(norm, i);
+      });
+      data = data.filter((row) => orderLookupTerms.some((term) => ffmOrderCodeMatchesTerm(row, term)));
+      data.sort((a, b) => {
+        const aNorm = normalizeBulkTrackingCode(a?.[PRIMARY_KEY_COLUMN] ?? a?.order_code ?? '');
+        const bNorm = normalizeBulkTrackingCode(b?.[PRIMARY_KEY_COLUMN] ?? b?.order_code ?? '');
+        const ia = orderIndex.get(aNorm);
+        const ib = orderIndex.get(bNorm);
+        const na = ia === undefined ? Number.MAX_SAFE_INTEGER : ia;
+        const nb = ib === undefined ? Number.MAX_SAFE_INTEGER : ib;
+        return na !== nb ? na - nb : 0;
+      });
+      return data;
+    }
+
     // ORDER_MANAGEMENT filtering
     {
       // FFM: API giữ đơn có mã tracking HOẶC đơn vị vận chuyển MGT/T&T (không cần Kết quả Check=OK)
@@ -1376,14 +1479,6 @@ function FFMMgtHcm() {
         const cellYmd = getOmDateYmdFromRow(row, activeDateType);
         if (!cellYmd) return false;
         return cellYmd <= toYmd;
-      });
-    }
-
-    const orderCodeFilter = String(fv[FFM_ORDER_CODE_FILTER_KEY] ?? '').trim().toLowerCase();
-    if (orderCodeFilter) {
-      data = data.filter((row) => {
-        const id = String(row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? '').trim().toLowerCase();
-        return id.includes(orderCodeFilter);
       });
     }
 

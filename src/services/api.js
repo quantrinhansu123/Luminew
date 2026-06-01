@@ -898,6 +898,65 @@ export const fetchFFMOrdersBatch = async ({
     };
 };
 
+export const fetchFFMOrdersByOrderCodes = async ({
+    ordersTable = 'orders',
+    orderCodes = [],
+    limit = 300
+} = {}) => {
+    const table = String(ordersTable || 'orders').trim() || 'orders';
+    const selectQuery = getFfmOrdersSelectQuery(table);
+    const terms = Array.from(
+        new Set(
+            (Array.isArray(orderCodes) ? orderCodes : [orderCodes])
+                .map((v) => String(v ?? '').trim())
+                .filter(Boolean)
+        )
+    );
+
+    if (terms.length === 0) return [];
+
+    const mode = getDataSourceMode();
+    if (mode === 'test') {
+        return terms.map((code) => ({
+            'Mã đơn hàng': code,
+            order_code: code,
+            'Ngày lên đơn': new Date().toISOString(),
+            'Đơn vị vận chuyển': 'MGT Express',
+            shipping_unit: 'MGT Express'
+        }));
+    }
+
+    const out = [];
+    const seen = new Set();
+    const chunkSize = 40;
+
+    for (let i = 0; i < terms.length; i += chunkSize) {
+        const chunk = terms.slice(i, i + chunkSize);
+        const orExpr = chunk
+            .map((code) => `order_code.ilike.${quotePostgrestOrIlikePattern(`%${code}%`)}`)
+            .join(',');
+        if (!orExpr) continue;
+
+        const { data, error } = await supabase
+            .from(table)
+            .select(selectQuery)
+            .or(orExpr)
+            .order('order_date', { ascending: false })
+            .limit(limit);
+
+        if (error) throw error;
+
+        for (const row of data || []) {
+            const oc = String(row?.order_code ?? '').trim();
+            if (!oc || seen.has(oc)) continue;
+            seen.add(oc);
+            out.push(mapSupabaseOrderToApp(row));
+        }
+    }
+
+    return out;
+};
+
 /** Tải toàn bộ FFM (lặp batch) — ưu tiên dùng fetchFFMOrdersBatch + gộp phía UI để hiện từng lô. */
 export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', dateTo = '', dateType = 'Ngày lên đơn', market = '' } = {}) => {
     const merge = new Map();
