@@ -144,8 +144,6 @@ function assignRowIndexByOrderDate(rows) {
 /** Lô đầu nhỏ để lên UI nhanh; các lô sau rộng hơn. */
 const FFM_FIRST_BATCH_SIZE = 400;
 const FFM_NEXT_BATCH_SIZE = 1000;
-/** Copy vùng quá lớn dễ spike RAM; giới hạn mềm để tránh treo tab. */
-const FFM_COPY_MAX_CELLS = 120000;
 /** Flush buffer theo số dòng để giảm peak object tạm khi copy. */
 const FFM_COPY_FLUSH_EVERY_ROWS = 300;
 /** Kéo chuột ≥ px này thì coi là bôi vùng; nhỏ hơn thì coi là click để focus ô (sau mouseup). */
@@ -2936,14 +2934,17 @@ function FFMMgtHcm() {
     const columns = currentColumnsRef.current;
     const rowCount = Math.max(0, Math.min(bounds.maxRow, viewData.length - 1) - bounds.minRow + 1);
     const colCount = Math.max(0, Math.min(bounds.maxCol, columns.length - 1) - bounds.minCol + 1);
-    const cellCount = rowCount * colCount;
-
-    if (cellCount > FFM_COPY_MAX_CELLS) {
-      return {
-        error: `Vùng copy quá lớn (${cellCount.toLocaleString('vi-VN')} ô). Giới hạn ${FFM_COPY_MAX_CELLS.toLocaleString('vi-VN')} ô để tránh nặng RAM.`,
-      };
-    }
-
+    const pending = pendingChangesRef.current;
+    const active = document.activeElement;
+    const activeCell = active?.closest?.('td[data-ffm-r][data-ffm-c]');
+    const activeOverride =
+      activeCell && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')
+        ? {
+            row: Number(activeCell.getAttribute('data-ffm-r')),
+            col: Number(activeCell.getAttribute('data-ffm-c')),
+            value: String(active.value ?? ''),
+          }
+        : null;
     const chunks = [];
     let lineBuffer = [];
     let bufferedRows = 0;
@@ -2952,11 +2953,14 @@ function FFMMgtHcm() {
       const rowData = [];
       for (let c = bounds.minCol; c <= bounds.maxCol && c < columns.length; c++) {
         const col = columns[c];
-        const key = ffmPendingKeyForCol(col);
-        let val = viewData[r][key] ?? viewData[r][col] ?? '';
+        const { raw } = getFfmRowColRaw(viewData[r], col, pending);
+        let val = raw;
+        if (activeOverride?.row === r && activeOverride?.col === c) {
+          val = activeOverride.value;
+        }
         if (col === 'Ngày đóng hàng') {
           val = val === null || val === undefined ? '' : String(val);
-        } else if (['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(col)) {
+        } else if (['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)) {
           val = formatDate(val);
         }
         rowData.push(String(val));
@@ -3062,10 +3066,6 @@ function FFMMgtHcm() {
 
       const payload = buildCopyPayload();
       if (!payload) return;
-      if (payload.error) {
-        addToast(payload.error, 'error', 3500);
-        return;
-      }
 
       try {
         e.preventDefault();

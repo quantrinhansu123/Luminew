@@ -153,6 +153,8 @@ function withFfmSourceTable(rows, sourceTable) {
 /** Lô đầu nhỏ để lên UI nhanh; các lô sau rộng hơn. */
 const FFM_FIRST_BATCH_SIZE = 400;
 const FFM_NEXT_BATCH_SIZE = 1000;
+/** Flush buffer theo số dòng để giảm peak object tạm khi copy vùng lớn. */
+const FFM_COPY_FLUSH_EVERY_ROWS = 300;
 /** Kéo chuột ≥ px này thì coi là bôi vùng; nhỏ hơn thì coi là click để focus ô (sau mouseup). */
 const DRAG_FOCUS_THRESHOLD_PX = 5;
 /** Lọc theo mã đơn — key riêng, không dùng «Mã đơn hàng» (trùng tên cột dữ liệu → dễ lệch / nhầm). */
@@ -3306,26 +3308,53 @@ function FFM({ variant = 'MGT' }) {
 
     const viewData = paginatedDataRef.current;
     const columns = currentColumnsRef.current;
-    const copiedRows = [];
+    const pending = pendingChangesRef.current;
+    const rowCount = Math.max(0, Math.min(bounds.maxRow, viewData.length - 1) - bounds.minRow + 1);
+    const colCount = Math.max(0, Math.min(bounds.maxCol, columns.length - 1) - bounds.minCol + 1);
+    const active = document.activeElement;
+    const activeCell = active?.closest?.('td[data-ffm-r][data-ffm-c]');
+    const activeOverride =
+      activeCell && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')
+        ? {
+            row: Number(activeCell.getAttribute('data-ffm-r')),
+            col: Number(activeCell.getAttribute('data-ffm-c')),
+            value: String(active.value ?? ''),
+          }
+        : null;
+    const chunks = [];
+    let lineBuffer = [];
+    let bufferedRows = 0;
 
     for (let r = bounds.minRow; r <= bounds.maxRow && r < viewData.length; r++) {
       const rowData = [];
       for (let c = bounds.minCol; c <= bounds.maxCol && c < columns.length; c++) {
         const col = columns[c];
-        const key = ffmPendingKeyForCol(col);
-        let val = viewData[r][key] ?? viewData[r][col] ?? '';
+        const { raw } = getFfmRowColRaw(viewData[r], col, pending);
+        let val = raw;
+        if (activeOverride?.row === r && activeOverride?.col === c) {
+          val = activeOverride.value;
+        }
         if (col === 'Ngày đóng hàng') {
           val = val === null || val === undefined ? '' : String(val);
-        } else if (['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(col)) {
+        } else if (['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)) {
           val = formatDate(val);
         }
         rowData.push(String(val));
       }
-      copiedRows.push(rowData);
+      lineBuffer.push(rowData.join('\t'));
+      bufferedRows += 1;
+      if (bufferedRows >= FFM_COPY_FLUSH_EVERY_ROWS) {
+        chunks.push(lineBuffer.join('\n'));
+        lineBuffer = [];
+        bufferedRows = 0;
+      }
     }
 
-    const text = copiedRows.map((row) => row.join('\t')).join('\n');
-    return { text, bounds };
+    if (lineBuffer.length > 0) {
+      chunks.push(lineBuffer.join('\n'));
+    }
+
+    return { text: chunks.join('\n'), bounds, rowCount, colCount };
   }, [getBoundsForCopy]);
 
   const handleClearSelection = useCallback(() => {
@@ -3428,7 +3457,7 @@ function FFM({ variant = 'MGT' }) {
         endCol: payload.bounds.maxCol
       });
       addToast(
-        `📋 Đã copy ${payload.bounds.maxRow - payload.bounds.minRow + 1} hàng × ${payload.bounds.maxCol - payload.bounds.minCol + 1} cột`,
+        `📋 Đã copy ${payload.rowCount} hàng × ${payload.colCount} cột`,
         'info',
         2000
       );
