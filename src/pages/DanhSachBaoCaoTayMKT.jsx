@@ -1696,23 +1696,29 @@ export default function DanhSachBaoCaoTayMKT({
         ).trim() || 'unknown';
     };
 
-    const fetchMktReportHistory = async (report) => {
-        if (!report?.id) {
+    const fetchMktReportHistory = async (report = null) => {
+        const hasReportScope = !!report?.id;
+        if (report && !hasReportScope) {
             toast.error('Không tìm thấy ID báo cáo để xem lịch sử.');
             return;
         }
 
-        setHistoryReport(report);
+        setHistoryReport(hasReportScope ? report : { __tableHistory: true });
         setHistoryLogs([]);
         setHistoryLoading(true);
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('mkt_report_change_logs')
                 .select('*')
                 .eq('source_table', reportTableName)
-                .eq('record_id', String(report.id))
                 .order('changed_at', { ascending: false })
                 .limit(100);
+
+            if (hasReportScope) {
+                query = query.eq('record_id', String(report.id));
+            }
+
+            const { data, error } = await query;
 
             if (error) throw error;
             setHistoryLogs(data || []);
@@ -2103,12 +2109,21 @@ export default function DanhSachBaoCaoTayMKT({
                 </div>
 
                 <div className="main-detailed">
-                    <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                        <h2>DANH SÁCH BÁO CÁO TAY MARKETING{pageTitleSuffix}</h2>
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                            {isAdminOnly && teamFilter !== 'RD' && (
+	                    <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+	                        <h2>DANH SÁCH BÁO CÁO TAY MARKETING{pageTitleSuffix}</h2>
+	                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                                 <button
                                     type="button"
+                                    onClick={() => fetchMktReportHistory()}
+                                    className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    title={`Xem 100 lịch sử sửa đổi gần nhất của ${reportTableName}`}
+                                >
+                                    <History className="w-4 h-4" />
+                                    Lịch sử
+                                </button>
+	                            {isAdminOnly && teamFilter !== 'RD' && (
+	                                <button
+	                                    type="button"
                                     onClick={handleRecalcMktSoDonTT}
                                     disabled={
                                         mktRecalcLoading ||
@@ -2783,12 +2798,14 @@ export default function DanhSachBaoCaoTayMKT({
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto p-4">
                     <div className="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] shadow-xl overflow-hidden">
                         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-200">
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-900">Lịch sử sửa đổi báo cáo MKT</h3>
-                                <p className="text-sm text-gray-600 mt-1">
-                                    {historyReport['Tên'] || 'Không rõ tên'} · {formatDate(historyReport['Ngày']) || 'Không rõ ngày'} · {reportTableName}
-                                </p>
-                            </div>
+	                            <div>
+	                                <h3 className="text-lg font-bold text-gray-900">Lịch sử sửa đổi báo cáo MKT</h3>
+	                                <p className="text-sm text-gray-600 mt-1">
+	                                    {historyReport.__tableHistory
+                                            ? `${reportTableName} · 100 thay đổi gần nhất`
+                                            : `${historyReport['Tên'] || 'Không rõ tên'} · ${formatDate(historyReport['Ngày']) || 'Không rõ ngày'} · ${reportTableName}`}
+	                                </p>
+	                            </div>
                             <button
                                 type="button"
                                 onClick={closeHistoryModal}
