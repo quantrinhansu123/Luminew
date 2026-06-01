@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { History, X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
@@ -100,6 +101,31 @@ function namesLooseMatchPersonnel(a, b) {
     const nb = normalizePersonName(b);
     if (!na || !nb) return false;
     return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+function formatAuditValue(value) {
+    if (value === null || value === undefined) return '—';
+    if (typeof value === 'boolean') return value ? 'Có' : 'Không';
+    if (typeof value === 'object') return JSON.stringify(value);
+    const s = String(value);
+    return s.trim() ? s : '(trống)';
+}
+
+function getAuditOperationLabel(op) {
+    if (op === 'INSERT') return 'Tạo mới';
+    if (op === 'UPDATE') return 'Cập nhật';
+    if (op === 'DELETE') return 'Xóa';
+    return op || 'Thay đổi';
+}
+
+function getAuditFieldEntries(log) {
+    const fields = log?.changed_fields;
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return [];
+    return Object.entries(fields).map(([field, diff]) => ({
+        field,
+        oldValue: diff?.old,
+        newValue: diff?.new,
+    }));
 }
 
 function humanResourcesRowIsMktDept(row) {
@@ -259,6 +285,9 @@ export default function DanhSachBaoCaoTayMKT({
     const [editingReport, setEditingReport] = useState(null);
     const [editForm, setEditForm] = useState({});
     const [saving, setSaving] = useState(false);
+    const [historyReport, setHistoryReport] = useState(null);
+    const [historyLogs, setHistoryLogs] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
 
     // Map tên nhân sự -> email (lấy từ bảng nhân sự)
     const [hrEmailMap, setHrEmailMap] = useState({});
@@ -1029,7 +1058,7 @@ export default function DanhSachBaoCaoTayMKT({
                 }
                 const { error: upErr } = await supabase
                     .from(reportTableName)
-                    .update({ Team: newTeam })
+                    .update({ Team: newTeam, last_modified_by: getCurrentAuditUser() })
                     .eq('id', r.id);
                 if (upErr) throw upErr;
                 updated += 1;
@@ -1064,7 +1093,7 @@ export default function DanhSachBaoCaoTayMKT({
         try {
             const { data, error } = await supabase
                 .from(reportTableName)
-                .update({ Thị_trường: 'US' })
+                .update({ Thị_trường: 'US', last_modified_by: getCurrentAuditUser() })
                 .eq('Thị_trường', 'Us')
                 .select('id');
             if (error) throw error;
@@ -1116,7 +1145,10 @@ export default function DanhSachBaoCaoTayMKT({
         try {
             let updated = 0;
             for (const r of targets) {
-                const { error } = await supabase.from(reportTableName).update({ ca: 'Hết ca' }).eq('id', r.id);
+                const { error } = await supabase
+                    .from(reportTableName)
+                    .update({ ca: 'Hết ca', last_modified_by: getCurrentAuditUser() })
+                    .eq('id', r.id);
                 if (error) throw error;
                 updated += 1;
             }
@@ -1208,6 +1240,7 @@ export default function DanhSachBaoCaoTayMKT({
                         Số_Mess_Cmt: mess,
                         'Số đơn': soDon,
                         'Doanh số': doanhSo,
+                        last_modified_by: getCurrentAuditUser(),
                     })
                     .eq('id', keeper.id);
 
@@ -1641,6 +1674,62 @@ export default function DanhSachBaoCaoTayMKT({
         setEditForm(prev => ({ ...prev, [name]: value }));
     };
 
+    const getCurrentAuditUser = () => {
+        let user = null;
+        try {
+            const raw = localStorage.getItem('user');
+            user = raw ? JSON.parse(raw) : null;
+        } catch {
+            user = null;
+        }
+
+        return String(
+            userEmail ||
+            user?.email ||
+            user?.Email ||
+            user?.name ||
+            user?.Name ||
+            userName ||
+            localStorage.getItem('userEmail') ||
+            localStorage.getItem('username') ||
+            ''
+        ).trim() || 'unknown';
+    };
+
+    const fetchMktReportHistory = async (report) => {
+        if (!report?.id) {
+            toast.error('Không tìm thấy ID báo cáo để xem lịch sử.');
+            return;
+        }
+
+        setHistoryReport(report);
+        setHistoryLogs([]);
+        setHistoryLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('mkt_report_change_logs')
+                .select('*')
+                .eq('source_table', reportTableName)
+                .eq('record_id', String(report.id))
+                .order('changed_at', { ascending: false })
+                .limit(100);
+
+            if (error) throw error;
+            setHistoryLogs(data || []);
+        } catch (error) {
+            console.error('fetchMktReportHistory:', error);
+            toast.error('Lỗi tải lịch sử sửa đổi: ' + (error.message || String(error)));
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    const closeHistoryModal = () => {
+        setHistoryReport(null);
+        setHistoryLogs([]);
+        setHistoryLoading(false);
+    };
+
     // Delete single report
     const handleDeleteReport = async (reportId) => {
         if (!reportId) {
@@ -1670,6 +1759,12 @@ export default function DanhSachBaoCaoTayMKT({
             }
             
             console.log('📋 Report to delete:', reportData);
+
+            const auditUser = getCurrentAuditUser();
+            await supabase
+                .from(reportTableName)
+                .update({ last_modified_by: auditUser })
+                .eq('id', reportId);
             
             // Now try to delete
             const { data, error } = await supabase
@@ -1731,7 +1826,8 @@ export default function DanhSachBaoCaoTayMKT({
                 'CPQC theo TKQC': editForm.cpqc_theo_tkqc ? Number(editForm.cpqc_theo_tkqc) : 0,
                 'Báo cáo theo Page': editForm.bao_cao_theo_page || null,
                 'Trạng thái': editForm.trang_thai || null,
-                'Cảnh báo': editForm.canh_bao || null
+                'Cảnh báo': editForm.canh_bao || null,
+                'last_modified_by': getCurrentAuditUser()
                 // Note: "Số đơn thực tế" và "Doanh số thực tế" được tính tự động từ orders table sau khi update
                 // Không cần truyền vào khi update
             };
@@ -2364,6 +2460,15 @@ export default function DanhSachBaoCaoTayMKT({
                                                     <td className="text-center">
                                                         <button
                                                             type="button"
+                                                            className="inline-flex items-center gap-1 px-2 py-1 bg-slate-600 hover:bg-slate-700 text-white rounded text-xs transition mr-2"
+                                                            onClick={() => fetchMktReportHistory(item)}
+                                                            title="Xem lịch sử sửa đổi"
+                                                        >
+                                                            <History className="w-3 h-3" />
+                                                            Lịch sử
+                                                        </button>
+                                                        <button
+                                                            type="button"
                                                             className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition mr-2"
                                                             onClick={() => handleEditClick(item)}
                                                         >
@@ -2669,6 +2774,90 @@ export default function DanhSachBaoCaoTayMKT({
                             >
                                 Hủy
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {historyReport && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto p-4">
+                    <div className="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] shadow-xl overflow-hidden">
+                        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-200">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">Lịch sử sửa đổi báo cáo MKT</h3>
+                                <p className="text-sm text-gray-600 mt-1">
+                                    {historyReport['Tên'] || 'Không rõ tên'} · {formatDate(historyReport['Ngày']) || 'Không rõ ngày'} · {reportTableName}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeHistoryModal}
+                                className="p-2 rounded hover:bg-gray-100 text-gray-600"
+                                title="Đóng"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="p-5 overflow-y-auto max-h-[75vh]">
+                            {historyLoading ? (
+                                <div className="text-center py-10 text-gray-500">Đang tải lịch sử...</div>
+                            ) : historyLogs.length === 0 ? (
+                                <div className="text-center py-10 text-gray-500 border border-dashed border-gray-300 rounded-lg">
+                                    Chưa có lịch sử sửa đổi cho dòng này. Hãy chạy SQL audit trước, các thay đổi sau đó mới được ghi lại.
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {historyLogs.map((log) => {
+                                        const entries = getAuditFieldEntries(log);
+                                        return (
+                                            <div key={log.id} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                                                <div className="bg-gray-50 px-4 py-3 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
+                                                    <div>
+                                                        <div className="font-semibold text-gray-900">
+                                                            {getAuditOperationLabel(log.op)}
+                                                            <span className="ml-2 text-sm font-normal text-gray-500">
+                                                                bởi {log.changed_by || 'unknown'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-xs text-gray-500 mt-0.5">
+                                                            {log.changed_at ? new Date(log.changed_at).toLocaleString('vi-VN') : ''}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-xs text-gray-500">
+                                                        {entries.length} cột thay đổi
+                                                    </div>
+                                                </div>
+
+                                                <div className="overflow-x-auto">
+                                                    <table className="min-w-full text-sm">
+                                                        <thead className="bg-white">
+                                                            <tr className="border-b border-gray-100">
+                                                                <th className="text-left px-4 py-2 font-semibold text-gray-700">Cột</th>
+                                                                <th className="text-left px-4 py-2 font-semibold text-gray-700">Giá trị cũ</th>
+                                                                <th className="text-left px-4 py-2 font-semibold text-gray-700">Giá trị mới</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {entries.map((entry) => (
+                                                                <tr key={`${log.id}-${entry.field}`} className="border-b border-gray-50 last:border-b-0">
+                                                                    <td className="px-4 py-2 font-medium text-gray-800 whitespace-nowrap">{entry.field}</td>
+                                                                    <td className="px-4 py-2 text-red-700 bg-red-50/60 max-w-xs break-words">
+                                                                        {formatAuditValue(entry.oldValue)}
+                                                                    </td>
+                                                                    <td className="px-4 py-2 text-green-700 bg-green-50/60 max-w-xs break-words">
+                                                                        {formatAuditValue(entry.newValue)}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -1361,6 +1361,13 @@ export default function BaoCaoMarketing({
       };
 
       const submitLogin = String(userEmail || '').trim();
+      const auditUser = String(
+        submitLogin ||
+        localStorage.getItem('userEmail') ||
+        localStorage.getItem('username') ||
+        getDisplayNameFromStoredUser() ||
+        ''
+      ).trim() || 'unknown';
       let prefTeam = String(loginUserTeam || '').trim();
       if (!prefTeam) {
         const submitName = String(employeeNameFromUrl || getDisplayNameFromStoredUser() || '').trim();
@@ -1464,6 +1471,7 @@ export default function BaoCaoMarketing({
 
           // Auto-fields if missing
           if (!rowObject['Ngày']) rowObject['Ngày'] = getToday();
+          rowObject.last_modified_by = auditUser;
 
           // Note: Số đơn thực tế và Doanh số thực tế được tính tự động từ orders table sau khi insert
           // Không truyền vào payload khi submit
