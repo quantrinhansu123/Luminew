@@ -1,17 +1,17 @@
-/** Giới hạn & batch FFM — giảm lag RAM / re-render khi tab All hoặc tải nền. */
+/** Batch FFM — ưu tiên tải đủ dữ liệu, UI chỉ throttle re-render khi tải nền. */
 
-export const FFM_RAM_MAX_ROWS = 6000;
+export const FFM_RAM_MAX_ROWS = Number.MAX_SAFE_INTEGER;
 export const FFM_BG_UI_THROTTLE_MS = 450;
 
-export const FFM_MGT_MERGED_FIRST_BATCH_TOTAL = 1000;
-export const FFM_MGT_MERGED_NEXT_BATCH_TOTAL = 2000;
-export const FFM_ALL_MARKET_FIRST_BATCH_TOTAL = 700;
-export const FFM_ALL_MARKET_NEXT_BATCH_TOTAL = 1000;
+export const FFM_MGT_MERGED_FIRST_BATCH_TOTAL = 2000;
+export const FFM_MGT_MERGED_NEXT_BATCH_TOTAL = 4000;
+export const FFM_ALL_MARKET_FIRST_BATCH_TOTAL = 2000;
+export const FFM_ALL_MARKET_NEXT_BATCH_TOTAL = 4000;
 
-export const FFM_HCM_FIRST_BATCH = 400;
-export const FFM_HCM_NEXT_BATCH = 1000;
-export const FFM_HCM_ALL_FIRST_BATCH = 350;
-export const FFM_HCM_ALL_NEXT_BATCH = 700;
+export const FFM_HCM_FIRST_BATCH = 1000;
+export const FFM_HCM_NEXT_BATCH = 2000;
+export const FFM_HCM_ALL_FIRST_BATCH = 1000;
+export const FFM_HCM_ALL_NEXT_BATCH = 2000;
 
 export function isFfmAllMarket(marketParam) {
   return !String(marketParam ?? '').trim();
@@ -22,8 +22,7 @@ export function getFfmMgtMergedBatchPlan(marketParam) {
   return {
     firstTotal: all ? FFM_ALL_MARKET_FIRST_BATCH_TOTAL : FFM_MGT_MERGED_FIRST_BATCH_TOTAL,
     nextTotal: all ? FFM_ALL_MARKET_NEXT_BATCH_TOTAL : FFM_MGT_MERGED_NEXT_BATCH_TOTAL,
-    /** Tab All: chỉ lô đầu; user bấm «Tải thêm» — tránh tự nạp hàng chục nghìn dòng. */
-    autoBackgroundLoad: !all,
+    autoBackgroundLoad: true,
     ramMaxRows: FFM_RAM_MAX_ROWS,
   };
 }
@@ -33,7 +32,7 @@ export function getFfmHcmBatchPlan(marketParam) {
   return {
     firstSize: all ? FFM_HCM_ALL_FIRST_BATCH : FFM_HCM_FIRST_BATCH,
     nextSize: all ? FFM_HCM_ALL_NEXT_BATCH : FFM_HCM_NEXT_BATCH,
-    autoBackgroundLoad: !all,
+    autoBackgroundLoad: true,
     ramMaxRows: FFM_RAM_MAX_ROWS,
   };
 }
