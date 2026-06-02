@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase/config';
-import { dedupeMktDetailReportRows } from '../services/mktRecalcSoDonThucTeFromOrders';
+import {
+  dedupeMktDetailReportRows,
+  overlayHcmMarketingReportRowsFromOrders,
+} from '../services/mktRecalcSoDonThucTeFromOrders';
 import {
   normalizeMktHcmDetailReportRow,
   normalizeMktHnDetailReportRow,
@@ -12,7 +15,6 @@ import {
   buildLastFourPeriodBuckets,
   buildDashboardModel,
   mapMktRow,
-  mapOrderToMktActualRow,
   mapOrderToVanDonRow,
   mapSalesReportRow,
   mapUserRow,
@@ -43,15 +45,6 @@ async function fetchPagedQuery(buildQuery) {
 
 function mktRowHasName(row) {
   return Boolean(String(row?.['Tên'] ?? row?.ten ?? row?.name ?? '').trim());
-}
-
-function clearMktActuals(row) {
-  return {
-    ...row,
-    orders: 0,
-    revenue: 0,
-    cancelOrders: 0,
-  };
 }
 
 async function loadMktTable(tableName, from, to, allowedTeams = []) {
@@ -199,15 +192,15 @@ export default function useDashboardDieuHanhData({ activeTab = 'company', period
       const hnMktRows = dedupeMktDetailReportRows(
         hn.map(normalizeMktHnDetailReportRow).filter(mktRowHasName)
       );
-      const hcmMktRows = dedupeMktDetailReportRows(
-        hcm.map(normalizeMktHcmDetailReportRow).filter(mktRowHasName)
+      const hcmActualizedRows = overlayHcmMarketingReportRowsFromOrders(
+        hcm.map(normalizeMktHcmDetailReportRow).filter(mktRowHasName),
+        ordersHcm
       );
+      const hcmMktRows = dedupeMktDetailReportRows(hcmActualizedRows);
 
       const mappedMkt = [
-        ...hnMktRows.map((r) => mapMktRow(r, 'hn')).filter(Boolean).map(clearMktActuals),
-        ...hcmMktRows.map((r) => mapMktRow(r, 'hcm')).filter(Boolean).map(clearMktActuals),
-        ...ordersHn.map((r) => mapOrderToMktActualRow(r, 'hn')).filter(Boolean),
-        ...ordersHcm.map((r) => mapOrderToMktActualRow(r, 'hcm')).filter(Boolean),
+        ...hnMktRows.map((r) => mapMktRow(r, 'hn')).filter(Boolean),
+        ...hcmMktRows.map((r) => mapMktRow(r, 'hcm')).filter(Boolean),
       ];
 
       let mappedVd = [
