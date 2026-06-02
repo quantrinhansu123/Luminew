@@ -879,14 +879,20 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
     return 'other';
   }, []);
 
+  const optionRows = useMemo(() => {
+    if (branchPick === 'hcm') return mappedAll.filter((r) => bucketFromRow(r) === 'hcm');
+    if (branchPick === 'hn') return mappedAll.filter((r) => bucketFromRow(r) === 'hn');
+    return mappedAll;
+  }, [branchPick, bucketFromRow, mappedAll]);
+
   const filterOptions = useMemo(() => {
     return {
-      products: uniqueSorted(mappedAll, (r) => r.sanPham),
-      markets: uniqueSorted(mappedAll, (r) => r.thiTruong),
-      shifts: uniqueSorted(mappedAll, (r) => r.ca),
-      teams: uniqueSorted(mappedAll, (r) => r.team),
+      products: uniqueSorted(optionRows, (r) => r.sanPham),
+      markets: uniqueSorted(optionRows, (r) => r.thiTruong),
+      shifts: uniqueSorted(optionRows, (r) => r.ca),
+      teams: uniqueSorted(optionRows, (r) => r.team),
     };
-  }, [mappedAll]);
+  }, [optionRows]);
 
   // Init filter giống kiểu "Tất cả" của tab báo cáo chi tiết MKT: mặc định tick hết option có sẵn.
   useEffect(() => {
@@ -961,10 +967,12 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   }, [filters, filterOptions]);
 
   const mappedFiltered = useMemo(() => {
-    const productAll = allSelected.products;
-    const marketAll = allSelected.markets;
-    const caAll = allSelected.shifts;
-    const teamAll = allSelected.teams;
+    // Khi tick "Tất cả", vẫn lọc bằng toàn bộ option hiện có thay vì bỏ qua filter.
+    // Nhờ vậy tổng "Tất cả sản phẩm" = cộng từng sản phẩm trong danh sách option.
+    const productAll = filterOptions.products.length === 0;
+    const marketAll = filterOptions.markets.length === 0;
+    const caAll = filterOptions.shifts.length === 0;
+    const teamAll = filterOptions.teams.length === 0;
     let base = filterRawData({
       rawData: mappedAll,
       isRestrictedView: false,
@@ -994,7 +1002,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
       base = base.filter((r) => bucketFromRow(r) === 'hn');
     }
     return base;
-  }, [mappedAll, globalFrom, globalTo, filters, allSelected, branchPick, bucketFromRow]);
+  }, [mappedAll, globalFrom, globalTo, filters, filterOptions, branchPick, bucketFromRow]);
 
   const summary = useMemo(() => {
     const hcm = emptyAgg('HCM');
@@ -1623,4 +1631,3 @@ function CheckboxList({ values, selected, allChecked, onToggleAll, onToggle, emp
     </div>
   );
 }
-
