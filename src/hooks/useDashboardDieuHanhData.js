@@ -57,7 +57,7 @@ async function loadMktTable(tableName, from, to, allowedTeams = []) {
         .lte(MKT_DATE_COL, to);
       if (allowedTeams.length === 1) q = q.eq('Team', allowedTeams[0]);
       else if (allowedTeams.length > 1) q = q.in('Team', allowedTeams);
-      return q.order(MKT_DATE_COL, { ascending: true });
+      return q.order(MKT_DATE_COL, { ascending: true }).order('id', { ascending: true });
     });
   } catch (error) {
     if (tableMissing(error)) return { __missing: true, rows: [] };
@@ -127,7 +127,7 @@ async function loadOrdersTable(tableName, from, to) {
           q = q.or('team.is.null,team.neq.HCM');
         }
 
-        return q.order('order_date', { ascending: true });
+        return q.order('order_date', { ascending: true }).order('order_code', { ascending: true });
       });
     } catch (error) {
       lastError = error;

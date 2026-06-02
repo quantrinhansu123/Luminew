@@ -336,7 +336,9 @@ export function mapMktRow(row, source) {
     messages: parseNumberLoose(getFirst(row, ['Số_Mess_Cmt', 'Số Mess', 'so_mess_cmt'])),
     adsCost: getFirstNumberLoose(row, ['CPQC', 'cpqc', 'CPOC', 'cpoc', 'CPQC theo TKQC', 'cpqc_theo_tkqc']),
     orders: soDonActual,
-    ordersForCloseRate: isHcm ? soDonInput : soDonActual,
+    // Dashboard điều hành hiển thị chỉ số vận hành thực tế; khớp cột
+    // "Tỉ lệ chốt (TT)" trên xem-bao-cao-mkt(-hcm).
+    ordersForCloseRate: soDonActual,
     revenue: revenueActual,
     revenueForAdsRate: isHcm ? revenueInput : revenueActual,
     cancelOrders: parseNumberLoose(getFirst(row, ['Số đơn hoàn hủy thực tế', 'Số đơn hoàn hủy', 'So don huy'])),
