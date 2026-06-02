@@ -1,7 +1,7 @@
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName } from '../utils/emailFromName';
 import { mergeUniqueRowsById, parseSmartDate } from '../utils/dateParsing';
-import { getCheckResult, isCheckResultHuy, orderAmountVnd } from '../utils/orderCheckAndVnd';
+import { getCheckResult, isCheckResultHuy } from '../utils/orderCheckAndVnd';
 import { parseIntegerVi, parseMoneyNumber } from '../utils/mktNormalizeDetailReportRows';
 
 function normalizeStr(str) {
@@ -338,14 +338,24 @@ function caSegmentFromOrderGroupLabel(groupLabel) {
 }
 
 function orderAmountVndHcmOverlay(order) {
-  const raw =
-    order?.total_amount_vnd ??
-    order?.total_vnd ??
-    order?.reconciled_vnd ??
-    order?.goods_amount ??
-    order?.sale_price ??
-    0;
-  return parseMoneyNumber(raw);
+  const candidates = [
+    order?.total_amount_vnd,
+    order?.total_vnd,
+    order?.tong_tien_vnd,
+    order?.van_don_line_total_vnd,
+    order?.reconciled_vnd,
+    order?.goods_amount,
+  ];
+  for (const raw of candidates) {
+    if (raw == null || raw === '') continue;
+    const n = parseMoneyNumber(raw);
+    if (n > 0) return n;
+  }
+  return parseMoneyNumber(order?.sale_price ?? 0);
+}
+
+function isMktActualOrderCountable(order) {
+  return orderAmountVndHcmOverlay(order) > 0;
 }
 
 function isOrderHuyHcmOverlay(order) {
@@ -358,6 +368,7 @@ function isOrderHuyHcmOverlay(order) {
 function buildHcmActualsByReportKeyFromOrders(orders) {
   const counts = new Map();
   for (const order of orders || []) {
+    if (!isMktActualOrderCountable(order)) continue;
     const baseKey = buildKey(
       order.order_date,
       order.marketing_staff,
@@ -663,7 +674,7 @@ async function fetchAllOrdersInRangeFromSupabaseTable(startDate, endDate, tableN
     const { data, error } = await supabase
       .from(table)
       .select(
-        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
       .gte('order_date', startDate)
       .lte('order_date', endDate)
@@ -747,7 +758,7 @@ async function fetchOrdersForExactKeysFromSupabaseTable(exactKeys, tableName = '
     const { data, error } = await supabase
       .from(table)
       .select(
-        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
       .gte('order_date', k.date)
       .lt('order_date', next)
@@ -988,7 +999,8 @@ export async function recalcMktSoDonThucTeFromOrders({
     'Giữa ca': new Map(),
   };
 
-  // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy). Ghi Số đơn thực tế (TT) & Doanh số TT = tổng − phần hủy. Cột «Số đơn» nhập tay — không cập nhật.
+  // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy).
+  // MKT actual chỉ tính đơn có doanh số VND dương; đơn 0đ không được làm lệch Số đơn TT.
   for (const order of orders || []) {
     const groups = orderShiftGroupsForRecalc(order.shift);
 
@@ -997,7 +1009,8 @@ export async function recalcMktSoDonThucTeFromOrders({
     const key = buildKey(order.order_date, order.marketing_staff, order.product, order.country);
     if (!key) continue;
 
-    const vnd = orderAmountVnd(order);
+    const vnd = orderAmountVndHcmOverlay(order);
+    if (vnd <= 0) continue;
     const huy = isCheckResultHuy(getCheckResult(order));
 
     for (const group of groups) {

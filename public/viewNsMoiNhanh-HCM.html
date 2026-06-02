@@ -1248,7 +1248,7 @@
         let q = supabase
           .from(MKT_HCM_ORDERS_TABLE)
           .select(
-            'order_code, order_date, marketing_staff, product, country, shift, check_result, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+            'order_code, order_date, marketing_staff, product, country, shift, check_result, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
           );
         if (startYmd) q = q.gte('order_date', startYmd);
         if (endYmd) q = q.lte('order_date', endYmd);
@@ -1292,14 +1292,24 @@
     }
 
     function orderAmountVndForActualOverlay(order) {
-      const raw =
-        order?.total_amount_vnd ??
-        order?.total_vnd ??
-        order?.reconciled_vnd ??
-        order?.goods_amount ??
-        order?.sale_price ??
-        0;
-      return parseMoneyNumber(raw);
+      const candidates = [
+        order?.total_amount_vnd,
+        order?.total_vnd,
+        order?.tong_tien_vnd,
+        order?.van_don_line_total_vnd,
+        order?.reconciled_vnd,
+        order?.goods_amount,
+      ];
+      for (const raw of candidates) {
+        if (raw == null || raw === '') continue;
+        const n = parseMoneyNumber(raw);
+        if (n > 0) return n;
+      }
+      return parseMoneyNumber(order?.sale_price ?? 0);
+    }
+
+    function isMktActualOrderCountable(order) {
+      return orderAmountVndForActualOverlay(order) > 0;
     }
 
     function isOrderHuyForActualOverlay(order) {
@@ -1315,6 +1325,7 @@
     function buildHcmActualsByReportKey(orders) {
       const counts = new Map();
       for (const order of orders || []) {
+        if (!isMktActualOrderCountable(order)) continue;
         const baseKey = buildMktActualBaseKey(
           order.order_date,
           order.marketing_staff,
