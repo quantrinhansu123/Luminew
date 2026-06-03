@@ -4407,23 +4407,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
-                {canEditOnThisOrderList && (
-                  <button
-                    type="button"
-                    onClick={openBulkClearDeliveryStaffModal}
-                    disabled={isBulkClearingDeliveryStaff || bulkClearDeliveryStaffCandidateCount === 0}
-                    className="px-2 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1"
-                    title={
-                      bulkClearDeliveryStaffCandidateCount === 0
-                        ? 'Không có NV vận đơn để xóa trong danh sách đang lọc'
-                        : `Xóa NV vận đơn trên ${bulkClearDeliveryStaffCandidateCount} đơn đang lọc`
-                    }
-                    aria-label="Xóa NV vận đơn trên các đơn đang lọc"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Xóa ({bulkClearDeliveryStaffCandidateCount})
-                  </button>
-                )}
                 {showDeliveryStaffFilter && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2">
