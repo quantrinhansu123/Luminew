@@ -263,6 +263,12 @@ export const mapSupabaseOrderToApp = (sOrder) => {
         appOrder['Nhật ký'] = formatOrderLogJsonbForDisplay(sOrder.log);
     }
 
+    if (sOrder.ngay_chia_van_don != null && String(sOrder.ngay_chia_van_don).trim() !== '') {
+        const ngayChia = String(sOrder.ngay_chia_van_don).trim().slice(0, 10);
+        appOrder['Ngày chia vận đơn'] = ngayChia;
+        appOrder['Ngày chia đơn'] = ngayChia;
+    }
+
     return appOrder;
 };
 
@@ -1175,13 +1181,14 @@ export const VAN_DON_PAGE_COLUMN_LIST = [
     'check_result', 'vandon_note', 'product_name_1', 'quantity_1', 'product_name_2', 'quantity_2', 'gift', 'gift_item', 'gift_quantity', 'gift_qty',
     'delivery_status_nb', 'payment_currency', 'estimated_delivery_date', 'thoigiangiaohangffm', 'warehouse_fee', 'luu_kho_usd',
     'note_caps', 'accounting_check_date', 'tracking_check_date', 'reconciled_amount', 'payment_bill', 'payment_image',
-    'ngayupbill', 'reconciled_vnd', 'ngay_doi_soat_bill', 'ngay_doi_soat_cuoc', 'cskh_status', 'log', 'canh_bao'
+    'ngayupbill', 'reconciled_vnd', 'ngay_doi_soat_bill', 'ngay_doi_soat_cuoc', 'cskh_status', 'log', 'canh_bao',
+    'ngay_chia_van_don'
 ];
 
 const VAN_DON_SELECT_QUERY = VAN_DON_PAGE_COLUMN_LIST.join(',');
 
 /** `/van-don-hcm` (bảng `order_code_hcm`): thêm cột chia vận đơn — không gộp vào view `van_don_page` để tránh lệch schema. */
-const VAN_DON_SELECT_QUERY_ORDER_CODE_HCM = `${VAN_DON_SELECT_QUERY},thu_tu_chia,ngay_chia_van_don`;
+const VAN_DON_SELECT_QUERY_ORDER_CODE_HCM = `${VAN_DON_SELECT_QUERY},thu_tu_chia`;
 
 /** Cột ngày lọc theo 1 ngày ở header (khớp logic VanDon.jsx). */
 const VAN_DON_PER_COL_DATE_UI_KEYS = new Set([
@@ -1190,12 +1197,16 @@ const VAN_DON_PER_COL_DATE_UI_KEYS = new Set([
     'Ngày đẩy đơn',
     'Ngày có mã tracking',
     'Ngày Kế toán đối soát với FFM lần 2',
+    'Ngày chia đơn',
+    'Ngày chia vận đơn',
 ]);
 
 /** Nhãn cột UI tính toán → cột DB (không có trong DB_TO_APP_MAPPING). */
 const VAN_DON_UI_COL_DB_OVERRIDE = {
     'Ngày đẩy đơn': 'accounting_check_date',
     'Ngày có mã tracking': 'tracking_check_date',
+    'Ngày chia đơn': 'ngay_chia_van_don',
+    'Ngày chia vận đơn': 'ngay_chia_van_don',
     'market': 'country',
     'product': 'product',
     'nv_sale': 'sale_staff',
@@ -1562,6 +1573,8 @@ export const fetchVanDon = async (options = {}) => {
                 'Ngày đóng hàng': 'ngaydonghang',
                 'Ngày đẩy đơn': 'accounting_check_date',
                 'Ngày có mã tracking': 'tracking_check_date',
+                'Ngày chia đơn': 'ngay_chia_van_don',
+                'Ngày chia vận đơn': 'ngay_chia_van_don',
             };
             const dateColumn = dateColumnMapping[options.dateType];
 

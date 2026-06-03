@@ -81,6 +81,14 @@ const VAN_DON_CHECKBOX_COL_PX = 50;
 const VAN_DON_CANH_BAO_COLUMN = 'Cảnh báo trùng';
 /** Toolbar «Loại ngày» = không lọc theo khoảng Từ–Đến trên một cột ngày (API + client). */
 const BOL_TOOLBAR_DATE_TYPE_ALL = 'Tất cả';
+const VAN_DON_DATE_FILTER_KEYS = [
+  'Ngày lên đơn',
+  'Ngày đóng hàng',
+  'Ngày đẩy đơn',
+  'Ngày có mã tracking',
+  'Ngày Kế toán đối soát với FFM lần 2',
+  'Ngày chia đơn',
+];
 /** Chỉ trang /van-don-hcm — map DB `thu_tu_chia` */
 const VAN_DON_HCM_THU_TU_CHIA_COLUMN = 'Thứ tự chia';
 
@@ -1191,7 +1199,6 @@ function VanDon({ dataSource = 'default' }) {
   const serverColumnFilters = useMemo(() => {
     if (!useBackendPagination) return {};
     const out = {};
-    const DATE_FILTER_KEYS = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'];
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
     const toolbarDateOverrideKeys =
       activeDateType === BOL_TOOLBAR_DATE_TYPE_ALL
@@ -1221,7 +1228,7 @@ function VanDon({ dataSource = 'default' }) {
         ].includes(key)
       )
         return;
-      if (appliedEnableDateFilter && DATE_FILTER_KEYS.includes(key) && toolbarDateOverrideKeys.has(key)) return;
+      if (appliedEnableDateFilter && VAN_DON_DATE_FILTER_KEYS.includes(key) && toolbarDateOverrideKeys.has(key)) return;
       if (val == null) return;
       if (Array.isArray(val) && val.length === 0) return;
       if (typeof val === 'string' && val.trim() === '') return;
@@ -2179,7 +2186,6 @@ function VanDon({ dataSource = 'default' }) {
     }
 
     // Cột ngày trùng với "Loại ngày+ khoảng" trên toolbar → đã lọc ở trên, bỏ lọc 1 ngày ở header cho tránh lệch / chồng hai bộ lọc
-    const DATE_FILTER_KEYS = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'];
     const toolbarDateOverrideKeys =
       activeDateType === BOL_TOOLBAR_DATE_TYPE_ALL
         ? new Set()
@@ -2211,7 +2217,7 @@ function VanDon({ dataSource = 'default' }) {
 
         if (
           appliedEnableDateFilter &&
-          DATE_FILTER_KEYS.includes(key) &&
+          VAN_DON_DATE_FILTER_KEYS.includes(key) &&
           toolbarDateOverrideKeys.has(key)
         ) {
           return;
@@ -2262,7 +2268,7 @@ function VanDon({ dataSource = 'default' }) {
                 return normalizedSelected.has(normalizedCell);
               }
 
-              if (["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(key)) {
+              if (VAN_DON_DATE_FILTER_KEYS.includes(key)) {
                 if (isVanDonSemanticEmpty(cellValue)) return false;
                 if (!cellValue) return false;
                 if (typeof val !== 'string') return true;
@@ -2410,7 +2416,7 @@ function VanDon({ dataSource = 'default' }) {
     if (!sortColumn || rows.length === 0) return rows;
     const col = sortColumn;
     const dir = sortDirection === 'desc' ? -1 : 1;
-    const isDateCol = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col);
+    const isDateCol = [...VAN_DON_DATE_FILTER_KEYS, 'Ngày up bill'].includes(col);
     const isMoneyCol = ['Tổng tiền VNĐ', 'Tiền Việt đã đối soát', 'Tiền đã thanh toán'].includes(col);
     const isStt = col === 'STT';
     if (isStt) return rows;
@@ -2463,7 +2469,7 @@ function VanDon({ dataSource = 'default' }) {
       if (!sortColumn || base.length === 0) return base;
       const col = sortColumn;
       const dir = sortDirection === 'desc' ? -1 : 1;
-      const isDateCol = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col);
+      const isDateCol = [...VAN_DON_DATE_FILTER_KEYS, 'Ngày up bill'].includes(col);
       const isMoneyCol = ['Tổng tiền VNĐ', 'Tiền Việt đã đối soát', 'Tiền đã thanh toán'].includes(col);
       if (col === 'STT') return base;
 
@@ -2545,16 +2551,7 @@ function VanDon({ dataSource = 'default' }) {
         val = rData.reconciled_vnd ?? '';
       }
       val = coalesceVanDonDisplayValue(val);
-      if (
-        [
-          'Ngày lên đơn',
-          'Ngày đóng hàng',
-          'Ngày đẩy đơn',
-          'Ngày có mã tracking',
-          'Ngày Kế toán đối soát với FFM lần 2',
-          'Ngày up bill',
-        ].includes(colName)
-      ) {
+      if ([...VAN_DON_DATE_FILTER_KEYS, 'Ngày up bill'].includes(colName)) {
         out = String(formatDate(val));
       } else if (
         colName === 'Tổng tiền VNĐ' ||
@@ -5310,7 +5307,7 @@ function VanDon({ dataSource = 'default' }) {
               onChange={(vals) => setFilterValues((p) => ({ ...p, [filterKey]: vals }))}
             />
           </div>
-        ) : ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col) ? (
+        ) : VAN_DON_DATE_FILTER_KEYS.includes(col) ? (
           <input
             type="date"
             className={filterInputCls}
@@ -5349,7 +5346,7 @@ function VanDon({ dataSource = 'default' }) {
       val = pendingInfo.newValue;
     }
     val = coalesceVanDonDisplayValue(val);
-    const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col)
+    const displayVal = [...VAN_DON_DATE_FILTER_KEYS, 'Ngày up bill'].includes(col)
       ? formatDate(val)
       : isVanDonMoneyGridAppKey(col)
         ? (() => {
@@ -5653,6 +5650,7 @@ function VanDon({ dataSource = 'default' }) {
                   <option value="Ngày đóng hàng">Đóng hàng</option>
                   <option value="Ngày đẩy đơn">Đẩy đơn</option>
                   <option value="Ngày có mã tracking">Có Tracking</option>
+                  <option value="Ngày chia đơn">Chia đơn</option>
                 </select>
                 <input
                   type="date"
@@ -5695,9 +5693,10 @@ function VanDon({ dataSource = 'default' }) {
             <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
               <div className="flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200 shrink-0" title="Thị trường">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🌍</span>
-                <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
+                <div className="relative" style={{ minWidth: '128px', zIndex: 1002 }}>
                   <MultiSelect
                     compact
+                    menuMinWidth={260}
                     label="Chọn thị trường..."
                     options={getFilterMultiSelectOptions('Khu vực')}
                     selected={filterValues.market || []}
@@ -5709,9 +5708,10 @@ function VanDon({ dataSource = 'default' }) {
               </div>
               <div className="flex items-center gap-1 bg-green-50 px-1.5 py-0.5 rounded-md border border-green-200 shrink-0" title="Sản phẩm">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📦</span>
-                <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
+                <div className="relative" style={{ minWidth: '128px', zIndex: 1002 }}>
                   <MultiSelect
                     compact
+                    menuMinWidth={260}
                     label="Chọn sản phẩm..."
                     options={getFilterMultiSelectOptions('Mặt hàng')}
                     selected={filterValues.product || []}
@@ -5723,9 +5723,10 @@ function VanDon({ dataSource = 'default' }) {
               </div>
               <div className="flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200 shrink-0" title="NV Sale">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">👤</span>
-                <div className="relative" style={{ minWidth: '118px', zIndex: 1001 }}>
+                <div className="relative" style={{ minWidth: '168px', zIndex: 1001 }}>
                   <MultiSelect
                     compact
+                    menuMinWidth={320}
                     label="Chọn NV Sale..."
                     options={getFilterMultiSelectOptions('Nhân viên Sale')}
                     selected={filterValues.nv_sale || []}
@@ -5737,9 +5738,10 @@ function VanDon({ dataSource = 'default' }) {
               </div>
               <div className="flex items-center gap-1 bg-teal-50 px-1.5 py-0.5 rounded-md border border-teal-200 shrink-0" title="NV MKT">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📣</span>
-                <div className="relative" style={{ minWidth: '118px', zIndex: 1000 }}>
+                <div className="relative" style={{ minWidth: '168px', zIndex: 1000 }}>
                   <MultiSelect
                     compact
+                    menuMinWidth={320}
                     label="Chọn NV MKT..."
                     options={getFilterMultiSelectOptions('Nhân viên MKT')}
                     selected={filterValues.nv_mkt || []}
@@ -5751,9 +5753,10 @@ function VanDon({ dataSource = 'default' }) {
               </div>
               <div className="flex items-center gap-1 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200 shrink-0" title="NV Vận đơn">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚚</span>
-                <div className="relative" style={{ minWidth: '118px', zIndex: 999 }}>
+                <div className="relative" style={{ minWidth: '168px', zIndex: 999 }}>
                   <MultiSelect
                     compact
+                    menuMinWidth={320}
                     label="Chọn NV Vận đơn..."
                     options={getFilterMultiSelectOptions('NV Vận đơn')}
                     selected={filterValues.nv_van_don || []}
@@ -5765,9 +5768,10 @@ function VanDon({ dataSource = 'default' }) {
               </div>
               <div className="flex items-center gap-1 bg-cyan-50 px-1.5 py-0.5 rounded-md border border-cyan-200 shrink-0" title="Đơn vị vận chuyển">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚛</span>
-                <div className="relative" style={{ minWidth: '124px', zIndex: 998 }}>
+                <div className="relative" style={{ minWidth: '148px', zIndex: 998 }}>
                   <MultiSelect
                     compact
+                    menuMinWidth={300}
                     label="Chọn đơn vị..."
                     options={getFilterMultiSelectOptions('Đơn vị vận chuyển')}
                     selected={filterValues.shipping_unit || []}
@@ -5799,9 +5803,10 @@ function VanDon({ dataSource = 'default' }) {
                 )}
                 <div className="flex items-center gap-1 shrink-0" title="Page (page_name)">
                   <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📄</span>
-                  <div className="relative" style={{ minWidth: '132px', zIndex: 997 }}>
+                  <div className="relative" style={{ minWidth: '152px', zIndex: 997 }}>
                     <MultiSelect
                       compact
+                      menuMinWidth={280}
                       label="Page…"
                       options={getFilterMultiSelectOptions('Page')}
                       selected={filterValues.ten_page || []}

@@ -18,7 +18,10 @@ const MultiSelect = ({
     mainFilter = false,
     /** Nút trigger thấp hơn — toolbar / header bảng chật chiều dọc */
     compact = false,
+    /** Chiều rộng tối thiểu menu (px) — tránh tên dài bị xuống dòng khi trigger hẹp. */
+    menuMinWidth,
 }) => {
+    const resolvedMenuMinWidth = menuMinWidth ?? (compact ? 300 : 256);
     const [isOpen, setIsOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const wrapperRef = useRef(null);
@@ -62,10 +65,10 @@ const MultiSelect = ({
             setDropdownPosition({
                 top: rect.bottom + window.scrollY,
                 left: rect.left + window.scrollX,
-                width: rect.width
+                width: Math.max(rect.width, resolvedMenuMinWidth),
             });
         }
-    }, [isOpen]);
+    }, [isOpen, resolvedMenuMinWidth]);
 
     const handleToggle = () => setIsOpen(!isOpen);
 
@@ -146,12 +149,13 @@ const MultiSelect = ({
             {isOpen && createPortal(
                 <div 
                     ref={menuRef}
-                    className="fixed bg-white border border-gray-300 rounded shadow-lg w-64 max-h-72 flex flex-col overflow-hidden"
+                    className="fixed bg-white border border-gray-300 rounded shadow-lg max-h-72 flex flex-col overflow-hidden"
                     style={{ 
                         zIndex: 10000,
                         top: `${dropdownPosition.top}px`,
                         left: `${dropdownPosition.left}px`,
-                        width: `${dropdownPosition.width || 256}px`
+                        width: `${dropdownPosition.width || resolvedMenuMinWidth}px`,
+                        minWidth: `${resolvedMenuMinWidth}px`,
                     }}
                 >
                     <div className="shrink-0 border-b border-gray-200 p-2 bg-gray-50">
@@ -193,7 +197,7 @@ const MultiSelect = ({
                                 readOnly
                                 className="mr-2 h-[13px] w-[13px] text-primary focus:ring-primary border-gray-300 rounded"
                             />
-                            <span className="text-gray-700">{option}</span>
+                            <span className="text-gray-700 whitespace-nowrap">{option}</span>
                         </div>
                     ))
                     )}

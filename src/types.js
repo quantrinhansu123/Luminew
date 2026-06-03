@@ -150,7 +150,9 @@ export const COLUMN_MAPPING = {
     "Trạng thái Bill": "payment_bill",
     "Ảnh thanh toán": "payment_image",
     "Trạng thái giao hàng NB": "delivery_status_nb",
-    "Trạng thái thanh toán": "payment_status"
+    "Trạng thái thanh toán": "payment_status",
+    "Ngày chia đơn": "ngay_chia_van_don",
+    "Ngày chia vận đơn": "ngay_chia_van_don"
 };
 
 // Columns used by Quick Add modal in FFM (single source of truth).
