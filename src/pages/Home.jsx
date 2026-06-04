@@ -30,16 +30,17 @@ import {
   TrendingUp,
   UserPlus,
   Users,
+  UserCheck,
   XCircle
 } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ChangePasswordModal } from "../components/modals/ChangePasswordModal";
-import FfmMgtHcmIcon from "../components/icons/FfmMgtHcmIcon";
 import FfmReconcileHcmIcon from "../components/icons/FfmReconcileHcmIcon";
 import VanHanhHcmIcon from "../components/icons/VanHanhHcmIcon";
 
 import { usePermissions } from "../hooks/usePermissions";
+import usePhanBoDonHangAccess from "../hooks/usePhanBoDonHangAccess";
 import { useUserDepartment } from "../hooks/useUserDepartment";
 import { supabase } from "../supabase/config";
 import { isExecutiveDashboardAudience } from "../utils/executiveAccess";
@@ -47,6 +48,7 @@ import { isExecutiveDashboardAudience } from "../utils/executiveAccess";
 function Home() {
   const navigate = useNavigate();
   const { canView, loading: permsLoading, role: dbRoleCode } = usePermissions();
+  const { canAccess: canAccessPhanBoDon, loading: phanBoAccessLoading } = usePhanBoDonHangAccess();
   const { department: userDepartment } = useUserDepartment();
   const [userRole, setUserRole] = useState("user");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -400,6 +402,13 @@ function Home() {
           permission: 'ORDERS_REPORT_DAILY_DATA',
         },
         {
+          id: "delivery-phan-bo-don",
+          label: "Báo cáo phân bổ đơn hàng",
+          icon: <UserCheck className="w-4 h-4" />,
+          path: "/bao-cao-phan-bo-don-hang",
+          phanBoDonHangAccess: true,
+        },
+        {
           id: "ffm-push-reconcile",
           label: "Bảng đối soát đẩy FFM",
           icon: <Table2 className="w-4 h-4" />,
@@ -419,13 +428,6 @@ function Home() {
           icon: <ClipboardList className="w-4 h-4" />,
           path: "/ffm_MGT",
           permission: 'ORDERS_FFM_MGT',
-        },
-        {
-          id: "ffm-mgt-hcm",
-          label: "ffm_MGT-hcm",
-          icon: <FfmMgtHcmIcon className="w-4 h-4" />,
-          path: "/ffm_MGT-hcm",
-          permission: 'ORDERS_FFM_MGT_HCM',
         },
         {
           id: "ffm-tt",
@@ -1129,20 +1131,20 @@ function Home() {
           permission: 'ORDERS_REPORT_DAILY_DATA',
         },
         {
+          title: "Báo cáo phân bổ đơn hàng",
+          icon: <UserCheck className="w-8 h-8" />,
+          color: "bg-gradient-to-br from-orange-600 to-indigo-700",
+          path: "/bao-cao-phan-bo-don-hang",
+          status: "Phiên chia đơn",
+          phanBoDonHangAccess: true,
+        },
+        {
           title: "ffm_MGT",
           icon: <ClipboardList className="w-8 h-8" />,
           color: "bg-indigo-500",
           path: "/ffm_MGT",
           status: "Mở ứng dụng",
           permission: 'ORDERS_FFM_MGT',
-        },
-        {
-          title: "ffm_MGT-hcm",
-          icon: <FfmMgtHcmIcon className="w-8 h-8" />,
-          color: "bg-indigo-600",
-          path: "/ffm_MGT-hcm",
-          status: "Mở ứng dụng",
-          permission: 'ORDERS_FFM_MGT_HCM',
         },
         {
           title: "FFM_TT",
@@ -1669,6 +1671,12 @@ function Home() {
       return false;
     }
 
+    // 3c. Báo cáo phân bổ: admin / ADMIN_TOOLS / NV U1 trong danh_sach_van_don
+    if (item.phanBoDonHangAccess) {
+      if (phanBoAccessLoading) return false;
+      return canAccessPhanBoDon;
+    }
+
     // 4. Check explicit permission if present for leaf node
     if (item.permission) {
       if (canView(item.permission)) return true;
@@ -1759,7 +1767,7 @@ function Home() {
     }
 
     return sections;
-  }, [selectedGroup, searchQuery, isAdminOrLeadership, executiveDashboardAccess, canView, userDepartment, dbRoleCode]);
+  }, [selectedGroup, searchQuery, isAdminOrLeadership, executiveDashboardAccess, canView, userDepartment, dbRoleCode, canAccessPhanBoDon, phanBoAccessLoading]);
 
   // --- NEWS FEED LOGIC ---
   const [news, setNews] = useState([]);
@@ -1978,6 +1986,8 @@ function Home() {
                       }
                       if (subItem.permissionAny?.length) {
                         if (!subItem.permissionAny.some((c) => canView(c))) return false;
+                      } else if (subItem.phanBoDonHangAccess) {
+                        if (phanBoAccessLoading || !canAccessPhanBoDon) return false;
                       } else if (subItem.permission && !canView(subItem.permission)) return false;
                       return true;
                     }).map((subItem) => (
