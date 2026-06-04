@@ -2,8 +2,10 @@ import {
   AlertCircle,
   BarChart3,
   CheckCircle,
+  Clock,
   GitBranch,
   GitMerge,
+  History,
   Info,
   LayoutGrid,
   Package,
@@ -13,6 +15,14 @@ import {
   UserCheck,
   X,
 } from 'lucide-react';
+import {
+  buildU1HistoryStaffSummary,
+  fetchDanhSachVanDonU1History,
+  formatU1HistoryTimeOnly,
+  groupU1HistoryByDate,
+  historyRowMatchesBranch,
+  u1HistoryActionLabel,
+} from '../../services/danhSachVanDonU1History';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { supabase } from '../../supabase/config';
@@ -136,6 +146,9 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
   const [showAllDetailRows, setShowAllDetailRows] = useState(false);
   const [showStaffTurnTags, setShowStaffTurnTags] = useState(false);
   const [orderRowCount, setOrderRowCount] = useState(0);
+  const [u1HistoryRows, setU1HistoryRows] = useState([]);
+  const [u1HistoryStaffFilter, setU1HistoryStaffFilter] = useState('');
+  const [u1HistoryTableMissing, setU1HistoryTableMissing] = useState(false);
 
   const handleRefreshAll = useCallback(async () => {
     setHistoryLoading(true);
@@ -194,12 +207,30 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
       } else {
         setChiTietFromOrdersLookup({});
       }
+
+      try {
+        const u1Rows = await fetchDanhSachVanDonU1History({
+          startDate: historyStartDate,
+          endDate: historyEndDate,
+          limit: 1000,
+        });
+        setU1HistoryRows(u1Rows);
+        setU1HistoryTableMissing(false);
+      } catch (u1Err) {
+        const u1Msg = String(u1Err?.message || '');
+        setU1HistoryRows([]);
+        setU1HistoryTableMissing(u1Msg.includes('danh_sach_van_don_u1_history'));
+        if (!u1Msg.includes('danh_sach_van_don_u1_history')) {
+          console.warn('[Báo cáo phân bổ] Lịch sử U1:', u1Err);
+        }
+      }
     } catch (err) {
       console.error('❌ [Báo cáo phân bổ] Lỗi:', err);
       toast.error('Lỗi khi tải báo cáo phân bổ');
       setChiTietFromOrdersLookup({});
       setChiaReportMergedChiTietRows([]);
       setOrderRowCount(0);
+      setU1HistoryRows([]);
     } finally {
       setHistoryLoading(false);
     }
@@ -268,6 +299,30 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
       setStaffReasonPopover(null);
     }
   }, [visibleBranchKeys, activeBranch]);
+
+  useEffect(() => {
+    setU1HistoryStaffFilter('');
+  }, [activeBranch]);
+
+  const u1HistoryForBranch = useMemo(
+    () => u1HistoryRows.filter((r) => historyRowMatchesBranch(r, activeBranch)),
+    [u1HistoryRows, activeBranch]
+  );
+
+  const u1HistoryStaffOptions = useMemo(() => {
+    const names = new Set(u1HistoryForBranch.map((r) => String(r.ho_va_ten || '').trim()).filter(Boolean));
+    (chiaDonVanDonStaffOrder?.[activeBranch] || []).forEach((n) => names.add(String(n).trim()));
+    return [...names].sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [u1HistoryForBranch, chiaDonVanDonStaffOrder, activeBranch]);
+
+  const u1HistoryFiltered = useMemo(() => {
+    if (!u1HistoryStaffFilter) return u1HistoryForBranch;
+    return u1HistoryForBranch.filter((r) => String(r.ho_va_ten || '').trim() === u1HistoryStaffFilter);
+  }, [u1HistoryForBranch, u1HistoryStaffFilter]);
+
+  const u1StaffSummary = useMemo(() => buildU1HistoryStaffSummary(u1HistoryForBranch), [u1HistoryForBranch]);
+
+  const u1HistoryByDate = useMemo(() => groupU1HistoryByDate(u1HistoryFiltered), [u1HistoryFiltered]);
 
   const activeBranchModel =
     visibleBranchModels.find((m) => m.key === activeBranch) || visibleBranchModels[0];
@@ -445,6 +500,176 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
                   </div>
                 ))}
               </div>
+
+              <details open className="group rounded-xl border border-slate-200 bg-white shadow-sm">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                    <History className="h-4 w-4 text-indigo-600" />
+                    Lịch sử bật/tắt U1 · {activeBranch}
+                  </span>
+                  <span className="text-[11px] text-slate-400 group-open:hidden">Mở bảng</span>
+                </summary>
+                <div className="space-y-4 border-t border-slate-100 p-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <p className="text-[11px] text-slate-500">
+                      Khoảng ngày: <strong>{historyStartDate}</strong> → <strong>{historyEndDate}</strong> (theo
+                      bộ lọc trên)
+                    </p>
+                    <label className="flex flex-col gap-0.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        Nhân sự
+                      </span>
+                      <select
+                        value={u1HistoryStaffFilter}
+                        onChange={(e) => setU1HistoryStaffFilter(e.target.value)}
+                        className="h-9 min-w-[200px] rounded-lg border border-slate-200 px-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="">Tất cả nhân sự</option>
+                        {u1HistoryStaffOptions.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  {u1HistoryTableMissing ? (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Chưa có bảng <code className="font-mono">danh_sach_van_don_u1_history</code> trên Supabase.
+                      Chạy migration <code className="font-mono">20260604120000_danh_sach_van_don_u1_history.sql</code>.
+                    </p>
+                  ) : (
+                    <>
+                      <div>
+                        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-600">
+                          <UserCheck className="h-3.5 w-3.5" />
+                          Tổng hợp theo nhân sự
+                        </h3>
+                        <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-48 overflow-y-auto">
+                          <table className="w-full text-left text-[11px]">
+                            <thead className="sticky top-0 bg-slate-50 text-[10px] font-bold uppercase text-slate-500">
+                              <tr>
+                                <th className="px-3 py-2">Nhân sự</th>
+                                <th className="px-3 py-2 text-center text-green-700">Bật U1</th>
+                                <th className="px-3 py-2 text-center text-amber-700">Tắt U1</th>
+                                <th className="px-3 py-2 text-center">Khác</th>
+                                <th className="px-3 py-2 text-right">Tổng</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {u1StaffSummary.length > 0 ? (
+                                u1StaffSummary.map((s) => (
+                                  <tr
+                                    key={s.name}
+                                    className={`border-t border-slate-50 hover:bg-slate-50/80 ${
+                                      u1HistoryStaffFilter === s.name ? 'bg-indigo-50/60' : ''
+                                    }`}
+                                  >
+                                    <td className="px-3 py-1.5 font-medium text-slate-800">
+                                      <button
+                                        type="button"
+                                        className="text-left hover:text-indigo-700 hover:underline"
+                                        onClick={() =>
+                                          setU1HistoryStaffFilter(
+                                            u1HistoryStaffFilter === s.name ? '' : s.name
+                                          )
+                                        }
+                                      >
+                                        {s.name}
+                                      </button>
+                                    </td>
+                                    <td className="px-3 py-1.5 text-center font-bold text-green-700">{s.bat}</td>
+                                    <td className="px-3 py-1.5 text-center font-bold text-amber-700">{s.tat}</td>
+                                    <td className="px-3 py-1.5 text-center text-slate-500">{s.other}</td>
+                                    <td className="px-3 py-1.5 text-right font-bold tabular-nums">{s.total}</td>
+                                  </tr>
+                                ))
+                              ) : (
+                                <tr>
+                                  <td colSpan={5} className="px-3 py-4 text-center italic text-slate-400">
+                                    Không có thao tác U1 trong khoảng ngày
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-600">
+                          <Clock className="h-3.5 w-3.5" />
+                          Chi tiết theo ngày
+                          {u1HistoryStaffFilter ? (
+                            <span className="font-normal normal-case text-indigo-600">· {u1HistoryStaffFilter}</span>
+                          ) : null}
+                        </h3>
+                        {u1HistoryByDate.length > 0 ? (
+                          <div className="space-y-3 max-h-[min(42vh,420px)] overflow-y-auto">
+                            {u1HistoryByDate.map(([dateLabel, dayRows]) => (
+                              <div key={dateLabel} className="rounded-lg border border-slate-200 overflow-hidden">
+                                <div className="bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700">
+                                  {dateLabel}
+                                  <span className="ml-2 font-normal text-slate-400">({dayRows.length} thao tác)</span>
+                                </div>
+                                <table className="w-full text-left text-[11px]">
+                                  <thead className="border-b border-slate-100 text-[10px] font-bold uppercase text-slate-400">
+                                    <tr>
+                                      <th className="px-3 py-1.5">Giờ</th>
+                                      <th className="px-3 py-1.5">Nhân sự</th>
+                                      <th className="px-3 py-1.5 text-center">Trước</th>
+                                      <th className="px-3 py-1.5 text-center">Sau</th>
+                                      <th className="px-3 py-1.5">Thao tác</th>
+                                      <th className="px-3 py-1.5">Người thực hiện</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-50">
+                                    {dayRows.map((row) => (
+                                      <tr key={row.id} className="hover:bg-slate-50/80">
+                                        <td className="whitespace-nowrap px-3 py-1.5 text-slate-500">
+                                          {formatU1HistoryTimeOnly(row.changed_at)}
+                                        </td>
+                                        <td className="px-3 py-1.5 font-medium text-slate-800">{row.ho_va_ten}</td>
+                                        <td className="px-3 py-1.5 text-center text-slate-500">
+                                          {row.trang_thai_cu || '—'}
+                                        </td>
+                                        <td className="px-3 py-1.5 text-center font-semibold">
+                                          {row.trang_thai_moi || '—'}
+                                        </td>
+                                        <td className="px-3 py-1.5">
+                                          <span
+                                            className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                              row.hanh_dong === 'bat_u1'
+                                                ? 'bg-green-100 text-green-800'
+                                                : row.hanh_dong === 'tat_u1'
+                                                  ? 'bg-amber-100 text-amber-800'
+                                                  : 'bg-slate-100 text-slate-600'
+                                            }`}
+                                          >
+                                            {u1HistoryActionLabel(row.hanh_dong)}
+                                          </span>
+                                        </td>
+                                        <td className="px-3 py-1.5 text-slate-500">{row.changed_by || '—'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-lg border border-dashed border-slate-200 py-6 text-center text-xs italic text-slate-400">
+                            {u1HistoryStaffFilter
+                              ? `Không có lịch sử cho ${u1HistoryStaffFilter} trong khoảng ngày đã chọn.`
+                              : 'Không có lịch sử bật/tắt U1 trong khoảng ngày đã chọn.'}
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </details>
 
               <details open className="group rounded-xl border border-slate-200 bg-white shadow-sm">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">

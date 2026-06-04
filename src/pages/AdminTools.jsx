@@ -283,6 +283,11 @@ const AdminTools = () => {
     const [notDividedOrders, setNotDividedOrders] = useState([]); // Danh sách đơn không được chia
     const [selectedTeam, setSelectedTeam] = useState('Hà Nội');
     const [stepLogs, setStepLogs] = useState([]); // Log từng bước để hiển thị trong UI
+
+    // --- XEM TRƯỚC NHÂN SỰ U1 (modal chia đơn vận đơn) ---
+    const [showStaffPreviewModal, setShowStaffPreviewModal] = useState(false);
+    const [isPreviewStaffLoading, setIsPreviewStaffLoading] = useState(false);
+    const [activeStaffPreview, setActiveStaffPreview] = useState([]);
     
     // --- AUTO CHIA ĐƠN VẬN ĐƠN THEO GIỜ CHẴN ---
     const [autoChiaDonEnabled, setAutoChiaDonEnabled] = useState(() => {

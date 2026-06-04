@@ -1,9 +1,16 @@
 // Columns to always hide
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng", "Người đẩy FFM"];
-import { Calendar, Edit, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Calendar, Clock, Edit, History, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
+import {
+  fetchDanhSachVanDonU1History,
+  isTrangThaiU1,
+  logDanhSachVanDonU1Change,
+  normalizeTrangThaiChia,
+  u1HistoryActionLabel,
+} from '../services/danhSachVanDonU1History';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 
@@ -138,6 +145,10 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
     });
     const [isAdding, setIsAdding] = useState(false);
     const [showModal, setShowModal] = useState(false);
+    const [editingOriginalTrangThai, setEditingOriginalTrangThai] = useState('');
+    const [showU1HistoryModal, setShowU1HistoryModal] = useState(false);
+    const [u1HistoryRows, setU1HistoryRows] = useState([]);
+    const [u1HistoryLoading, setU1HistoryLoading] = useState(false);
 
     // Search state for dropdowns
     const [hoVaTenSearch, setHoVaTenSearch] = useState('');
@@ -514,6 +525,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
         setIsAdding(true);
         setEditingId(null);
+        setEditingOriginalTrangThai('');
         setHoVaTenSearch('');
         setNguoiSuaHoSearch('');
         setShowHoVaTenDropdown(false);
@@ -532,6 +544,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
     const handleEdit = (item) => {
         setIsAdding(false);
         setEditingId(item.id);
+        setEditingOriginalTrangThai(item.trang_thai_chia || '');
         // Parse nguoi_sua_ho: có thể là string, array, hoặc JSON string
         let nguoiSuaHo = [];
         if (item.nguoi_sua_ho) {
@@ -572,6 +585,73 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             so_don: item.so_don || 0
         });
         setShowModal(true);
+    };
+
+    const loadU1History = useCallback(async () => {
+        setU1HistoryLoading(true);
+        try {
+            const rows = await fetchDanhSachVanDonU1History({
+                startDate,
+                endDate,
+                branchFilter: isHcmView ? 'HCM' : branchFilter,
+            });
+            setU1HistoryRows(rows);
+        } catch (error) {
+            console.error('[DanhSachVanDon] U1 history:', error);
+            const msg = String(error?.message || '');
+            if (msg.includes('danh_sach_van_don_u1_history')) {
+                toast.error('Chưa có bảng lịch sử U1. Chạy migration Supabase: danh_sach_van_don_u1_history');
+            } else {
+                toast.error('Lỗi tải lịch sử U1: ' + msg);
+            }
+            setU1HistoryRows([]);
+        } finally {
+            setU1HistoryLoading(false);
+        }
+    }, [startDate, endDate, branchFilter, isHcmView]);
+
+    const openU1HistoryModal = () => {
+        setShowU1HistoryModal(true);
+        loadU1History();
+    };
+
+    const handleUpdateTrangThaiChia = async (item, newStatus, { viaToggle = false } = {}) => {
+        const oldStatus = item.trang_thai_chia;
+        const next = normalizeTrangThaiChia(newStatus);
+        if (normalizeTrangThaiChia(oldStatus) === next) return true;
+
+        try {
+            const { error } = await supabase
+                .from('danh_sach_van_don')
+                .update({ trang_thai_chia: next || null })
+                .eq('id', item.id);
+
+            if (error) throw error;
+
+            await logDanhSachVanDonU1Change({
+                recordId: item.id,
+                hoVaTen: item.ho_va_ten,
+                chiNhanh: item.chi_nhanh,
+                fromStatus: oldStatus,
+                toStatus: next,
+                note: viaToggle ? 'Bật/tắt nhanh trên bảng' : 'Cập nhật từ form sửa',
+            });
+
+            if (isTrangThaiU1(next)) {
+                toast.success(`Đã bật U1 cho ${item.ho_va_ten}`);
+            } else if (isTrangThaiU1(oldStatus)) {
+                toast.success(`Đã tắt U1 cho ${item.ho_va_ten}`);
+            } else {
+                toast.success('Đã cập nhật trạng thái chia');
+            }
+            loadData();
+            if (showU1HistoryModal) loadU1History();
+            return true;
+        } catch (error) {
+            console.error('[DanhSachVanDon] update trang_thai_chia:', error);
+            toast.error('Lỗi cập nhật U1: ' + (error.message || 'không xác định'));
+            return false;
+        }
     };
 
     const handleDelete = async (id) => {
@@ -683,10 +763,24 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             }
 
             console.log(`✅ [DanhSachVanDon] ${isAdding ? 'Insert' : 'Update'} success:`, data);
+
+            const savedId = isAdding ? data?.[0]?.id : editingId;
+            const fromStatus = isAdding ? '' : editingOriginalTrangThai;
+            const toStatus = formData.trang_thai_chia;
+            await logDanhSachVanDonU1Change({
+                recordId: savedId,
+                hoVaTen: formData.ho_va_ten,
+                chiNhanh: formData.chi_nhanh,
+                fromStatus,
+                toStatus,
+                note: isAdding ? 'Thêm mới danh sách' : 'Lưu từ form sửa',
+            });
+
             toast.success(isAdding ? 'Đã thêm thành công!' : 'Đã cập nhật thành công!');
 
             setShowModal(false);
             loadData();
+            if (showU1HistoryModal) loadU1History();
         } catch (error) {
             console.error('❌ [DanhSachVanDon] Error saving:', error);
             console.error('❌ [DanhSachVanDon] Full error object:', JSON.stringify(error, null, 2));
@@ -776,6 +870,14 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                             Làm mới
                         </button>
                         <button
+                            onClick={openU1HistoryModal}
+                            className="border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+                            title="Xem lịch sử bật/tắt U1 trong khoảng ngày lọc"
+                        >
+                            <History className="w-4 h-4" />
+                            Lịch sử U1
+                        </button>
+                        <button
                             onClick={handleAdd}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
                         >
@@ -808,6 +910,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                     {!HIDDEN_COLUMNS.includes("ID") && <th className="px-4 py-3 whitespace-nowrap">ID</th>}
                                     {!HIDDEN_COLUMNS.includes("Họ và tên") && <th className="px-4 py-3 whitespace-nowrap min-w-[200px]">Họ và tên</th>}
                                     {!HIDDEN_COLUMNS.includes("Trạng thái chia") && <th className="px-4 py-3 whitespace-nowrap">Trạng thái chia</th>}
+                                    <th className="px-4 py-3 whitespace-nowrap text-center">Bật U1</th>
                                     {!HIDDEN_COLUMNS.includes("Chi nhánh") && <th className="px-4 py-3 whitespace-nowrap">Chi nhánh</th>}
                                     {!HIDDEN_COLUMNS.includes("Người sửa hộ") && <th className="px-4 py-3 whitespace-nowrap">Người sửa hộ</th>}
                                     {!HIDDEN_COLUMNS.includes("Người đẩy FFM") && <th className="px-4 py-3 whitespace-nowrap">Người đẩy FFM</th>}
@@ -829,8 +932,59 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                             <td className="px-4 py-3 font-medium">{item.ho_va_ten || '-'}</td>
                                         )}
                                         {!HIDDEN_COLUMNS.includes("Trạng thái chia") && (
-                                            <td className="px-4 py-3">{item.trang_thai_chia || '-'}</td>
+                                            <td className="px-4 py-3">
+                                                <span
+                                                    className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${
+                                                        isTrangThaiU1(item.trang_thai_chia)
+                                                            ? 'bg-green-100 text-green-800'
+                                                            : normalizeTrangThaiChia(item.trang_thai_chia)
+                                                              ? 'bg-slate-100 text-slate-700'
+                                                              : 'text-gray-400'
+                                                    }`}
+                                                >
+                                                    {item.trang_thai_chia || '—'}
+                                                </span>
+                                            </td>
                                         )}
+                                        <td className="px-4 py-3">
+                                            <label className="flex items-center justify-center cursor-pointer group">
+                                                <div className="relative">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isTrangThaiU1(item.trang_thai_chia)}
+                                                        onChange={async (e) => {
+                                                            const turnOn = e.target.checked;
+                                                            const nextStatus = turnOn ? 'U1' : 'Nghỉ';
+                                                            const ok = await handleUpdateTrangThaiChia(item, nextStatus, {
+                                                                viaToggle: true,
+                                                            });
+                                                            if (!ok) e.target.checked = !turnOn;
+                                                        }}
+                                                        className="sr-only"
+                                                    />
+                                                    <div
+                                                        className={`h-6 w-11 rounded-full transition-all duration-200 ease-in-out group-hover:opacity-80 ${
+                                                            isTrangThaiU1(item.trang_thai_chia) ? 'bg-green-500' : 'bg-gray-300'
+                                                        }`}
+                                                    >
+                                                        <div
+                                                            className={`mt-0.5 h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
+                                                                isTrangThaiU1(item.trang_thai_chia)
+                                                                    ? 'translate-x-5'
+                                                                    : 'translate-x-0.5'
+                                                            }`}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <span
+                                                    className={`ml-2 text-xs font-medium ${
+                                                        isTrangThaiU1(item.trang_thai_chia) ? 'text-green-700' : 'text-gray-500'
+                                                    }`}
+                                                >
+                                                    {isTrangThaiU1(item.trang_thai_chia) ? 'Bật' : 'Tắt'}
+                                                </span>
+                                            </label>
+                                        </td>
                                         {!HIDDEN_COLUMNS.includes("Chi nhánh") && (
                                             <td className="px-4 py-3">{item.chi_nhanh || '-'}</td>
                                         )}
@@ -1184,6 +1338,116 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                     Hủy
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal lịch sử bật/tắt U1 */}
+            {showU1HistoryModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+                        <div className="flex items-center justify-between border-b px-5 py-4">
+                            <div>
+                                <h2 className="flex items-center gap-2 text-lg font-bold text-gray-800">
+                                    <Clock className="h-5 w-5 text-indigo-600" />
+                                    Lịch sử bật/tắt U1
+                                </h2>
+                                <p className="mt-0.5 text-xs text-gray-500">
+                                    Khoảng {startDate} → {endDate}
+                                    {branchFilter || isHcmView ? ` · ${isHcmView ? 'HCM' : branchFilter}` : ' · Tất cả chi nhánh'}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowU1HistoryModal(false)}
+                                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                            >
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 border-b bg-gray-50 px-5 py-2">
+                            <span className="text-xs text-gray-600">
+                                {u1HistoryRows.length} thao tác
+                            </span>
+                            <button
+                                type="button"
+                                onClick={loadU1History}
+                                disabled={u1HistoryLoading}
+                                className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            >
+                                <RefreshCw className={`h-3.5 w-3.5 ${u1HistoryLoading ? 'animate-spin' : ''}`} />
+                                Tải lại
+                            </button>
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-auto">
+                            {u1HistoryLoading ? (
+                                <div className="flex items-center justify-center py-16 text-gray-500">
+                                    <RefreshCw className="mr-2 h-6 w-6 animate-spin" />
+                                    Đang tải...
+                                </div>
+                            ) : u1HistoryRows.length === 0 ? (
+                                <div className="py-16 text-center text-sm italic text-gray-500">
+                                    Chưa có lịch sử trong khoảng ngày đã chọn.
+                                </div>
+                            ) : (
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 border-b bg-gray-50 text-xs font-bold uppercase text-gray-500">
+                                        <tr>
+                                            <th className="whitespace-nowrap px-4 py-2">Thời gian</th>
+                                            <th className="px-4 py-2">Nhân sự</th>
+                                            <th className="px-4 py-2">Chi nhánh</th>
+                                            <th className="px-4 py-2 text-center">Trước</th>
+                                            <th className="px-4 py-2 text-center">Sau</th>
+                                            <th className="px-4 py-2">Thao tác</th>
+                                            <th className="px-4 py-2">Người thực hiện</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {u1HistoryRows.map((row) => (
+                                            <tr key={row.id} className="hover:bg-gray-50/80">
+                                                <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">
+                                                    {row.changed_at
+                                                        ? new Date(row.changed_at).toLocaleString('vi-VN', {
+                                                              day: '2-digit',
+                                                              month: '2-digit',
+                                                              year: 'numeric',
+                                                              hour: '2-digit',
+                                                              minute: '2-digit',
+                                                          })
+                                                        : '—'}
+                                                </td>
+                                                <td className="px-4 py-2 font-medium text-gray-800">{row.ho_va_ten}</td>
+                                                <td className="px-4 py-2 text-gray-600">{row.chi_nhanh || '—'}</td>
+                                                <td className="px-4 py-2 text-center text-gray-500">{row.trang_thai_cu || '—'}</td>
+                                                <td className="px-4 py-2 text-center font-semibold text-gray-800">
+                                                    {row.trang_thai_moi || '—'}
+                                                </td>
+                                                <td className="px-4 py-2">
+                                                    <span
+                                                        className={`inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
+                                                            row.hanh_dong === 'bat_u1'
+                                                                ? 'bg-green-100 text-green-800'
+                                                                : row.hanh_dong === 'tat_u1'
+                                                                  ? 'bg-amber-100 text-amber-800'
+                                                                  : 'bg-slate-100 text-slate-700'
+                                                        }`}
+                                                    >
+                                                        {u1HistoryActionLabel(row.hanh_dong)}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-2 text-xs text-gray-600">{row.changed_by || '—'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+
+                        <div className="border-t px-5 py-3 text-[11px] text-gray-500">
+                            Mỗi lần bật/tắt công tắc U1 hoặc đổi «Trạng thái chia» trong form đều được ghi lại.
                         </div>
                     </div>
                 </div>
