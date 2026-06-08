@@ -2643,6 +2643,18 @@ export const fetchGoogleSheetData = async () => {
     }
 };
 const FFM_PUSH_LOGS_TABLE_ALLOWLIST = new Set(['ffm_push_logs', 'ffm_push_logs_hcm']);
+const FFM_LOG_INSERT_CHUNK_SIZE = 25;
+const FFM_LOG_DEFAULT_CHUNK_DELAY_MS = 120;
+
+const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Nhãn người đẩy FFM — ưu tiên username, rồi email đăng nhập. */
+export function resolveFfmPushedByLabel() {
+    if (typeof localStorage === 'undefined') return 'hệ thống';
+    const username = String(localStorage.getItem('username') || '').trim();
+    const email = String(localStorage.getItem('userEmail') || '').trim();
+    return username || email || 'hệ thống';
+}
 
 function resolveFfmPushLogsTable(logsTable) {
     const t = logsTable && String(logsTable).trim() !== '' ? String(logsTable).trim() : 'ffm_push_logs';
@@ -2654,36 +2666,43 @@ function resolveFfmPushLogsTable(logsTable) {
 
 /**
  * Ghi log chuẩn bị đẩy FFM.
- * @param {Array<string | { orderId: string, product?: string | null, country?: string | null, chi_nhanh?: string | null, total_amount_vnd?: number | null }>} orderIdsOrEntries — mã đơn hoặc object có snapshot từ lưới vận đơn
- * @param {{ logsTable?: 'ffm_push_logs' | 'ffm_push_logs_hcm' }} [opts] — `/van-don-hcm` dùng `ffm_push_logs_hcm`
+ * @param {Array<string | { orderId: string, product?: string | null, country?: string | null, chi_nhanh?: string | null }>} orderIdsOrEntries — mã đơn hoặc object snapshot từ lưới vận đơn (không ghi total_amount_vnd / details vào log)
+ * @param {{ logsTable?: 'ffm_push_logs' | 'ffm_push_logs_hcm', chunkDelayMs?: number }} [opts]
  */
 export const createFfmPushLogs = async (orderIdsOrEntries, carrier, pushedBy, opts = {}) => {
     try {
         const table = resolveFfmPushLogsTable(opts.logsTable);
+        const chunkDelayMs = Number(opts.chunkDelayMs) >= 0 ? Number(opts.chunkDelayMs) : FFM_LOG_DEFAULT_CHUNK_DELAY_MS;
+        const actor = String(pushedBy || resolveFfmPushedByLabel()).trim() || 'hệ thống';
         const batchId = crypto.randomUUID();
         const rows = orderIdsOrEntries.map((item) => {
             const isObj = item !== null && typeof item === 'object' && !Array.isArray(item);
             const id = isObj ? String(item.orderId ?? item.order_code ?? '').trim() : String(item ?? '').trim();
             const ex = isObj ? item : {};
-            const n = ex.total_amount_vnd;
-            const totalNum = parseVietnameseMoneyToNumber(n);
             return {
                 order_code: id,
                 carrier,
-                pushed_by: pushedBy,
+                pushed_by: actor,
                 batch_id: batchId,
                 status: 'pending',
                 product: ex.product != null && String(ex.product).trim() !== '' ? String(ex.product).trim() : null,
                 country: ex.country != null && String(ex.country).trim() !== '' ? String(ex.country).trim() : null,
                 chi_nhanh: ex.chi_nhanh != null && String(ex.chi_nhanh).trim() !== '' ? String(ex.chi_nhanh).trim() : null,
-                total_amount_vnd: totalNum,
             };
         });
 
-        const { data, error } = await supabase.from(table).insert(rows).select();
+        const inserted = [];
+        for (let i = 0; i < rows.length; i += FFM_LOG_INSERT_CHUNK_SIZE) {
+            const slice = rows.slice(i, i + FFM_LOG_INSERT_CHUNK_SIZE);
+            const { data, error } = await supabase.from(table).insert(slice).select();
+            if (error) throw error;
+            if (data?.length) inserted.push(...data);
+            if (i + FFM_LOG_INSERT_CHUNK_SIZE < rows.length && chunkDelayMs > 0) {
+                await sleepMs(chunkDelayMs);
+            }
+        }
 
-        if (error) throw error;
-        return { batchId, logs: data };
+        return { batchId, logs: inserted };
     } catch (err) {
         console.error('Error creating FfmPushLogs:', err);
         throw err;
@@ -2751,25 +2770,24 @@ function isEmptyFfmSnapshotText(val) {
 function needsFfmLogSnapshotFill(row) {
     const oc = row?.order_code == null ? '' : String(row.order_code).trim();
     if (!oc) return false;
-    const ta = row?.total_amount_vnd;
-    const taMissing = ta === null || ta === undefined;
     return (
         isEmptyFfmSnapshotText(row?.product) ||
         isEmptyFfmSnapshotText(row?.country) ||
         isEmptyFfmSnapshotText(row?.chi_nhanh) ||
-        taMissing
+        isEmptyFfmSnapshotText(row?.pushed_by)
     );
 }
 
 /**
- * Điền product, country, chi_nhanh, total_amount_vnd trên ffm_push_logs (hoặc _hcm) từ orders / order_code_hcm.
- * Chỉ ghi các ô đang trống / total_amount_vnd null; không ghi đè dữ liệu đã có.
- * @param {{ scanLimit?: number, logsTable?: 'ffm_push_logs' | 'ffm_push_logs_hcm', ordersTable?: 'orders' | 'order_code_hcm' }} [opts]
+ * Điền product, country, chi_nhanh, pushed_by trên ffm_push_logs (hoặc _hcm) từ orders / order_code_hcm.
+ * Không đồng bộ total_amount_vnd / details vào log.
+ * @param {{ scanLimit?: number, logsTable?: 'ffm_push_logs' | 'ffm_push_logs_hcm', ordersTable?: 'orders' | 'order_code_hcm', batchDelayMs?: number }} [opts]
  */
 export const syncFfmPushLogsFromOrders = async ({
     scanLimit = 15000,
     logsTable,
     ordersTable,
+    batchDelayMs = 150,
 } = {}) => {
     const logsTbl = resolveFfmPushLogsTable(logsTable);
     const ordersTbl = resolveFfmSyncOrdersTable(ordersTable);
@@ -2784,7 +2802,7 @@ export const syncFfmPushLogsFromOrders = async ({
         const to = Math.min(from + pageSize - 1, scanLimit - 1);
         const { data: logs, error: logErr } = await supabase
             .from(logsTbl)
-            .select('id, order_code, product, country, chi_nhanh, total_amount_vnd')
+            .select('id, order_code, product, country, chi_nhanh, pushed_by')
             .not('order_code', 'is', null)
             .order('id', { ascending: false })
             .range(from, to);
@@ -2845,10 +2863,6 @@ export const syncFfmPushLogsFromOrders = async ({
         if (isEmptyFfmSnapshotText(log.chi_nhanh) && !isEmptyFfmSnapshotText(o.team)) {
             patch.chi_nhanh = String(o.team).trim();
         }
-        if ((log.total_amount_vnd === null || log.total_amount_vnd === undefined) && o.total_amount_vnd != null) {
-            const n = Number(o.total_amount_vnd);
-            if (Number.isFinite(n)) patch.total_amount_vnd = n;
-        }
         if (Object.keys(patch).length === 0) {
             skippedNoPatch++;
             continue;
@@ -2856,24 +2870,21 @@ export const syncFfmPushLogsFromOrders = async ({
         updateTasks.push({ id: log.id, patch });
     }
 
-    const batch = 20;
+    const batch = 15;
     let updated = 0;
     let failed = 0;
     for (let i = 0; i < updateTasks.length; i += batch) {
         const slice = updateTasks.slice(i, i + batch);
-        const results = await Promise.all(
-            slice.map(({ id, patch }) =>
-                supabase.from(logsTbl).update(patch).eq('id', id).then(({ error }) => ({ error }))
-            )
-        );
-        results.forEach((r) => {
-            if (r.error) {
+        for (const { id, patch } of slice) {
+            const { error } = await supabase.from(logsTbl).update(patch).eq('id', id);
+            if (error) {
                 failed++;
-                console.error('syncFfmPushLogsFromOrders update:', r.error);
+                console.error('syncFfmPushLogsFromOrders update:', error);
             } else {
                 updated++;
             }
-        });
+            if (batchDelayMs > 0) await sleepMs(batchDelayMs);
+        }
     }
 
     return {
@@ -2884,6 +2895,66 @@ export const syncFfmPushLogsFromOrders = async ({
         missingOrder,
         skippedNoPatch,
     };
+};
+
+/** Cập nhật một dòng log FFM theo `id` (admin đối soát). */
+export const updateFfmPushLogById = async (id, patch, opts = {}) => {
+    const table = resolveFfmPushLogsTable(opts.logsTable);
+    const rowId = id == null ? '' : String(id).trim();
+    if (!rowId) throw new Error('Thiếu id log FFM');
+
+    const allowedKeys = new Set([
+        'order_code',
+        'carrier',
+        'pushed_by',
+        'status',
+        'pushed_at',
+        'product',
+        'country',
+        'chi_nhanh',
+        'total_amount_vnd',
+        'error_message',
+    ]);
+    const payload = {};
+    Object.entries(patch || {}).forEach(([k, v]) => {
+        if (!allowedKeys.has(k)) return;
+        if (k === 'total_amount_vnd') {
+            const n = parseVietnameseMoneyToNumber(v);
+            payload[k] = n;
+            return;
+        }
+        if (k === 'pushed_at') {
+            if (v == null || v === '') payload[k] = null;
+            else {
+                const d = new Date(v);
+                payload[k] = Number.isNaN(d.getTime()) ? null : d.toISOString();
+            }
+            return;
+        }
+        const s = v == null ? null : String(v).trim();
+        payload[k] = s === '' ? null : s;
+    });
+
+    if (Object.keys(payload).length === 0) {
+        throw new Error('Không có trường hợp lệ để cập nhật');
+    }
+
+    const { data, error } = await supabase.from(table).update(payload).eq('id', rowId).select();
+    if (error) throw error;
+    if (!data?.length) throw new Error('Không cập nhật được (0 dòng) — kiểm tra id hoặc quyền RLS');
+    return data[0];
+};
+
+/** Xóa một dòng log FFM theo `id` (admin đối soát). */
+export const deleteFfmPushLogById = async (id, opts = {}) => {
+    const table = resolveFfmPushLogsTable(opts.logsTable);
+    const rowId = id == null ? '' : String(id).trim();
+    if (!rowId) throw new Error('Thiếu id log FFM');
+
+    const { data, error } = await supabase.from(table).delete().eq('id', rowId).select('id');
+    if (error) throw error;
+    if (!data?.length) throw new Error('Không xóa được (0 dòng) — kiểm tra id hoặc quyền RLS');
+    return true;
 };
 
 /** Cập nhật trạng thái log sau xác nhận; khi confirmed ghi `pushed_at` cho đối soát */

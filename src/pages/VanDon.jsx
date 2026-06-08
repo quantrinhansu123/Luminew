@@ -2916,7 +2916,7 @@ function VanDon({ dataSource = 'default' }) {
     try {
       const selectedCount = selectedRows.size;
       const orderIds = Array.from(selectedRows);
-      const currentUser = localStorage.getItem('username') || 'Unknown User';
+      const currentUser = API.resolveFfmPushedByLabel();
 
       const toastId = addToast(`Đang chuẩn bị đẩy ${selectedCount} đơn...`, 'loading', 0);
 
@@ -2924,21 +2924,33 @@ function VanDon({ dataSource = 'default' }) {
         const x = v == null ? '' : String(v).trim();
         return x === '' ? null : x;
       };
+      const resolveRowForFfmLog = (orderId) => {
+        const oid = normalizeVanDonOrderIdKey(orderId);
+        let r = allData.find(
+          (x) =>
+            getVanDonRowOrderId(x) === oid ||
+            normalizeVanDonOrderIdKey(x[PRIMARY_KEY_COLUMN]) === oid
+        );
+        if (!r) r = pendingRowSnapshotsRef.current.get(oid);
+        if (!r) r = getFilteredData.find((x) => normalizeVanDonOrderIdKey(x[PRIMARY_KEY_COLUMN]) === oid);
+        return r;
+      };
+
+      await new Promise((r) => setTimeout(r, 200));
+
       const entries = orderIds.map((orderId) => {
-        const r = getFilteredData.find((x) => x[PRIMARY_KEY_COLUMN] === orderId);
-        const rawTotal = r?.['Tổng tiền VNĐ'] ?? r?.total_amount_vnd;
-        const total_amount_vnd = parseVietnameseMoneyToNumber(rawTotal);
+        const r = resolveRowForFfmLog(orderId);
         return {
           orderId,
           product: emptyToNull(r?.['Mặt hàng'] ?? r?.product),
           country: emptyToNull(r?.['Khu vực'] ?? r?.country),
           chi_nhanh: emptyToNull(r?.[TEAM_COLUMN_NAME] ?? r?.['Chi nhánh'] ?? r?.chi_nhanh),
-          total_amount_vnd,
         };
       });
 
       const { batchId } = await API.createFfmPushLogs(entries, carrierName, currentUser, {
         logsTable: ffmPushLogsTable,
+        chunkDelayMs: 120,
       });
 
       removeToast(toastId);
@@ -3006,6 +3018,7 @@ function VanDon({ dataSource = 'default' }) {
     try {
       // 1. Update logs to confirmed
       await API.updateFfmPushLogStatus(batchId, 'confirmed', { logsTable });
+      await new Promise((r) => setTimeout(r, 300));
 
       // 2. Apply changes to main UI/Queue
       pushChange(historyChanges);

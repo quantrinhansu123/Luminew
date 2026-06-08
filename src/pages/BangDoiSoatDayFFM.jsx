@@ -1,10 +1,66 @@
-import { ChevronDown, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, Edit, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "react-toastify";
 import usePermissions from "../hooks/usePermissions";
 import * as API from "../services/api";
 
+const ADMIN_FFM_RECONCILE_ROLES = new Set(["admin", "super_admin", "administrator", "director"]);
+
+const FFM_LOG_EDITABLE_FIELDS = [
+  { key: "order_code", label: "Mã đơn hàng", type: "text" },
+  { key: "carrier", label: "Đơn vị FFM", type: "text" },
+  { key: "pushed_by", label: "Người chuẩn bị đẩy", type: "text" },
+  { key: "status", label: "Trạng thái", type: "text" },
+  { key: "pushed_at", label: "Thời điểm đẩy", type: "datetime-local" },
+  { key: "product", label: "Mặt hàng", type: "select" },
+  { key: "country", label: "Thị trường", type: "select" },
+  { key: "chi_nhanh", label: "Chi nhánh", type: "select" },
+];
+
+function toDatetimeLocalValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function buildEditFormFromRow(row) {
+  const form = {};
+  FFM_LOG_EDITABLE_FIELDS.forEach(({ key, type }) => {
+    if (type === "datetime-local") {
+      form[key] = toDatetimeLocalValue(row?.[key]);
+    } else if (key === "total_amount_vnd") {
+      const v = row?.[key];
+      form[key] = v == null || v === "" ? "" : String(v);
+    } else {
+      form[key] = row?.[key] == null ? "" : String(row[key]);
+    }
+  });
+  return form;
+}
+
+function mergeSelectLabels(optionList, currentValue, extraDefaults = []) {
+  const labels = (optionList || [])
+    .map((o) => o.label)
+    .filter((l) => l && l !== "(Trống)");
+  const merged = [...new Set([...extraDefaults, ...labels])].sort((a, b) =>
+    a.localeCompare(b, "vi")
+  );
+  const cur = String(currentValue ?? "").trim();
+  if (cur && !merged.includes(cur)) merged.unshift(cur);
+  return merged;
+}
+
 /** Không hiển thị (theo yêu cầu đối soát). */
-const HIDDEN_COLUMNS = new Set(["id", "batch_id"]);
+const HIDDEN_COLUMNS = new Set([
+  "id",
+  "batch_id",
+  "total_amount_vnd",
+  "Tổng tiền VNĐ",
+  "total_amount",
+  "details",
+]);
 
 const FFM_PUSH_LOG_LABELS = {
   carrier: "Đơn vị FFM",
@@ -41,8 +97,6 @@ const PREFERRED_COL_ORDER = [
   "chi_nhanh",
   "shipping_unit",
   "Đơn vị vận chuyển",
-  "total_amount_vnd",
-  "Tổng tiền VNĐ",
 ];
 
 const EMPTY_TOKEN = "__EMPTY__";
@@ -309,7 +363,12 @@ function BangDoiSoatDayFFMInner({
   /** Nếu có: đủ một trong các mã là được (ưu tiên hơn `permissionCode` khi length > 0) */
   permissionCodes = null,
 } = {}) {
-  const { canView } = usePermissions();
+  const { canView, role } = usePermissions();
+  const canAdminEditFfmLogs = useMemo(() => {
+    const stored = (typeof localStorage !== "undefined" ? localStorage.getItem("userRole") : "") || "";
+    const r = String(role || stored).trim().toLowerCase();
+    return ADMIN_FFM_RECONCILE_ROLES.has(r) || canView("ADMIN_TOOLS");
+  }, [role, canView]);
   const allowed = useMemo(() => {
     if (Array.isArray(permissionCodes) && permissionCodes.length > 0) {
       return permissionCodes.some((c) => canView(c));
@@ -327,11 +386,23 @@ function BangDoiSoatDayFFMInner({
   const [selShipping, setSelShipping] = useState([]);
   const [selBranch, setSelBranch] = useState([]);
   const [openFilterMenu, setOpenFilterMenu] = useState(null);
+  const [editingRow, setEditingRow] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const ordersTableForSync = logsTable === "ffm_push_logs_hcm" ? "order_code_hcm" : "orders";
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      await API.syncFfmPushLogsFromOrders({
+        logsTable,
+        ordersTable: ordersTableForSync,
+        batchDelayMs: 150,
+      });
+      await new Promise((r) => setTimeout(r, 250));
       const data = await API.fetchFfmPushLogsForReconciliation({ logsTable });
       setRows(data);
     } catch (e) {
@@ -341,7 +412,7 @@ function BangDoiSoatDayFFMInner({
     } finally {
       setLoading(false);
     }
-  }, [logsTable]);
+  }, [logsTable, ordersTableForSync]);
 
   useEffect(() => {
     load();
@@ -392,10 +463,6 @@ function BangDoiSoatDayFFMInner({
   }, [filteredRows, checkboxFilterActive]);
 
   const grandCount = filteredRows.length;
-  const grandRevenue = useMemo(
-    () => filteredRows.reduce((s, r) => s + getRevenue(r), 0),
-    [filteredRows]
-  );
 
   const groupedByDay = useMemo(() => {
     const map = new Map();
@@ -412,12 +479,72 @@ function BangDoiSoatDayFFMInner({
     return keys.map((day) => {
       const list = map.get(day);
       const count = list.length;
-      const revenue = list.reduce((s, r) => s + getRevenue(r), 0);
-      return { day, list, count, revenue };
+      return { day, list, count };
     });
   }, [filteredRows]);
 
   const columns = useMemo(() => collectVisibleColumnKeys(filteredRows.length ? filteredRows : rows), [rows, filteredRows]);
+
+  const editSelectOptions = useMemo(
+    () => ({
+      product: mergeSelectLabels(filterOptions.products, editForm.product ?? editingRow?.product),
+      country: mergeSelectLabels(filterOptions.markets, editForm.country ?? editingRow?.country),
+      chi_nhanh: mergeSelectLabels(filterOptions.branches, editForm.chi_nhanh ?? editingRow?.chi_nhanh, [
+        "Hà Nội",
+        "HCM",
+      ]),
+    }),
+    [filterOptions, editForm.product, editForm.country, editForm.chi_nhanh, editingRow]
+  );
+
+  const openEditModal = (row) => {
+    setEditingRow(row);
+    setEditForm(buildEditFormFromRow(row));
+  };
+
+  const closeEditModal = () => {
+    setEditingRow(null);
+    setEditForm({});
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRow?.id) {
+      toast.error("Không tìm thấy id dòng log");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await API.updateFfmPushLogById(editingRow.id, editForm, { logsTable });
+      toast.success("Đã cập nhật dòng log");
+      closeEditModal();
+      await load();
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.message || "Lỗi khi lưu");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteRow = async (row) => {
+    if (!row?.id) {
+      toast.error("Không tìm thấy id dòng log");
+      return;
+    }
+    const label = row.order_code || row.id;
+    if (!window.confirm(`Xóa dòng log FFM: ${label}?`)) return;
+    setDeletingId(row.id);
+    try {
+      await API.deleteFfmPushLogById(row.id, { logsTable });
+      toast.success("Đã xóa dòng log");
+      await load();
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.message || "Lỗi khi xóa");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const resetFilters = () => {
     setDateFrom("");
@@ -549,16 +676,15 @@ function BangDoiSoatDayFFMInner({
               <span className="text-gray-500">Tổng số đơn (sau lọc):</span>{" "}
               <span className="font-bold text-blue-700 tabular-nums">{grandCount.toLocaleString("vi-VN")}</span>
             </div>
-            <div>
-              <span className="text-gray-500">Tổng doanh số:</span>{" "}
-              <span className="font-bold text-emerald-700 tabular-nums">{formatMoneyVnd(grandRevenue)}</span>
-            </div>
             <p className="text-xs text-gray-500 w-full m-0">
               Nguồn: <code className="bg-gray-100 px-1 rounded">{sourceTableLabel}</code>
               {rows.length > 0 && (
                 <span className="ml-2">
                   · Đã tải {rows.length} dòng · Hiển thị theo nhóm ngày (ẩn cột ID, mã lô)
                 </span>
+              )}
+              {canAdminEditFfmLogs && (
+                <span className="ml-2 font-medium text-indigo-700">· Admin: sửa / xóa từng dòng log</span>
               )}
             </p>
           </div>
@@ -661,7 +787,7 @@ function BangDoiSoatDayFFMInner({
                 {rows.length === 0 ? "Chưa có dữ liệu." : "Không có dòng khớp bộ lọc."}
               </div>
             ) : groupedByDay.length > 0 ? (
-              groupedByDay.map(({ day, list, count, revenue }) => (
+              groupedByDay.map(({ day, list, count }) => (
                 <section
                   key={day}
                   className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden"
@@ -677,10 +803,6 @@ function BangDoiSoatDayFFMInner({
                         <span className="text-gray-600">Số đơn:</span>{" "}
                         <strong className="text-blue-700 tabular-nums">{count.toLocaleString("vi-VN")}</strong>
                       </span>
-                      <span>
-                        <span className="text-gray-600">Doanh số:</span>{" "}
-                        <strong className="text-emerald-700 tabular-nums">{formatMoneyVnd(revenue)}</strong>
-                      </span>
                     </div>
                   </div>
                   <div className="overflow-x-auto max-h-[min(480px,55vh)] overflow-y-auto">
@@ -695,12 +817,17 @@ function BangDoiSoatDayFFMInner({
                               {FFM_PUSH_LOG_LABELS[col] || col}
                             </th>
                           ))}
+                          {canAdminEditFfmLogs && (
+                            <th className="sticky right-0 z-[2] min-w-[88px] bg-gray-50 px-3 py-2 text-center font-semibold text-gray-700 border-b border-gray-200 whitespace-nowrap">
+                              Thao tác
+                            </th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
                         {list.map((row, idx) => (
                           <tr
-                            key={`${day}-${idx}-${getProduct(row)}-${getMarket(row)}`}
+                            key={row.id || `${day}-${idx}-${getProduct(row)}-${getMarket(row)}`}
                             className="hover:bg-gray-50/80"
                           >
                             {columns.map((col) => (
@@ -708,6 +835,29 @@ function BangDoiSoatDayFFMInner({
                                 <span className="break-words">{formatCell(col, row[col])}</span>
                               </td>
                             ))}
+                            {canAdminEditFfmLogs && (
+                              <td className="sticky right-0 z-[1] border-b border-gray-100 bg-white px-2 py-2 text-center align-top">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditModal(row)}
+                                    className="rounded p-1.5 text-blue-600 hover:bg-blue-50"
+                                    title="Sửa"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteRow(row)}
+                                    disabled={deletingId === row.id}
+                                    className="rounded p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                    title="Xóa"
+                                  >
+                                    <Trash2 className={`h-4 w-4 ${deletingId === row.id ? "animate-pulse" : ""}`} />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -719,6 +869,68 @@ function BangDoiSoatDayFFMInner({
           </>
         )}
       </div>
+
+      {editingRow && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <h2 className="text-lg font-bold text-gray-900">Sửa log FFM</h2>
+              <button type="button" onClick={closeEditModal} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3 p-5">
+              <p className="text-xs text-gray-500">
+                ID: <code className="rounded bg-gray-100 px-1">{String(editingRow.id)}</code>
+              </p>
+              {FFM_LOG_EDITABLE_FIELDS.map(({ key, label, type }) => (
+                <label key={key} className="block">
+                  <span className="mb-1 block text-xs font-medium text-gray-600">{label}</span>
+                  {type === "select" ? (
+                    <select
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                      value={editForm[key] ?? ""}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                    >
+                      <option value="">-- Chọn --</option>
+                      {(editSelectOptions[key] || []).map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={type}
+                      step={type === "number" ? "1" : undefined}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                      value={editForm[key] ?? ""}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 border-t px-5 py-4">
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={savingEdit}
+                className="flex-1 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingEdit ? "Đang lưu…" : "Lưu"}
+              </button>
+              <button
+                type="button"
+                onClick={closeEditModal}
+                className="flex-1 rounded-lg border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
