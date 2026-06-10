@@ -723,8 +723,8 @@
                             <th rowspan="2" class="sortable-header header-lenvanhanh">chờ check</th>
                             <th rowspan="2" class="sortable-header header-lenvanhanh">Trống trạng thái</th>
                             <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ đơn lên vận hành</th>
-                            <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ thu tiền/giao thành công</th>
-                            <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ TT thành công/Đơn tính phí</th>
+                            <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ tiền có bill+giao TC</th>
+                            <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ tiền bill/đơn có mã</th>
                         </tr>
                         <tr>
                             <th class="sortable-header header-tonghop">Số đơn</th>
@@ -1063,13 +1063,13 @@ function handleData(response) {
                 },
                 createEmptyStats: () => ({
                     "Đã Thanh Toán (có bill)": { count: 0, amount: 0 },
-                    "Bill 1 phần": { count: 0 },
+                    "Bill 1 phần": { count: 0, amount: 0 },
                     "Tổng đơn lên nội bộ": { count: 0 },
                     "Tổng đơn đủ đkien đẩy vh": { count: 0 },
                     "Tổng đơn lên vận hành": { count: 0 },
                     "Tổng đơn chưa lên vận hành": { count: 0 },
                     "Đơn Ok chưa đẩy đi": { count: 0 },
-                    "Giao Thành Công": { count: 0 },
+                    "Giao Thành Công": { count: 0, amount: 0 },
                     "Đang Giao": { count: 0 },
                     "Chưa Giao": { count: 0 },
                     "Hoàn": { count: 0 },
@@ -1077,7 +1077,7 @@ function handleData(response) {
                     "Trống trạng thái": { count: 0 },
                     "Tổng đơn OK": { count: 0 },
                     "Tổng đơn có dvvc": { count: 0 },
-                    "Tổng đơn có mã tracking": { count: 0 }
+                    "Tổng đơn có mã tracking": { count: 0, amount: 0 }
                 }),
                 updateDetailedSummaryTable: function (filteredData) {
                     const tbody = document.getElementById('summaryTableBody');
@@ -1248,6 +1248,7 @@ function handleData(response) {
                             }
                             if (maTracking !== "") {
                                 stats["Tổng đơn có mã tracking"].count++;
+                                VandonNvRegion.addTrackingCodeOrderAmount(stats, true, amount);
                             }
                             if(dvvc !== "") {
                                 stats["Tổng đơn có dvvc"].count++;
@@ -1261,6 +1262,7 @@ function handleData(response) {
                             }
                             if (payment.includes("Có bill 1 phần")) {
                                 stats["Bill 1 phần"].count++;
+                                stats["Bill 1 phần"].amount += amount;
                             } else if (payment.includes("Có bill")) {
                                 stats["Đã Thanh Toán (có bill)"].count++;
                                 stats["Đã Thanh Toán (có bill)"].amount += amount;
@@ -1269,15 +1271,21 @@ function handleData(response) {
                                 stats["Trống trạng thái"].count++;
                             }
                             VandonNvRegion.incrementDeliveryStatusCount(stats, deliveryNb);
+                            VandonNvRegion.addDeliverySuccessAmount(stats, deliveryNb, amount);
                         });
                     });
                     this.lastSummaryRows = Object.keys(staffStats).map(staff => {
                         const s = staffStats[staff];
+                        const billRate = VandonNvRegion.calcBillAmountOnSuccessRate(s);
+                        const trackingBillRate = VandonNvRegion.calcBillAmountOnTrackingCodeRate(s);
                         return {
                             staff,
                             paidCount: s["Đã Thanh Toán (có bill)"].count,
                             paidAmount: s["Đã Thanh Toán (có bill)"].amount,
                             partialCount: s["Bill 1 phần"].count,
+                            paidBillAmount: billRate.billAmount,
+                            successAmount: billRate.successAmount,
+                            trackingCodeAmount: trackingBillRate.trackingAmount,
                             totalInternal: s["Tổng đơn lên nội bộ"].count,
                             eligible: s["Tổng đơn đủ đkien đẩy vh"].count,
                             
@@ -1297,10 +1305,9 @@ function handleData(response) {
                             // Khớp công thức trên trang Báo cáo vận đơn mới.
                             shipRate: s["Tổng đơn lên nội bộ"].count > 0 ? (s["Tổng đơn lên vận hành"].count / s["Tổng đơn lên nội bộ"].count * 100) : 0,
                             
-                            paymentRate: s["Giao Thành Công"].count > 0 ? (s["Đã Thanh Toán (có bill)"].count / s["Giao Thành Công"].count * 100) : 0,
+                            paymentRate: billRate.rate,
                             
-                            // <-- Logic tính toán tỷ lệ không đổi, chỉ thay đổi cách hiển thị
-                            ttThanhCongTrenDonTinhPhi: s["Tổng đơn lên vận hành"].count > 0 ? (s["Đã Thanh Toán (có bill)"].count / s["Tổng đơn lên vận hành"].count * 100) : 0,
+                            ttThanhCongTrenDonTinhPhi: trackingBillRate.rate,
 
                             billOkTrenGiaoThanhCong: s["Giao Thành Công"].count > 0 ? ((s["Đã Thanh Toán (có bill)"].count + s["Bill 1 phần"].count) / s["Giao Thành Công"].count * 100) : 0
                         };
@@ -1320,9 +1327,10 @@ function handleData(response) {
                         
                         // Tính toán các tỷ lệ cho dòng tổng
                         const tongTyLeDonLenVanHanh = g["Tổng đơn lên nội bộ"].count > 0 ? (g["Tổng đơn lên vận hành"].count / g["Tổng đơn lên nội bộ"].count * 100) : 0;
-                        const tongTyLeTTThanhCong = g["Tổng đơn lên vận hành"].count > 0 ? (g["Đã Thanh Toán (có bill)"].count / g["Tổng đơn lên vận hành"].count * 100) : 0;
-
-                        const tongTyLeThuTien = g["Giao Thành Công"].count > 0 ? (g["Đã Thanh Toán (có bill)"].count / g["Giao Thành Công"].count * 100) : 0;
+                        const grandBillRate = VandonNvRegion.calcBillAmountOnSuccessRate(g);
+                        const grandTrackingBillRate = VandonNvRegion.calcBillAmountOnTrackingCodeRate(g);
+                        const tongTyLeTTThanhCong = grandTrackingBillRate.rate;
+                        const tongTyLeThuTien = grandBillRate.rate;
                         tr.innerHTML = `<td>TỔNG TOÀN BỘ</td>
                                         <td>${g["Đã Thanh Toán (có bill)"].count}</td>
                                         <td>${new Intl.NumberFormat('vi-VN').format(g["Đã Thanh Toán (có bill)"].amount)} ₫</td>
@@ -1338,8 +1346,8 @@ function handleData(response) {
                                         <td>${g["chờ check"].count}</td>
                                         <td>${g["Trống trạng thái"].count}</td>
                                         <td>(${g["Tổng đơn lên vận hành"].count} / ${g["Tổng đơn lên nội bộ"].count}) = ${tongTyLeDonLenVanHanh.toFixed(1)}%</td>
-                                        <td>(${g["Đã Thanh Toán (có bill)"].count} / ${g["Giao Thành Công"].count}) = ${tongTyLeThuTien.toFixed(1)}%</td>
-                                        <td>(${g["Đã Thanh Toán (có bill)"].count} / ${g["Tổng đơn lên vận hành"].count}) = ${tongTyLeTTThanhCong.toFixed(1)}%</td>`;
+                                        <td>(${VandonNvRegion.formatVndAmount(grandBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandBillRate.successAmount)}) = ${tongTyLeThuTien.toFixed(1)}%</td>
+                                        <td>(${VandonNvRegion.formatVndAmount(grandTrackingBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandTrackingBillRate.trackingAmount)}) = ${tongTyLeTTThanhCong.toFixed(1)}%</td>`;
                         tbody.appendChild(tr);
                     }
                     let rows = [...this.lastSummaryRows];
@@ -1371,8 +1379,8 @@ function handleData(response) {
                                         <td>${r.pendingCheck}</td>
                                         <td>${r.emptyStatus}</td>
                                         <td class="${r.shipRate > 70 ? 'positive' : 'negative'}">(${r.shippedTotal} / ${r.totalInternal}) = ${r.shipRate.toFixed(1)}%</td>
-                                        <td class="${r.paymentRate > 80 ? 'positive' : 'negative'}">(${r.paidCount} / ${r.success}) = ${r.paymentRate.toFixed(1)}%</td>
-                                        <td class="${r.ttThanhCongTrenDonTinhPhi > 70 ? 'positive' : 'negative'}">(${r.paidCount} / ${r.shippedTotal}) = ${r.ttThanhCongTrenDonTinhPhi.toFixed(1)}%</td>`;
+                                        <td class="${r.paymentRate > 80 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.paidBillAmount)} / ${VandonNvRegion.formatVndAmount(r.successAmount)}) = ${r.paymentRate.toFixed(1)}%</td>
+                                        <td class="${r.ttThanhCongTrenDonTinhPhi > 70 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.paidBillAmount)} / ${VandonNvRegion.formatVndAmount(r.trackingCodeAmount)}) = ${r.ttThanhCongTrenDonTinhPhi.toFixed(1)}%</td>`;
                         tbody.appendChild(tr);
                     });
                 },
@@ -1380,7 +1388,7 @@ function handleData(response) {
 
                 // ===== START: JAVASCRIPT MODIFICATION (setupSummarySorting) =====
                 setupSummarySorting: function () {
-                    const colMap = { "Số đơn": "paidCount", "Thành Tiền": "paidAmount", "Bill 1 phần": "partialCount", "Tổng đơn lên nội bộ": "totalInternal", "Tổng đơn đủ đkien đẩy vh": "eligible", "Hoàn vận hành": "hoanVanHanh", "Tổng đơn lên vận hành chưa mã": "notYetShipped", "Đơn OK chưa đẩy đi": "okNotPushed", "Giao Thành Công": "success", "Đang Giao": "inTransit", "Chưa Giao": "notShipped", "chờ check": "pendingCheck", "Trống trạng thái": "emptyStatus", "Tỷ lệ đơn lên vận hành": "shipRate", "Tỷ lệ thu tiền/giao thành công": "paymentRate", "Tỷ lệ TT thành công/Đơn tính phí": "ttThanhCongTrenDonTinhPhi" };
+                    const colMap = { "Số đơn": "paidCount", "Thành Tiền": "paidAmount", "Bill 1 phần": "partialCount", "Tổng đơn lên nội bộ": "totalInternal", "Tổng đơn đủ đkien đẩy vh": "eligible", "Hoàn vận hành": "hoanVanHanh", "Tổng đơn lên vận hành chưa mã": "notYetShipped", "Đơn OK chưa đẩy đi": "okNotPushed", "Giao Thành Công": "success", "Đang Giao": "inTransit", "Chưa Giao": "notShipped", "chờ check": "pendingCheck", "Trống trạng thái": "emptyStatus", "Tỷ lệ đơn lên vận hành": "shipRate", "Tỷ lệ tiền có bill+giao TC": "paymentRate", "Tỷ lệ tiền bill/đơn có mã": "ttThanhCongTrenDonTinhPhi" };
                     document.querySelectorAll('.summary-table thead .sortable-header').forEach(th => {
                         const key = colMap[th.textContent.trim()];
                         if (key) th.addEventListener('click', () => {

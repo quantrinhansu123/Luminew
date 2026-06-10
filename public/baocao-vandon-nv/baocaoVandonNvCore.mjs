@@ -314,53 +314,93 @@ function isBoPhanVanDonDepartment(dept) {
   return false;
 }
 
-/**
- * NV Vận đơn cho bộ lọc — chỉ distinct `delivery_staff` trên `order_code_hcm` (order_hcm).
- */
-export async function fetchVanDonHcmDeliveryStaffDirectory(supabase) {
-  const names = new Set();
-  const tableName = ORDER_HCM_SUPABASE_TABLE;
+/** Bảng HCM (van-don-hcm). */
+export const ORDER_HCM_SUPABASE_TABLE = 'order_code_hcm';
+/** Bảng đơn mặc định Hà Nội / toàn hệ thống — `/bao-cao-van-don`. */
+export const ORDER_DEFAULT_SUPABASE_TABLE = 'orders';
+export const BAOCAO_VANDON_NV_ORDERS_TABLE = ORDER_HCM_SUPABASE_TABLE;
 
-  try {
-    const { data, error } = await supabase.rpc('get_order_code_hcm_distinct_values', {
-      p_column: 'delivery_staff',
-    });
-    if (!error && Array.isArray(data)) {
-      for (const row of data) {
-        const v = row?.val != null ? String(row.val).trim() : '';
-        if (v) names.add(v);
-      }
+const ALLOWED_ORDER_TABLE_ALIASES = new Set(['order_hcm', 'order_code_hcm', 'orders', 'order', '']);
+
+/** `table=orders` → `orders`; `order_hcm` / trống → `order_code_hcm`. */
+export function resolveBaocaoOrdersTable(tableParam) {
+  const t = String(tableParam ?? '').trim().toLowerCase();
+  if (!t || t === 'order_hcm' || t === 'order_code_hcm') {
+    return ORDER_HCM_SUPABASE_TABLE;
+  }
+  if (t === 'orders' || t === 'order') {
+    return ORDER_DEFAULT_SUPABASE_TABLE;
+  }
+  throw new Error(`Bảng đơn không hỗ trợ: ${tableParam}`);
+}
+
+/** @deprecated */
+export function resolveBaocaoOrderHcmTable(tableParam) {
+  return resolveBaocaoOrdersTable(tableParam);
+}
+
+/** Quét distinct delivery_staff trên bảng đơn (orders / order_code_hcm). */
+async function scanDeliveryStaffFromTable(supabase, tableName) {
+  const names = new Set();
+  let from = 0;
+  const page = 500;
+  while (from < 20000) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('delivery_staff')
+      .not('delivery_staff', 'is', null)
+      .order('order_code', { ascending: false })
+      .range(from, from + page - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    for (const row of chunk) {
+      const v = row?.delivery_staff != null ? String(row.delivery_staff).trim() : '';
+      if (v) names.add(v);
     }
-  } catch (e) {
-    console.warn('[baocaoVandonNvData] distinct delivery_staff:', e?.message || e);
+    if (chunk.length < page) break;
+    from += page;
+  }
+  return names;
+}
+
+/**
+ * NV Vận đơn cho bộ lọc — distinct `delivery_staff` theo bảng đơn đang dùng.
+ */
+export async function fetchVanDonDeliveryStaffDirectory(supabase, tableName = ORDER_HCM_SUPABASE_TABLE) {
+  const names = new Set();
+  const resolved = resolveBaocaoOrdersTable(tableName === 'orders' ? 'orders' : 'order_hcm');
+
+  if (resolved === ORDER_HCM_SUPABASE_TABLE) {
+    try {
+      const { data, error } = await supabase.rpc('get_order_code_hcm_distinct_values', {
+        p_column: 'delivery_staff',
+      });
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const v = row?.val != null ? String(row.val).trim() : '';
+          if (v) names.add(v);
+        }
+      }
+    } catch (e) {
+      console.warn('[baocaoVandonNvData] distinct delivery_staff:', e?.message || e);
+    }
   }
 
   if (names.size === 0) {
     try {
-      let from = 0;
-      const page = 500;
-      while (from < 20000) {
-        const { data, error } = await supabase
-          .from(tableName)
-          .select('delivery_staff')
-          .not('delivery_staff', 'is', null)
-          .order('order_code', { ascending: false })
-          .range(from, from + page - 1);
-        if (error) break;
-        const chunk = data || [];
-        for (const row of chunk) {
-          const v = row?.delivery_staff != null ? String(row.delivery_staff).trim() : '';
-          if (v) names.add(v);
-        }
-        if (chunk.length < page) break;
-        from += page;
-      }
+      const scanned = await scanDeliveryStaffFromTable(supabase, resolved);
+      scanned.forEach((n) => names.add(n));
     } catch (e2) {
       console.warn('[baocaoVandonNvData] scan delivery_staff:', e2?.message || e2);
     }
   }
 
   return Array.from(names).sort((a, b) => a.localeCompare(b, 'vi'));
+}
+
+/** @deprecated dùng fetchVanDonDeliveryStaffDirectory */
+export async function fetchVanDonHcmDeliveryStaffDirectory(supabase) {
+  return fetchVanDonDeliveryStaffDirectory(supabase, ORDER_HCM_SUPABASE_TABLE);
 }
 
 /** Khi `users.department` trống (nhiều bản ghi HR chỉ có Team + Vị trí) — KPI lọc theo Bộ phận = "Vận đơn" sẽ ra 0 dòng. */
@@ -442,30 +482,7 @@ export async function fetchMktFromDetailReports(supabase) {
   return rows.slice(0, cap);
 }
 
-/**
- * Báo cáo vận đơn NV — chỉ Supabase `order_code_hcm` (gọi nội bộ: order_hcm).
- * Không đọc `orders` hay API lumidata `/order_hcm`.
- */
-export const ORDER_HCM_SUPABASE_TABLE = 'order_code_hcm';
-export const BAOCAO_VANDON_NV_ORDERS_TABLE = ORDER_HCM_SUPABASE_TABLE;
-
-const ALLOWED_ORDER_TABLE_ALIASES = new Set(['order_hcm', 'order_code_hcm', '']);
-
-/** Query `table=order_hcm` → `order_code_hcm`; từ chối `orders`. */
-export function resolveBaocaoOrderHcmTable(tableParam) {
-  const t = String(tableParam ?? '').trim().toLowerCase();
-  if (!t || ALLOWED_ORDER_TABLE_ALIASES.has(t)) {
-    return ORDER_HCM_SUPABASE_TABLE;
-  }
-  if (t === 'orders' || t === 'order') {
-    throw new Error(
-      'Báo cáo vận đơn NV chỉ đọc bảng order_hcm (Supabase order_code_hcm), không dùng bảng orders'
-    );
-  }
-  throw new Error(`Bảng đơn không hỗ trợ: ${tableParam}`);
-}
-
-async function fetchOrderCodeHcmPage(
+async function fetchOrdersTablePage(
   supabase,
   tableName,
   { startDate, endDate, useCreatedAtForNullOrderDate, from, pageSize, hcmTeamOnly }
@@ -496,7 +513,9 @@ async function fetchOrderCodeHcmPage(
 export async function fetchF3LegacyMapped(supabase, opts = {}) {
   const { maxRows, tableName: tableOpt, hcmTeamOnly } = opts;
   const { startDate, endDate } = resolveFetchDateRange(opts.startDate, opts.endDate);
-  const tableName = resolveBaocaoOrderHcmTable(tableOpt);
+  const tableName = resolveBaocaoOrdersTable(tableOpt);
+  const applyHcmTeamFilter =
+    !!hcmTeamOnly && tableName === ORDER_HCM_SUPABASE_TABLE;
   const cap = Math.min(
     Number(maxRows) || DEFAULT_BAOCAO_MAX_ROWS,
     150000
@@ -505,7 +524,7 @@ export async function fetchF3LegacyMapped(supabase, opts = {}) {
 
   const ingest = (chunk) => {
     for (const row of chunk) {
-      if (hcmTeamOnly && !isBaocaoOrderRowHcm(row)) continue;
+      if (applyHcmTeamFilter && !isBaocaoOrderRowHcm(row)) continue;
       const code = row?.order_code != null ? String(row.order_code).trim() : '';
       if (!code) continue;
       if (!byCode.has(code)) byCode.set(code, row);
@@ -515,13 +534,13 @@ export async function fetchF3LegacyMapped(supabase, opts = {}) {
   const paginate = async (useCreatedAtForNullOrderDate) => {
     let from = 0;
     while (byCode.size < cap) {
-      const chunk = await fetchOrderCodeHcmPage(supabase, tableName, {
+      const chunk = await fetchOrdersTablePage(supabase, tableName, {
         startDate,
         endDate,
         useCreatedAtForNullOrderDate,
         from,
         pageSize: PAGE,
-        hcmTeamOnly: !!hcmTeamOnly,
+        hcmTeamOnly: applyHcmTeamFilter,
       });
       ingest(chunk);
       if (chunk.length < PAGE) break;

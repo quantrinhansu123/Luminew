@@ -1,10 +1,25 @@
 /**
- * Báo cáo vận đơn nhân viên — đọc Supabase trực tiếp (`order_code_hcm`), không `/api/baocaoVandonNvData`.
+ * Báo cáo vận đơn nhân viên — đọc Supabase (`orders` hoặc `order_code_hcm`).
  */
 (function (global) {
   var VANDON_NV_REGION = 'hcm';
 
+  function getEmbedTableParam() {
+    if (typeof window === 'undefined') return '';
+    try {
+      return new URLSearchParams(window.location.search).get('table') || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function isOrdersTableMode() {
+    var t = String(getEmbedTableParam()).toLowerCase();
+    return t === 'orders' || t === 'order';
+  }
+
   function getVandonNvRegion() {
+    if (isOrdersTableMode()) return 'orders';
     return VANDON_NV_REGION;
   }
 
@@ -24,8 +39,9 @@
     return false;
   }
 
-  /** Tab bộ phận: chỉ đơn Team/Chi nhánh HCM. */
+  /** Tab bộ phận: chỉ đơn Team/Chi nhánh HCM (bỏ qua khi `table=orders`). */
   function isHcmOrderRow(row) {
+    if (isOrdersTableMode()) return true;
     if (!row || typeof row !== 'object') return false;
     var team =
       row.team ||
@@ -186,6 +202,61 @@
     if (bucket && stats && stats[bucket]) stats[bucket].count++;
   }
 
+  /** Cộng thành tiền vào bucket «Giao Thành Công». */
+  function addDeliverySuccessAmount(stats, deliveryRaw, amount) {
+    var bucket = classifyTrangThaiGiaoHangNb(deliveryRaw);
+    if (bucket !== 'Giao Thành Công' || !stats || !stats[bucket]) return;
+    var amt = Number(amount) || 0;
+    if (!stats[bucket].amount) stats[bucket].amount = 0;
+    stats[bucket].amount += amt;
+  }
+
+  /**
+   * Tỷ lệ tiền có bill + bill 1 phần / tổng tiền giao thành công.
+   * @param {Record<string, {count?:number, amount?:number}>} stats
+   */
+  function calcBillAmountOnSuccessRate(stats) {
+    if (!stats) return { billAmount: 0, successAmount: 0, rate: 0 };
+    var paid = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].amount || 0 : 0;
+    var partial = stats['Bill 1 phần'] ? stats['Bill 1 phần'].amount || 0 : 0;
+    var success = stats['Giao Thành Công'] ? stats['Giao Thành Công'].amount || 0 : 0;
+    var billAmount = paid + partial;
+    return {
+      billAmount: billAmount,
+      successAmount: success,
+      rate: success > 0 ? (billAmount / success * 100) : 0,
+    };
+  }
+
+  function formatVndAmount(n) {
+    return new Intl.NumberFormat('vi-VN').format(Math.round(Number(n) || 0));
+  }
+
+  /** Cộng thành tiền vào «Tổng đơn có mã tracking». */
+  function addTrackingCodeOrderAmount(stats, hasTrackingCode, amount) {
+    if (!hasTrackingCode || !stats || !stats['Tổng đơn có mã tracking']) return;
+    var amt = Number(amount) || 0;
+    if (!stats['Tổng đơn có mã tracking'].amount) stats['Tổng đơn có mã tracking'].amount = 0;
+    stats['Tổng đơn có mã tracking'].amount += amt;
+  }
+
+  /**
+   * Tỷ lệ tiền có bill + bill 1 phần / doanh số đơn có mã tracking.
+   * @param {Record<string, {count?:number, amount?:number}>} stats
+   */
+  function calcBillAmountOnTrackingCodeRate(stats) {
+    if (!stats) return { billAmount: 0, trackingAmount: 0, rate: 0 };
+    var paid = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].amount || 0 : 0;
+    var partial = stats['Bill 1 phần'] ? stats['Bill 1 phần'].amount || 0 : 0;
+    var tracking = stats['Tổng đơn có mã tracking'] ? stats['Tổng đơn có mã tracking'].amount || 0 : 0;
+    var billAmount = paid + partial;
+    return {
+      billAmount: billAmount,
+      trackingAmount: tracking,
+      rate: tracking > 0 ? (billAmount / tracking * 100) : 0,
+    };
+  }
+
   /**
    * Báo cáo SP & khu vực / bộ phận — cùng nguồn & if/else như tab tổng kết (NB).
    * @param {{successful:number,returned:number,delivering:number,waitingForCheck:number,notShipped:number}} stats
@@ -286,6 +357,10 @@
 
   global.VandonNvRegion = {
     get: getVandonNvRegion,
+    getOrdersTable: function () {
+      return isOrdersTableMode() ? 'orders' : 'order_code_hcm';
+    },
+    isOrdersTableMode: isOrdersTableMode,
     isHcmTeam: isHcmTeam,
     rowMatches: rowMatchesVandonNvRegion,
     filterRows: filterRowsByVandonNvRegion,
@@ -308,11 +383,20 @@
     resolveKetQuaCheck: resolveKetQuaCheck,
     classifyTrangThaiGiaoHangNb: classifyTrangThaiGiaoHangNb,
     incrementDeliveryStatusCount: incrementDeliveryStatusCount,
+    addDeliverySuccessAmount: addDeliverySuccessAmount,
+    calcBillAmountOnSuccessRate: calcBillAmountOnSuccessRate,
+    addTrackingCodeOrderAmount: addTrackingCodeOrderAmount,
+    calcBillAmountOnTrackingCodeRate: calcBillAmountOnTrackingCodeRate,
+    formatVndAmount: formatVndAmount,
     applyProductAreaDeliveryBuckets: applyProductAreaDeliveryBuckets,
     ketQuaCheckIsOk: ketQuaCheckIsOk,
     labelVi: function () {
+      if (isOrdersTableMode()) return 'Đơn hàng (orders)';
       return 'HCM (order_hcm / order_code_hcm)';
     },
     ORDER_HCM_TABLE: 'order_code_hcm',
+    ORDER_TABLE: function () {
+      return isOrdersTableMode() ? 'orders' : 'order_code_hcm';
+    },
   };
 })(typeof window !== 'undefined' ? window : this);

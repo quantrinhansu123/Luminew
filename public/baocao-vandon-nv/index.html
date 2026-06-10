@@ -192,15 +192,35 @@
     </div>
 
     <script>
-        /** Luôn HCM — API chỉ đọc bảng order_hcm (Supabase order_code_hcm), không orders. */
+        function getEmbedTableParam() {
+            try {
+                return new URLSearchParams(window.location.search).get('table') || '';
+            } catch (e) {
+                return '';
+            }
+        }
+
+        /** HCM mặc định; `table=orders` thì không ép region. */
         function getParentRegionParam() {
-            return 'hcm';
+            var table = String(getEmbedTableParam()).toLowerCase();
+            if (table === 'orders' || table === 'order') return '';
+            try {
+                var fromUrl = new URLSearchParams(window.location.search).get('region');
+                return fromUrl || 'hcm';
+            } catch (e) {
+                return 'hcm';
+            }
         }
 
         function withRegionQuery(url) {
+            var parts = [];
             var region = getParentRegionParam();
+            var table = getEmbedTableParam();
+            if (region) parts.push('region=' + encodeURIComponent(region));
+            if (table) parts.push('table=' + encodeURIComponent(table));
+            if (!parts.length) return url;
             var sep = url.indexOf('?') >= 0 ? '&' : '?';
-            return url + sep + 'region=' + encodeURIComponent(region);
+            return url + sep + parts.join('&');
         }
 
         function ensureIframeLoaded(subTabName) {
