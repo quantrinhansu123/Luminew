@@ -1100,6 +1100,27 @@ function DanhSachDon({ dataSource = 'default' }) {
       exchangeRatesMap[rate.ti_gia.toUpperCase()] = rate.gia_tri;
     });
 
+    exchangeRatesMap.VND = exchangeRatesMap.VND ?? 1;
+
+    const resolveOrderCurrency = (r) => {
+      const sources = [
+        String(r?.['Loại tiền thanh toán'] ?? '').trim(),
+        String(r?.payment_currency ?? '').trim(),
+        String(r?.['Hình thức thanh toán'] ?? r?.payment_type ?? '').trim(),
+      ];
+      const codes = ['USD', 'AUD', 'CAD', 'JPY', 'YEN', 'GBP', 'KRW', 'VND'];
+      for (const src of sources) {
+        if (!src) continue;
+        const upper = src.toUpperCase();
+        for (const curr of codes) {
+          if (upper === curr || upper.includes(curr)) {
+            return curr === 'YEN' ? 'JPY' : curr;
+          }
+        }
+      }
+      return inferPaymentCurrencyFromArea(r?.['Khu vực']) || 'VND';
+    };
+
     const rowsToUpdate = rows
       .map((r) => {
         const orderCode = String(r?.['Mã đơn hàng'] ?? '').trim();
@@ -1110,26 +1131,11 @@ function DanhSachDon({ dataSource = 'default' }) {
           parseVietnameseMoneyToNumber(r?.['Giá bán']) ||
           0;
 
-        // Lấy loại tiền tệ từ payment_type hoặc payment_currency
-        const paymentType = String(r?.['Hình thức thanh toán'] || r?.payment_type || '').toUpperCase().trim();
-        const paymentCurrency = String(r?.payment_currency || '').toUpperCase().trim();
-
-        // Xác định loại tiền tệ (USD, AUD, CAD, JPY/YEN, etc.)
-        let currency = null;
-        for (const curr of ['USD', 'AUD', 'CAD', 'JPY', 'YEN', 'GBP', 'KRW']) {
-          if (paymentType.includes(curr) || paymentCurrency.includes(curr)) {
-            currency = curr === 'YEN' ? 'JPY' : curr; // Normalize YEN to JPY
-            break;
-          }
-        }
-
-        // Nếu không phải ngoại tệ, dùng tỷ giá cũ từ DB
-        let newExchangeRate = parseFloat(r._exchange_rate) || 1;
-
-        // Nếu là ngoại tệ, lấy tỷ giá mới từ exchange_rates
-        if (currency && exchangeRatesMap[currency]) {
-          newExchangeRate = exchangeRatesMap[currency];
-        }
+        const currency = resolveOrderCurrency(r);
+        const newExchangeRate =
+          exchangeRatesMap[currency] != null
+            ? parseFloat(exchangeRatesMap[currency]) || 1
+            : 1;
 
         const newTotal = salePrice * newExchangeRate;
         if (!Number.isFinite(newTotal)) return null;
@@ -1166,7 +1172,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     if (
       !window.confirm(
-        'Tính lại "Tổng tiền VNĐ" theo công thức: Giá bán × Tỷ giá (cài đặt).\n\n' +
+        'Điền lại cột "Tỉ giá" theo cài đặt và tính "Tổng tiền VNĐ" = Giá bán × Tỷ giá.\n\n' +
           'Cập nhật tất cả đơn đang hiển thị trong bộ lọc hiện tại.\n\n' +
           `Số đơn sẽ cập nhật: ${rowsToUpdate.length}\n\n` +
           (currencyInfo ? `Tỷ giá sẽ áp dụng:\n${currencyInfo}\n\n` : '') +
@@ -1198,17 +1204,22 @@ function DanhSachDon({ dataSource = 'default' }) {
         );
       }
 
-      const byCode = new Map(rowsToUpdate.map((u) => [u.orderCode, u.newTotal]));
+      const byCode = new Map(rowsToUpdate.map((u) => [u.orderCode, u]));
       setAllData((prev) =>
         (prev || []).map((r) => {
           const code = String(r?.['Mã đơn hàng'] ?? '').trim();
-          const nt = byCode.get(code);
-          if (nt === undefined) return r;
-          return { ...r, 'Tổng tiền VNĐ': nt };
+          const u = byCode.get(code);
+          if (!u) return r;
+          return {
+            ...r,
+            'Tổng tiền VNĐ': u.newTotal,
+            'Tỉ giá': u.newExchangeRate,
+            _exchange_rate: u.newExchangeRate,
+          };
         })
       );
 
-      toast.success(`Đã tính lại Tổng tiền VNĐ với tỷ giá mới: ${success}/${rowsToUpdate.length} đơn`, {
+      toast.success(`Đã cập nhật Tỉ giá & Tổng tiền VNĐ: ${success}/${rowsToUpdate.length} đơn`, {
         autoClose: 2500,
         hideProgressBar: true,
       });
