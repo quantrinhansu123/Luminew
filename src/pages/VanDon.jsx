@@ -77,6 +77,18 @@ const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
 /** Độ rộng cột checkbox (tab Hà Nội) — bù `left` cho cột sticky kế bên */
 const VAN_DON_CHECKBOX_COL_PX = 50;
+/** Cột hành động «Sửa đơn vị vận chuyển» (tab Hà Nội) */
+const VAN_DON_ACTION_COL_PX = 132;
+const VAN_DON_SHIPPING_UNIT_PRESETS = ['MGT', 'T&T', 'MGT Express', 'T&T Express'];
+
+function buildVanDonShippingUnitOptions(distinctValues = []) {
+  const merged = new Set(VAN_DON_SHIPPING_UNIT_PRESETS.filter(Boolean));
+  for (const v of distinctValues) {
+    const s = String(v ?? '').trim();
+    if (s && !isVanDonSemanticEmpty(s)) merged.add(s);
+  }
+  return Array.from(merged).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base', numeric: true }));
+}
 /** Cột orders.canh_bao — luôn hiển thị trên mọi tab vận đơn */
 const VAN_DON_CANH_BAO_COLUMN = 'Cảnh báo trùng';
 /** Toolbar «Loại ngày» = không lọc theo khoảng Từ–Đến trên một cột ngày (API + client). */
@@ -408,6 +420,7 @@ const VanDonRow = React.memo(function VanDonRow({
   getStickyLeftPx,
   getColumnWidthStyles,
   renderVanDonDataCell,
+  renderVanDonActionCell,
   toggleRowSelection,
   isLongTextExpanded,
   currentPage,
@@ -445,6 +458,19 @@ const VanDonRow = React.memo(function VanDonRow({
           </div>
         </td>
       )}
+      {renderVanDonActionCell && (
+        <td
+          className="py-1 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-1 relative z-[6000]"
+          style={{
+            width: VAN_DON_ACTION_COL_PX,
+            minWidth: VAN_DON_ACTION_COL_PX,
+            transform: 'translateX(var(--vd-sl, 0px))',
+            backgroundColor: isSelected ? '#dbeafe' : '#f9fafb',
+          }}
+        >
+          {renderVanDonActionCell(row, rIdx)}
+        </td>
+      )}
       {currentColumns.map((col, cIdx) => {
         const cellStickyLeft = getStickyLeftPx(cIdx);
         const isFixed = cIdx < effectiveFixedColumns;
@@ -476,6 +502,7 @@ const VanDonRow = React.memo(function VanDonRow({
   if (prevProps.getStickyLeftPx !== nextProps.getStickyLeftPx) return false;
   if (prevProps.getColumnWidthStyles !== nextProps.getColumnWidthStyles) return false;
   if (prevProps.renderVanDonDataCell !== nextProps.renderVanDonDataCell) return false;
+  if (prevProps.renderVanDonActionCell !== nextProps.renderVanDonActionCell) return false;
 
   // selectedRows: chỉ so sánh entry cho orderId của hàng này
   const orderId = getVanDonRowOrderId(nextProps.row);
@@ -3174,11 +3201,10 @@ function VanDon({ dataSource = 'default' }) {
       cols = [orderCodeCol, ...cols.filter(c => c !== orderCodeCol)];
     }
 
-    // Trong tab "Hà Nội", đẩy cột "Đơn vị vận chuyển" lên ngay sau "Mã đơn hàng"
-    if (bolActiveTab === 'hanoi') {
+    // Đẩy cột "Đơn vị vận chuyển" lên ngay sau "Mã đơn hàng" (cột Sửa ĐVVC sticky bên trái)
+    {
       const carrierCol = 'Đơn vị vận chuyển';
-      const hasCarrier = cols.includes(carrierCol);
-      if (hasCarrier) {
+      if (cols.includes(carrierCol)) {
         const withoutCarrier = cols.filter(col => col !== carrierCol);
         const orderIdx = withoutCarrier.indexOf(orderCodeCol);
         withoutCarrier.splice(orderIdx + 1, 0, carrierCol);
@@ -3566,7 +3592,11 @@ function VanDon({ dataSource = 'default' }) {
 
   const effectiveFixedColumns = Math.min(numFixedColumns, currentColumns.length);
 
-  const checkboxStickyPad = bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0;
+  /** Cột dropdown sửa ĐVVC — hiện mọi tab (kể cả Xem tất cả; lưới vẫn cho sửa ô). */
+  const showVanDonShippingUnitActionCol = true;
+  const checkboxStickyPad =
+    (bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0) +
+    (showVanDonShippingUnitActionCol ? VAN_DON_ACTION_COL_PX : 0);
 
   /** Tính toán độ rộng cột Nhân viên MKT dựa trên nội dung dài nhất trong data */
   const mktColumnWidth = useMemo(() => {
@@ -3984,6 +4014,18 @@ function VanDon({ dataSource = 'default' }) {
     return fromData;
   };
 
+  const getShippingUnitSelectOptions = useCallback(
+    (currentRawVal) => {
+      const fromData = getUniqueValues('Đơn vị vận chuyển');
+      const base = buildVanDonShippingUnitOptions(fromData);
+      const raw = String(currentRawVal ?? '').trim();
+      if (raw && !base.some((o) => String(o).toLowerCase() === raw.toLowerCase())) {
+        return [raw, ...base];
+      }
+      return base;
+    },
+    [getUniqueValues, vanDonDistinctFilterOptions, allData]
+  );
 
   // --- Trigger Report Recalculation ---
   const triggerReportRecalculation = useCallback(async (batchChanges) => {
@@ -4395,6 +4437,48 @@ function VanDon({ dataSource = 'default' }) {
 
     pushChange(changes);
   }, [allData, pendingChanges, pushChange, isReadonlyEditTab]);
+
+  const renderVanDonShippingUnitSelect = useCallback(
+    (orderId, rawVal, className = 'w-full h-full bg-transparent border-none outline-none text-[11px] cursor-pointer') => {
+      if (!orderId) {
+        return <span className="text-gray-400 text-[11px]">—</span>;
+      }
+      const val = rawVal === '' || rawVal == null ? '' : String(rawVal);
+      return (
+        <select
+          className={className}
+          style={{ padding: 0, margin: 0, lineHeight: '32px', maxWidth: '100%' }}
+          value={val}
+          title="Sửa đơn vị vận chuyển"
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => handleCellChange(orderId, 'shipping_unit', e.target.value)}
+        >
+          <option value="">— Chọn ĐVVC —</option>
+          {getShippingUnitSelectOptions(val).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      );
+    },
+    [getShippingUnitSelectOptions, handleCellChange]
+  );
+
+  const renderVanDonActionCell = useCallback(
+    (row) => {
+      const orderId = getVanDonRowOrderId(row);
+      const carrierKey = 'Đơn vị vận chuyển';
+      const dbKey = 'shipping_unit';
+      let val = getVanDonGridCellValue(row, carrierKey) || row[dbKey] || '';
+      const pending =
+        pendingChanges.get(orderId)?.get(dbKey) || pendingChanges.get(orderId)?.get(carrierKey);
+      if (pending) val = pending.newValue;
+      val = coalesceVanDonDisplayValue(val);
+      return renderVanDonShippingUnitSelect(orderId, val);
+    },
+    [pendingChanges, renderVanDonShippingUnitSelect]
+  );
 
   // Hàm đồng bộ queue từ pendingChanges (tự động phục hồi)
   const syncQueueFromPending = useCallback(() => {
@@ -5469,6 +5553,8 @@ function VanDon({ dataSource = 'default' }) {
               </option>
             ))}
           </select>
+        ) : isCarrierCol && isVanDonUserEditableColumn(col) ? (
+          renderVanDonShippingUnitSelect(orderId, val, 'w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer')
         ) : isVanDonUserEditableColumn(col) && colInList(col, LONG_TEXT_COLS) ? (
           <textarea
             key={`${orderId}-${col}-${String(displayVal)}`}
@@ -5558,7 +5644,8 @@ function VanDon({ dataSource = 'default' }) {
     currentPage, effectiveRowsPerPage, viewMode,
     handleCellChange, handleMouseDown, handleMouseEnter, setSelection,
     getCellClass, formatDate, getCellEditSelectOptions, vanDonDistinctFilterOptions,
-    vanDonLongTextDraftRef, effectiveFixedColumns, openOrderHistoryModal, historyLoadingOrderId
+    vanDonLongTextDraftRef, effectiveFixedColumns, openOrderHistoryModal, historyLoadingOrderId,
+    renderVanDonShippingUnitSelect
   ]);
 
   // Không cho double click chọn/kéo text để "mang data đi" trong bảng (trừ input/select đang chỉnh sửa).
@@ -6155,6 +6242,19 @@ function VanDon({ dataSource = 'default' }) {
                             </div>
                           </th>
                         )}
+                        {showVanDonShippingUnitActionCol && (
+                          <th
+                            className="py-1 border-b-2 border-r border-gray-300 align-middle bg-[#f8f9fa] whitespace-nowrap px-1 relative z-[16000] text-[10px] font-semibold text-gray-700"
+                            style={{
+                              width: VAN_DON_ACTION_COL_PX,
+                              minWidth: VAN_DON_ACTION_COL_PX,
+                              transform: 'translateX(var(--vd-sl, 0px))',
+                            }}
+                            title="Sửa đơn vị vận chuyển"
+                          >
+                            Sửa ĐVVC
+                          </th>
+                        )}
                         {currentColumns.map((col, idx) => {
                           const isFixed = idx < effectiveFixedColumns;
                           const style = isFixed
@@ -6194,6 +6294,9 @@ function VanDon({ dataSource = 'default' }) {
                         <tr className="h-0 pointer-events-none">
                           {bolActiveTab === 'hanoi' && (
                             <td style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }} className="p-0 border-none" />
+                          )}
+                          {showVanDonShippingUnitActionCol && (
+                            <td style={{ width: VAN_DON_ACTION_COL_PX, minWidth: VAN_DON_ACTION_COL_PX }} className="p-0 border-none" />
                           )}
                           {currentColumns.map((col, idx) => (
                             <td key={idx} style={getColumnWidthStyles(col)} className="p-0 border-none" />
@@ -6237,6 +6340,7 @@ function VanDon({ dataSource = 'default' }) {
                           getStickyLeftPx={getStickyLeftPx}
                           getColumnWidthStyles={getColumnWidthStyles}
                           renderVanDonDataCell={renderVanDonDataCell}
+                          renderVanDonActionCell={showVanDonShippingUnitActionCol ? renderVanDonActionCell : null}
                           toggleRowSelection={toggleRowSelection}
                           isLongTextExpanded={isLongTextExpanded}
                           currentPage={currentPage}

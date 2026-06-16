@@ -1718,76 +1718,11 @@ function handleData(response) {
                             }
 
                             const stats = staffStats[key];
-
-                            stats["Tổng đơn lên nội bộ"].count++;
-                            if (ketQuaCheckOk) {
-                                stats["Tổng đơn đủ đkien đẩy vh"].count++;
-                                stats["Tổng đơn OK"].count++;
-                                if (dvvc === "") {
-                                    stats["Đơn Ok chưa đẩy đi"].count++;
-                                }
-                            }
-                            if (maTracking !== "") {
-                                stats["Tổng đơn có mã tracking"].count++;
-                                VandonNvRegion.addTrackingCodeOrderAmount(stats, true, amount);
-                            }
-                            if (dvvc !== "") {
-                                stats["Tổng đơn có dvvc"].count++;
-                            }
-                            if (dvvc !== "") {
-                                stats["Tổng đơn lên vận hành"].count++;
-                            }
-                            if (dvvc !== "" && maTracking === "") {
-                                stats["Tổng đơn chưa lên vận hành"].count++;
-                            }
-                            if (payment.includes("Có bill 1 phần")) {
-                                stats["Bill 1 phần"].count++;
-                                stats["Bill 1 phần"].amount += amount;
-                            } else if (payment.includes("Có bill")) {
-                                stats["Đã Thanh Toán (có bill)"].count++;
-                                stats["Đã Thanh Toán (có bill)"].amount += amount;
-                            }
-                            if (ketQuaCheckOk && payment === "" && deliveryNb === "") {
-                                stats["Trống trạng thái"].count++;
-                            }
-                            VandonNvRegion.incrementDeliveryStatusCount(stats, deliveryNb);
-                            VandonNvRegion.addDeliverySuccessAmount(stats, deliveryNb, amount);
+                            VandonNvRegion.accumulateVanDonSummaryStats(stats, row, amount);
                         });
 
                         // Grand total chỉ tính 1 lần cho mỗi đơn
-                        grandTotal["Tổng đơn lên nội bộ"].count++;
-                        if (ketQuaCheckOk) {
-                            grandTotal["Tổng đơn đủ đkien đẩy vh"].count++;
-                            grandTotal["Tổng đơn OK"].count++;
-                            if (dvvc === "") {
-                                grandTotal["Đơn Ok chưa đẩy đi"].count++;
-                            }
-                        }
-                        if (maTracking !== "") {
-                            grandTotal["Tổng đơn có mã tracking"].count++;
-                            VandonNvRegion.addTrackingCodeOrderAmount(grandTotal, true, amount);
-                        }
-                        if (dvvc !== "") {
-                            grandTotal["Tổng đơn có dvvc"].count++;
-                        }
-                        if (dvvc !== "") {
-                            grandTotal["Tổng đơn lên vận hành"].count++;
-                        }
-                        if (dvvc !== "" && maTracking === "") {
-                            grandTotal["Tổng đơn chưa lên vận hành"].count++;
-                        }
-                        if (payment.includes("Có bill 1 phần")) {
-                            grandTotal["Bill 1 phần"].count++;
-                            grandTotal["Bill 1 phần"].amount += amount;
-                        } else if (payment.includes("Có bill")) {
-                            grandTotal["Đã Thanh Toán (có bill)"].count++;
-                            grandTotal["Đã Thanh Toán (có bill)"].amount += amount;
-                        }
-                        if (ketQuaCheckOk && payment === "" && deliveryNb === "") {
-                            grandTotal["Trống trạng thái"].count++;
-                        }
-                        VandonNvRegion.incrementDeliveryStatusCount(grandTotal, deliveryNb);
-                        VandonNvRegion.addDeliverySuccessAmount(grandTotal, deliveryNb, amount);
+                        VandonNvRegion.accumulateVanDonSummaryStats(grandTotal, row, amount);
                     });
 
                     // BƯỚC 2: Thêm nhân viên chưa có dữ liệu vào bảng

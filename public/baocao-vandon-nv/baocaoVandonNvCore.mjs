@@ -482,24 +482,25 @@ export async function fetchMktFromDetailReports(supabase) {
   return rows.slice(0, cap);
 }
 
+/** @typedef {'order_date' | 'created_at_null_order_date'} OrdersDateMode */
 async function fetchOrdersTablePage(
   supabase,
   tableName,
-  { startDate, endDate, useCreatedAtForNullOrderDate, from, pageSize, hcmTeamOnly }
+  { startDate, endDate, from, pageSize, hcmTeamOnly, dateMode = 'order_date' }
 ) {
   let q = supabase.from(tableName).select('*');
   if (hcmTeamOnly) {
     q = q.ilike('team', '%HCM%');
   }
   if (startDate && endDate) {
-    if (useCreatedAtForNullOrderDate) {
+    if (dateMode === 'created_at_null_order_date') {
       q = q.is('order_date', null).gte('created_at', startDate).lte('created_at', endDate);
       q = q.order('created_at', { ascending: false, nullsFirst: false });
     } else {
       q = q.gte('order_date', startDate).lte('order_date', endDate);
       q = q.order('order_date', { ascending: false, nullsFirst: false });
     }
-  } else if (useCreatedAtForNullOrderDate) {
+  } else if (dateMode === 'created_at_null_order_date') {
     q = q.is('order_date', null).order('created_at', { ascending: false, nullsFirst: false });
   } else {
     q = q.order('order_date', { ascending: false, nullsFirst: false });
@@ -531,13 +532,13 @@ export async function fetchF3LegacyMapped(supabase, opts = {}) {
     }
   };
 
-  const paginate = async (useCreatedAtForNullOrderDate) => {
+  const paginate = async (dateMode) => {
     let from = 0;
     while (byCode.size < cap) {
       const chunk = await fetchOrdersTablePage(supabase, tableName, {
         startDate,
         endDate,
-        useCreatedAtForNullOrderDate,
+        dateMode,
         from,
         pageSize: PAGE,
         hcmTeamOnly: applyHcmTeamFilter,
@@ -549,10 +550,10 @@ export async function fetchF3LegacyMapped(supabase, opts = {}) {
   };
 
   if (startDate && endDate) {
-    await paginate(false);
-    await paginate(true);
+    await paginate('order_date');
+    await paginate('created_at_null_order_date');
   } else {
-    await paginate(false);
+    await paginate('order_date');
   }
 
   return Array.from(byCode.values()).slice(0, cap).map(mapOrderDbRowToLegacyF3Baocao);

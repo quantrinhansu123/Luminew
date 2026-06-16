@@ -257,6 +257,98 @@
     };
   }
 
+  function getRowField(row, keys) {
+    if (!row || typeof row !== 'object') return '';
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      var v = row[keys[i]];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+  }
+
+  function deliveryCountsAsLenVanHanh(deliveryNb) {
+    var d = String(deliveryNb || '');
+    if (!d) return false;
+    if (d.indexOf('Chưa Giao') !== -1 || d.indexOf('chờ check') !== -1) return false;
+    var lower = d.toLowerCase();
+    if (lower.indexOf('huỷ') !== -1 || lower.indexOf('hủy') !== -1 || lower.indexOf('cancel') !== -1) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Gom chỉ số 1 dòng đơn vào bucket tổng kết (HCM: check/ĐVVC; orders: bill + trạng thái giao).
+   */
+  function accumulateVanDonSummaryStats(stats, row, amount) {
+    if (!stats || !row) return;
+    var useOrdersLogic = isOrdersTableMode();
+    var payment = String(resolveTrangThaiThanhToan(row));
+    var deliveryNb = String(resolveTrangThaiGiaoHangNb(row));
+    var ketQuaCheckOk = ketQuaCheckIsOk(row);
+    var maTracking = getRowField(row, ['Mã Tracking', 'Mã_Tracking', 'tracking_code']);
+    var dvvc = getRowField(row, ['Đơn vị vận chuyển', 'Đơn_vị_vận_chuyển', 'shipping_unit']);
+    var amt = Number(amount) || 0;
+
+    stats['Tổng đơn lên nội bộ'].count++;
+
+    if (maTracking !== '') {
+      stats['Tổng đơn có mã tracking'].count++;
+      addTrackingCodeOrderAmount(stats, true, amt);
+    }
+    if (dvvc !== '') {
+      stats['Tổng đơn có dvvc'].count++;
+    }
+
+    if (useOrdersLogic) {
+      if (payment.indexOf('Có bill') !== -1) {
+        stats['Tổng đơn đủ đkien đẩy vh'].count++;
+      }
+      if (deliveryCountsAsLenVanHanh(deliveryNb)) {
+        stats['Tổng đơn lên vận hành'].count++;
+      }
+      if (!deliveryNb) {
+        stats['Trống trạng thái'].count++;
+      }
+      if (dvvc !== '' && maTracking === '') {
+        stats['Tổng đơn chưa lên vận hành'].count++;
+      }
+      if (ketQuaCheckOk && dvvc === '') {
+        stats['Đơn Ok chưa đẩy đi'].count++;
+        stats['Tổng đơn OK'].count++;
+      }
+    } else {
+      if (ketQuaCheckOk) {
+        stats['Tổng đơn đủ đkien đẩy vh'].count++;
+        stats['Tổng đơn OK'].count++;
+        if (dvvc === '') {
+          stats['Đơn Ok chưa đẩy đi'].count++;
+        }
+      }
+      if (dvvc !== '') {
+        stats['Tổng đơn lên vận hành'].count++;
+      }
+      if (dvvc !== '' && maTracking === '') {
+        stats['Tổng đơn chưa lên vận hành'].count++;
+      }
+      if (ketQuaCheckOk && payment === '' && deliveryNb === '') {
+        stats['Trống trạng thái'].count++;
+      }
+    }
+
+    if (payment.indexOf('Có bill 1 phần') !== -1) {
+      stats['Bill 1 phần'].count++;
+      stats['Bill 1 phần'].amount += amt;
+    } else if (payment.indexOf('Có bill') !== -1) {
+      stats['Đã Thanh Toán (có bill)'].count++;
+      stats['Đã Thanh Toán (có bill)'].amount += amt;
+    }
+
+    incrementDeliveryStatusCount(stats, deliveryNb);
+    addDeliverySuccessAmount(stats, deliveryNb, amt);
+  }
+
   /**
    * Báo cáo SP & khu vực / bộ phận — cùng nguồn & if/else như tab tổng kết (NB).
    * @param {{successful:number,returned:number,delivering:number,waitingForCheck:number,notShipped:number}} stats
@@ -387,6 +479,7 @@
     calcBillAmountOnSuccessRate: calcBillAmountOnSuccessRate,
     addTrackingCodeOrderAmount: addTrackingCodeOrderAmount,
     calcBillAmountOnTrackingCodeRate: calcBillAmountOnTrackingCodeRate,
+    accumulateVanDonSummaryStats: accumulateVanDonSummaryStats,
     formatVndAmount: formatVndAmount,
     applyProductAreaDeliveryBuckets: applyProductAreaDeliveryBuckets,
     ketQuaCheckIsOk: ketQuaCheckIsOk,

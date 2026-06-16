@@ -1075,7 +1075,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
   };
 
-  /** Tổng tiền VNĐ = 0 hoặc trống → tính lại theo NhapDonMoi: sale_price × exchange_rate. Không đụng dòng đã có tổng ≠ 0. */
+  /** Tính lại Tổng tiền VNĐ cho mọi đơn trong bộ lọc: Giá bán × Tỷ giá (cài đặt). */
   const handleRecalculateZeroTotalVnd = async () => {
     const rows = filteredData || [];
     if (rows.length === 0) {
@@ -1105,15 +1105,10 @@ function DanhSachDon({ dataSource = 'default' }) {
         const orderCode = String(r?.['Mã đơn hàng'] ?? '').trim();
         if (!orderCode) return null;
 
-        const rawTotal = r?.['Tổng tiền VNĐ'];
-        const cur = parseVietnameseMoneyToNumber(
-          rawTotal === '' || rawTotal == null ? null : rawTotal
-        );
-        const isZeroLike = cur === null || cur === 0;
-        if (!isZeroLike) return null;
-
-        const salePrice = parseFloat(r._sale_price) || 0;
-        if (salePrice <= 0) return null;
+        const salePrice =
+          parseFloat(r._sale_price) ||
+          parseVietnameseMoneyToNumber(r?.['Giá bán']) ||
+          0;
 
         // Lấy loại tiền tệ từ payment_type hoặc payment_currency
         const paymentType = String(r?.['Hình thức thanh toán'] || r?.payment_type || '').toUpperCase().trim();
@@ -1137,7 +1132,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         }
 
         const newTotal = salePrice * newExchangeRate;
-        if (!Number.isFinite(newTotal) || newTotal === 0) return null;
+        if (!Number.isFinite(newTotal)) return null;
 
         return {
           orderCode,
@@ -1150,10 +1145,10 @@ function DanhSachDon({ dataSource = 'default' }) {
       .filter(Boolean);
 
     if (rowsToUpdate.length === 0) {
-      toast.info(
-        'Không có đơn thỏa điều kiện: Tổng tiền VNĐ = 0 (hoặc trống) và có Giá bán × Tỷ giá > 0 trên hệ thống.',
-        { autoClose: 4000, hideProgressBar: true }
-      );
+      toast.info('Không có đơn nào có mã đơn trong bộ lọc hiện tại.', {
+        autoClose: 4000,
+        hideProgressBar: true,
+      });
       return;
     }
 
@@ -1171,12 +1166,11 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     if (
       !window.confirm(
-        'Tính lại "Tổng tiền VNĐ" theo công thức lên đơn: Giá bán (ngoại tệ) × Tỷ giá MỚI NHẤT.\n\n' +
-        'Chỉ cập nhật các đơn đang hiển thị có Tổng tiền VNĐ = 0 hoặc trống.\n' +
-        'Đơn đã có tổng tiền khác 0 sẽ không bị thay đổi.\n\n' +
-        `Số đơn sẽ cập nhật: ${rowsToUpdate.length}\n\n` +
-        (currencyInfo ? `Tỷ giá sẽ áp dụng:\n${currencyInfo}\n\n` : '') +
-        'Lưu ý: Cả exchange_rate và total_amount_vnd sẽ được cập nhật.'
+        'Tính lại "Tổng tiền VNĐ" theo công thức: Giá bán × Tỷ giá (cài đặt).\n\n' +
+          'Cập nhật tất cả đơn đang hiển thị trong bộ lọc hiện tại.\n\n' +
+          `Số đơn sẽ cập nhật: ${rowsToUpdate.length}\n\n` +
+          (currencyInfo ? `Tỷ giá sẽ áp dụng:\n${currencyInfo}\n\n` : '') +
+          'Lưu ý: Cả exchange_rate và total_amount_vnd sẽ được cập nhật.'
       )
     ) {
       return;

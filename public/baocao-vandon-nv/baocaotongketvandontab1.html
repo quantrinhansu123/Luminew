@@ -1232,46 +1232,8 @@ function handleData(response) {
                         if (!staffStats[staffName]) staffStats[staffName] = this.createEmptyStats();
                         const statsToUpdate = [staffStats[staffName], grandTotal];
                         const amount = parseFloat(String(getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ") || '0').replace(/[^\d.-]/g, '')) || 0;
-                        const payment = String(VandonNvRegion.resolveTrangThaiThanhToan(row));
-                        const deliveryNb = String(VandonNvRegion.resolveTrangThaiGiaoHangNb(row));
-                        const ketQuaCheckOk = VandonNvRegion.ketQuaCheckIsOk(row);
-                        const maTracking = String(getRowValue(row, "Mã Tracking", "Mã_Tracking")).trim();
-                        const dvvc = String(getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển")).trim();
                         statsToUpdate.forEach(stats => {
-                            stats["Tổng đơn lên nội bộ"].count++;
-                            if (ketQuaCheckOk) {
-                                stats["Tổng đơn đủ đkien đẩy vh"].count++;
-                                stats["Tổng đơn OK"].count++;
-                                if (dvvc === "") {
-                                    stats["Đơn Ok chưa đẩy đi"].count++;
-                                }
-                            }
-                            if (maTracking !== "") {
-                                stats["Tổng đơn có mã tracking"].count++;
-                                VandonNvRegion.addTrackingCodeOrderAmount(stats, true, amount);
-                            }
-                            if(dvvc !== "") {
-                                stats["Tổng đơn có dvvc"].count++;
-                            }
-                            // Khớp logic trang báo cáo mới: đơn có ĐVVC được coi là đã lên vận hành.
-                            if (dvvc !== "") {
-                                stats["Tổng đơn lên vận hành"].count++;
-                            }
-                            if (dvvc !== "" && maTracking === "") {
-                                stats["Tổng đơn chưa lên vận hành"].count++;
-                            }
-                            if (payment.includes("Có bill 1 phần")) {
-                                stats["Bill 1 phần"].count++;
-                                stats["Bill 1 phần"].amount += amount;
-                            } else if (payment.includes("Có bill")) {
-                                stats["Đã Thanh Toán (có bill)"].count++;
-                                stats["Đã Thanh Toán (có bill)"].amount += amount;
-                            }
-                            if (ketQuaCheckOk && payment === "" && deliveryNb === "") {
-                                stats["Trống trạng thái"].count++;
-                            }
-                            VandonNvRegion.incrementDeliveryStatusCount(stats, deliveryNb);
-                            VandonNvRegion.addDeliverySuccessAmount(stats, deliveryNb, amount);
+                            VandonNvRegion.accumulateVanDonSummaryStats(stats, row, amount);
                         });
                     });
                     this.lastSummaryRows = Object.keys(staffStats).map(staff => {
