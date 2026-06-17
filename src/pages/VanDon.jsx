@@ -65,7 +65,15 @@ const VAN_DON_PENDING_LS_KEY = 'speegoPendingChanges_van_don';
 const VAN_DON_PENDING_SNAPSHOTS_LS_KEY = 'speegoPendingRowSnapshots_van_don';
 
 // Columns to always hide (both in table and column settings)
-const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng", "Ngày Kế toán đối soát với FFM lần 2"];
+const HIDDEN_COLUMNS = [
+  "Thuê TK",
+  "Thời gian cutoff",
+  "Tiền Hàng",
+  "Ngày Kế toán đối soát với FFM lần 2",
+  "Nhật ký",
+  "Phản hồi tích cực",
+  "Phản hồi tiêu cực",
+];
 
 /**
  * Cột chỉ đọc trên lưới Vận đơn.
@@ -3592,8 +3600,8 @@ function VanDon({ dataSource = 'default' }) {
 
   const effectiveFixedColumns = Math.min(numFixedColumns, currentColumns.length);
 
-  /** Cột dropdown sửa ĐVVC — hiện mọi tab (kể cả Xem tất cả; lưới vẫn cho sửa ô). */
-  const showVanDonShippingUnitActionCol = true;
+  /** Cột dropdown sửa ĐVVC — ẩn trên lưới vận đơn. */
+  const showVanDonShippingUnitActionCol = false;
   const checkboxStickyPad =
     (bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0) +
     (showVanDonShippingUnitActionCol ? VAN_DON_ACTION_COL_PX : 0);
