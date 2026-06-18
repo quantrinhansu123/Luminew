@@ -473,6 +473,8 @@ export default function NhapDonMoi({ isEdit = false }) {
     const [pagePopoverWidth, setPagePopoverWidth] = useState("auto"); // Width for Page dropdown
     const [productPopoverWidth, setProductPopoverWidth] = useState("auto"); // Width for Product dropdown
     const productRef = useRef(null); // Ref for Product dropdown
+    const [giftPopoverWidth, setGiftPopoverWidth] = useState("auto");
+    const giftRef = useRef(null);
     const [activeTab, setActiveTab] = useState("khach-hang");
     const [isSaving, setIsSaving] = useState(false);
     const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -570,6 +572,8 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     const [productSearch, setProductSearch] = useState("");
     const [isProductOpen, setIsProductOpen] = useState(false);
+    const [giftSearch, setGiftSearch] = useState("");
+    const [isGiftOpen, setIsGiftOpen] = useState(false);
 
     // --- DATA LISTS ---
     const AREA_LIST = ["US", "Nhật Bản", "Hàn Quốc", "Canada", "Úc", "Anh", "CĐ Nhật Bản"];
@@ -653,7 +657,7 @@ export default function NhapDonMoi({ isEdit = false }) {
     const GIFT_LIST = [
         "Serum Sâm", "Cream Sâm", "VIT C", "Dưỡng Tóc", "Kem Body",
         "Cream Bakuchiol", "Serum Bakuchiol", "Kẹo Dâu Glu", "Dầu gội",
-        "Gel xương khớp", "Đường"
+        "Gel xương khớp", "Đường", "Bình nước"
     ];
     const PAYMENT_METHODS = ["Zelle", "COD", "MO", "E-transfer", "Bank transfer", "Paypal", "Venmo", "Money Gram", "RIA", "CHECK", "Cash App"];
     const CURRENCY_LIST = ["USD", "JPY", "KRW", "CAD", "AUD", "GBP", "VND"];
@@ -1266,6 +1270,38 @@ export default function NhapDonMoi({ isEdit = false }) {
         if (!productSearch) return visibleProducts;
         return visibleProducts.filter(p => p.toLowerCase().includes(productSearch.toLowerCase()));
     }, [visibleProducts, productSearch]);
+
+    const filteredGifts = useMemo(() => {
+        const q = giftSearch.trim().toLowerCase();
+        if (!q) return GIFT_LIST;
+        return GIFT_LIST.filter((g) => g.toLowerCase().includes(q));
+    }, [giftSearch]);
+
+    const showNoGiftOption = useMemo(() => {
+        const q = giftSearch.trim().toLowerCase();
+        if (!q) return true;
+        return "không có quà".includes(q);
+    }, [giftSearch]);
+
+    const applyGiftPickerOpen = useCallback(
+        (open) => {
+            if (open) {
+                setGiftSearch("");
+                setIsGiftOpen(true);
+                return;
+            }
+            const q = giftSearch.trim();
+            if (q) {
+                const exact = GIFT_LIST.find((g) => g.toLowerCase() === q.toLowerCase());
+                if (exact) {
+                    setFormData((prev) => ({ ...prev, quatang: exact }));
+                }
+            }
+            setGiftSearch("");
+            setIsGiftOpen(false);
+        },
+        [giftSearch]
+    );
 
     const selectedProductMain = String(formData.productMain || "").trim();
     const productMainExistsInList = useMemo(() => {
@@ -2862,10 +2898,107 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 border-t pt-4">
                                                     <div className="md:col-span-3 space-y-2">
                                                         <Label htmlFor="quatang">Quà tặng</Label>
-                                                        <select id="quatang" value={formData.quatang} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]">
-                                                            <option value="">Không có quà...</option>
-                                                            {GIFT_LIST.map(g => <option key={g} value={g}>{g}</option>)}
-                                                        </select>
+                                                        <Popover open={isGiftOpen} onOpenChange={applyGiftPickerOpen}>
+                                                            <div className="relative" ref={giftRef}>
+                                                                <PopoverAnchor asChild>
+                                                                    <div className="relative">
+                                                                        <Input
+                                                                            id="quatang"
+                                                                            autoComplete="off"
+                                                                            placeholder={
+                                                                                isGiftOpen && !giftSearch && formData.quatang
+                                                                                    ? `Đang chọn: ${formData.quatang} — gõ để lọc`
+                                                                                    : "Gõ để tìm hoặc chọn quà tặng..."
+                                                                            }
+                                                                            value={isGiftOpen ? giftSearch : (formData.quatang || "")}
+                                                                            onChange={(e) => {
+                                                                                setGiftSearch(e.target.value);
+                                                                                setIsGiftOpen(true);
+                                                                                if (giftRef.current) {
+                                                                                    setGiftPopoverWidth(giftRef.current.offsetWidth);
+                                                                                }
+                                                                            }}
+                                                                            onFocus={() => {
+                                                                                if (giftRef.current) {
+                                                                                    setGiftPopoverWidth(giftRef.current.offsetWidth);
+                                                                                }
+                                                                                applyGiftPickerOpen(true);
+                                                                            }}
+                                                                            className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] bg-white"
+                                                                        />
+                                                                        <ChevronDown
+                                                                            className="absolute right-3 top-3 h-4 w-4 opacity-50 cursor-pointer"
+                                                                            aria-hidden
+                                                                            onClick={(e) => {
+                                                                                e.preventDefault();
+                                                                                e.stopPropagation();
+                                                                                if (giftRef.current) {
+                                                                                    setGiftPopoverWidth(giftRef.current.offsetWidth);
+                                                                                }
+                                                                                applyGiftPickerOpen(!isGiftOpen);
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                </PopoverAnchor>
+                                                                {isGiftOpen && (
+                                                                    <PopoverContent
+                                                                        className="p-0 bg-white"
+                                                                        align="start"
+                                                                        style={{ width: giftPopoverWidth }}
+                                                                        onOpenAutoFocus={(e) => e.preventDefault()}
+                                                                    >
+                                                                        <div className="border-b px-2 py-1.5 text-[11px] text-gray-500">
+                                                                            Gõ ở ô trên để lọc — chọn một dòng để xác nhận.
+                                                                        </div>
+                                                                        <div className="max-h-[300px] overflow-y-auto p-1">
+                                                                            {showNoGiftOption && (
+                                                                                <div
+                                                                                    className="flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-gray-100 text-gray-500"
+                                                                                    onClick={() => {
+                                                                                        setFormData((prev) => ({ ...prev, quatang: "" }));
+                                                                                        setGiftSearch("");
+                                                                                        setIsGiftOpen(false);
+                                                                                    }}
+                                                                                >
+                                                                                    <Check
+                                                                                        className={cn(
+                                                                                            "mr-2 h-4 w-4",
+                                                                                            !formData.quatang ? "opacity-100" : "opacity-0"
+                                                                                        )}
+                                                                                    />
+                                                                                    <span className="truncate">Không có quà...</span>
+                                                                                </div>
+                                                                            )}
+                                                                            {filteredGifts.length > 0 ? (
+                                                                                filteredGifts.map((g) => (
+                                                                                    <div
+                                                                                        key={g}
+                                                                                        className="flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-gray-100"
+                                                                                        onClick={() => {
+                                                                                            setFormData((prev) => ({ ...prev, quatang: g }));
+                                                                                            setGiftSearch("");
+                                                                                            setIsGiftOpen(false);
+                                                                                        }}
+                                                                                    >
+                                                                                        <Check
+                                                                                            className={cn(
+                                                                                                "mr-2 h-4 w-4",
+                                                                                                formData.quatang === g ? "opacity-100" : "opacity-0"
+                                                                                            )}
+                                                                                        />
+                                                                                        <span className="truncate">{g}</span>
+                                                                                    </div>
+                                                                                ))
+                                                                            ) : !showNoGiftOption ? (
+                                                                                <div className="p-2 text-sm text-gray-500">
+                                                                                    Không có quà tặng khớp — thử từ khác hoặc chọn đúng tên trong danh sách.
+                                                                                </div>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    </PopoverContent>
+                                                                )}
+                                                            </div>
+                                                        </Popover>
                                                     </div>
                                                     <div className="space-y-2">
                                                         <Label htmlFor="slq">Số lượng quà</Label>
