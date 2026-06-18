@@ -1158,10 +1158,21 @@
       return [...map.values(), ...noId];
     }
 
+    function parseSoDonNhapTayFromRow(row) {
+      if (!row) return 0;
+      return parseIntegerVi(row['Số đơn'] ?? row.so_don ?? 0);
+    }
+
+    /** Cột «Doanh số» nhập tay trên báo cáo (khác «Doanh số TT»). */
+    function parseDoanhSoManualFromRow(row) {
+      if (!row) return 0;
+      return parseMoneyNumber(row['Doanh số'] ?? row.doanh_so ?? 0);
+    }
+
     /**
      * Trùng `id` (API lặp) hoặc trùng key logic.
-     * Chỉ CPQC và Số_Mess_Cmt: tổng khi trùng key.
-     * Còn lại như rule ban đầu: số TT / hủy / Doanh số TT — max; các cột khác giữ theo dòng đầu (không cộng).
+     * CPQC, Số_Mess_Cmt, Số đơn (nhập tay), Doanh số (nhập tay): cộng dồn khi trùng key.
+     * Số TT / hủy / Doanh số TT: max.
      */
     function dedupeMktDetailReportRows(rows) {
       const merged = mergeUniqueRowsByIdKeepNoId(rows || []);
@@ -1170,35 +1181,43 @@
         const k = buildMktDetailReportRowKey(row);
         const sd = parseSoDonThucTeFromRow(row);
         const sh = parseSoDonHoanHuyFromRow(row);
+        const sm = parseSoDonNhapTayFromRow(row);
         const ds = parseDoanhSoChotTTFromRow(row);
         const dsh = parseDoanhSoHoanHuyTTFromRow(row);
         const cpqc = parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0);
         const mess = parseSoMessCmtFromRow(row);
+        const dso = parseDoanhSoManualFromRow(row);
 
         const prev = byKey.get(k);
         if (!prev) {
-          byKey.set(k, { row, sd, sh, ds, dsh, cpqc, mess });
+          byKey.set(k, { row, sd, sh, sm, ds, dsh, cpqc, mess, dso });
           continue;
         }
 
         const mergedSd = Math.max(prev.sd, sd);
         const mergedSh = Math.max(prev.sh, sh);
+        const mergedSm = prev.sm + sm;
         const mergedDs = Math.max(prev.ds, ds);
         const mergedDsh = Math.max(prev.dsh, dsh);
         const mergedCpqc = prev.cpqc + cpqc;
         const mergedMess = prev.mess + mess;
+        const mergedDso = prev.dso + dso;
 
         prev.sd = mergedSd;
         prev.sh = mergedSh;
+        prev.sm = mergedSm;
         prev.ds = mergedDs;
         prev.dsh = mergedDsh;
         prev.cpqc = mergedCpqc;
         prev.mess = mergedMess;
+        prev.dso = mergedDso;
         prev.row['Số đơn thực tế'] = mergedSd;
         prev.row['Số đơn hoàn hủy'] = mergedSh;
         prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
+        prev.row['Số đơn'] = mergedSm;
         prev.row['Doanh số TT'] = mergedDs;
         prev.row['Doanh số hoàn hủy thực tế'] = mergedDsh;
+        prev.row['Doanh số'] = mergedDso;
         prev.row['CPQC'] = mergedCpqc;
         prev.row['Số_Mess_Cmt'] = mergedMess;
         if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
@@ -1206,6 +1225,8 @@
         if (prev.row.so_don_hoan_huy_thuc_te != null) prev.row.so_don_hoan_huy_thuc_te = mergedSh;
         if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
         if (prev.row.doanh_so_hoan_huy_thuc_te != null) prev.row.doanh_so_hoan_huy_thuc_te = mergedDsh;
+        if (prev.row.doanh_so != null) prev.row.doanh_so = mergedDso;
+        if (prev.row.so_don != null) prev.row.so_don = mergedSm;
         if (prev.row.cpqc != null) prev.row.cpqc = mergedCpqc;
         if (prev.row.so_mess_cmt != null) prev.row.so_mess_cmt = mergedMess;
       }
@@ -1743,9 +1764,12 @@
             return p && rdProductsSet.has(p);
           })
           .map(r => {
-            const dsChotTT = parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0);
-            const dsChotThucTeVal = dsChotTT || parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
-            const donTT = parseIntegerVi(r["Số đơn thực tế"]);
+            const dsChotTT =
+              parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0) ||
+              parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
+            /** DS Chốt = cột «Doanh số» nhập tay; DS Chốt (TT) vẫn từ Doanh số TT. */
+            const dsChotGross = parseMoneyNumber(r["Doanh số"] ?? r.doanh_so ?? 0);
+            const donTT = parseIntegerVi(r["Số đơn thực tế"] ?? r.so_don_thuc_te ?? 0);
             const dsHuyVnd = parseMoneyNumber(r["Doanh số hoàn hủy thực tế"] ?? 0);
             const dsSauHoanHuy = parseMoneyNumber(r["DS sau hoàn hủy"] ?? 0);
             const ngayParsed = parseNgayToDate(r["Ngày"]);
@@ -1763,16 +1787,16 @@
               chucVu: String(r["Chức vụ"] || '').trim().toLowerCase(),
               cpqc: parseMoneyNumber(r["CPQC"]),
               soMessCmt: parseIntegerVi(r["Số_Mess_Cmt"]),
-              soDon: donTT,
-              dsChot: dsChotThucTeVal,
+              soDon: parseIntegerVi(r['Số đơn'] ?? r.so_don ?? 0),
+              dsChot: dsChotGross,
               soDonHuy: parseIntegerVi(r["Số đơn hoàn hủy"]),
-              doanhSoHuy: dsHuyVnd > 0 ? dsHuyVnd : Math.max(0, dsChotThucTeVal - dsSauHoanHuy),
+              doanhSoHuy: dsHuyVnd > 0 ? dsHuyVnd : Math.max(0, dsChotTT - dsSauHoanHuy),
               dsSauHoanHuy: dsSauHoanHuy,
               dsSauShip: Number(r["Doanh số sau ship"]) || 0,
               dsThanhCong: Number(r["Doanh số TC"]) || 0,
               kpiValue: Number(r["KPIs"]) || 0,
               soDonThucTe: donTT,
-              dsChotThucTe: dsChotThucTeVal,
+              dsChotThucTe: dsChotTT,
               dsHoanHuyThucTe: dsHuyVnd,
               soDonHuyThucTe: parseIntegerVi(r["Số đơn hoàn hủy thực tế"]),
               dsSauHoanHuyThucTe: Number(r["Doanh số sau hoàn hủy thực tế"]) || 0,
