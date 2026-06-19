@@ -5,7 +5,11 @@ import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
-import { REPORT_CA_INPUT_OPTIONS } from '../constants/reportShifts';
+import {
+  isReportCaGiuacaOnly,
+  reportCaMeansBothHetAndGua,
+  REPORT_CA_SHIFT_OPTIONS,
+} from '../constants/reportShifts';
 import {
   buildMktReportDedupeKey,
   mktRowSnapshotForDedupeKey,
@@ -266,7 +270,7 @@ export default function BaoCaoMarketing({
     mktHnUserEmployees: [],
     /** Sheet / fallback khi không có user MKT HN trong DB */
     sheetLookupEmployees: [],
-    shiftList: [...REPORT_CA_INPUT_OPTIONS],
+    shiftList: [...REPORT_CA_SHIFT_OPTIONS],
     productList: [
       'Gel Dạ Dày',
       'Gel Trĩ',
@@ -1402,7 +1406,34 @@ export default function BaoCaoMarketing({
     const missingCaRow = tableRows.find((r) => !String(r?.data?.ca ?? '').trim());
     if (missingCaRow) {
       setResponseMsg({
-        text: 'Vui lòng chọn ca (Giữa ca, Hết ca hoặc Giữa ca,Hết ca) cho tất cả các dòng.',
+        text: 'Vui lòng chọn ca (Giữa ca hoặc Hết ca) cho tất cả các dòng.',
+        isSuccess: false,
+        visible: true,
+      });
+      setLoading(false);
+      return;
+    }
+
+    const combinedCaRowIndex = tableRows.findIndex((r) => reportCaMeansBothHetAndGua(r?.data?.ca));
+    if (combinedCaRowIndex !== -1) {
+      setResponseMsg({
+        text: `Dòng ${combinedCaRowIndex + 1}: không dùng ca gộp «Giữa ca,Hết ca». Chọn Hết ca hoặc Giữa ca.`,
+        isSuccess: false,
+        visible: true,
+      });
+      setLoading(false);
+      return;
+    }
+
+    const missingGiuacaMetricsRowIndex = tableRows.findIndex((r) => {
+      if (!isReportCaGiuacaOnly(r?.data?.ca)) return false;
+      const soDon = Number(r?.data?.['Số đơn'] ?? 0);
+      const doanhSo = Number(r?.data?.['Doanh số'] ?? 0);
+      return !(soDon > 0 && doanhSo > 0);
+    });
+    if (missingGiuacaMetricsRowIndex !== -1) {
+      setResponseMsg({
+        text: `Dòng ${missingGiuacaMetricsRowIndex + 1}: Ca «Giữa ca» bắt buộc nhập Số đơn và Doanh số (lớn hơn 0).`,
         isSuccess: false,
         visible: true,
       });

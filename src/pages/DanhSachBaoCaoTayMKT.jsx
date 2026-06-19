@@ -7,7 +7,12 @@ import {
     buildMktDetailReportRowKey,
     recalcMktSoDonThucTeFromOrders,
 } from '../services/mktRecalcSoDonThucTeFromOrders';
-import { rowCaMatchesSelectedShifts } from '../constants/reportShifts';
+import {
+    isReportCaGiuacaOnly,
+    reportCaMeansBothHetAndGua,
+    REPORT_CA_SHIFT_OPTIONS,
+    rowCaMatchesSelectedShifts,
+} from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
 import { XEM_BAO_CAO_MKT_HCM_TEAM } from './XemBaoCaoMKTLegacy';
@@ -1807,6 +1812,21 @@ export default function DanhSachBaoCaoTayMKT({
 
     const handleSaveEdit = async () => {
         if (!editingReport) return;
+
+        const caValue = String(editForm.ca || '').trim();
+        if (reportCaMeansBothHetAndGua(caValue)) {
+            alert('Không dùng ca «Giữa ca,Hết ca». Chọn Hết ca hoặc Giữa ca.');
+            return;
+        }
+        if (isReportCaGiuacaOnly(caValue)) {
+            const soDon = Number(editForm.orders || 0);
+            const doanhSo = Number(editForm.revenue || 0);
+            if (!(soDon > 0 && doanhSo > 0)) {
+                alert('Ca «Giữa ca» bắt buộc nhập Số đơn và Doanh số (lớn hơn 0).');
+                return;
+            }
+        }
+
         setSaving(true);
         try {
             // Note: Real values ("Số đơn thực tế", "Doanh số thực tế") được tính tự động từ orders table
@@ -2611,13 +2631,23 @@ export default function DanhSachBaoCaoTayMKT({
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Ca:</label>
-                                    <input
-                                        type="text"
+                                    <select
                                         name="ca"
-                                        value={editForm.ca}
+                                        value={editForm.ca || ''}
                                         onChange={handleInputChange}
-                                        className="w-full border rounded px-2 py-1"
-                                    />
+                                        className="w-full border rounded px-2 py-1 bg-white"
+                                    >
+                                        <option value="">-- Chọn ca --</option>
+                                        {REPORT_CA_SHIFT_OPTIONS.map((ca) => (
+                                            <option key={ca} value={ca}>
+                                                {ca}
+                                            </option>
+                                        ))}
+                                        {editForm.ca &&
+                                            !REPORT_CA_SHIFT_OPTIONS.includes(editForm.ca) && (
+                                                <option value={editForm.ca}>{editForm.ca} (cũ)</option>
+                                            )}
+                                    </select>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Team:</label>
@@ -2676,7 +2706,13 @@ export default function DanhSachBaoCaoTayMKT({
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium mb-1">Số đơn:</label>
+                                    <label className="block text-sm font-medium mb-1">
+                                        Số đơn
+                                        {isReportCaGiuacaOnly(editForm.ca) ? (
+                                            <span className="text-red-600"> *</span>
+                                        ) : null}
+                                        :
+                                    </label>
                                     <input
                                         type="number"
                                         name="orders"
@@ -2686,7 +2722,13 @@ export default function DanhSachBaoCaoTayMKT({
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium mb-1">Doanh số:</label>
+                                    <label className="block text-sm font-medium mb-1">
+                                        Doanh số
+                                        {isReportCaGiuacaOnly(editForm.ca) ? (
+                                            <span className="text-red-600"> *</span>
+                                        ) : null}
+                                        :
+                                    </label>
                                     <input
                                         type="number"
                                         step="0.01"

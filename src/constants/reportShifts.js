@@ -7,8 +7,20 @@ export const REPORT_CA_COMBINED = 'Giữa ca,Hết ca';
 /** Hai ca tách riêng. */
 export const REPORT_CA_SHIFT_OPTIONS = ['Giữa ca', 'Hết ca'];
 
-/** Sổ xuống nhập báo cáo MKT: hai ca + tuỳ chọn gộp (một dòng = tổng cả hai nhóm). */
-export const REPORT_CA_INPUT_OPTIONS = [...REPORT_CA_SHIFT_OPTIONS, REPORT_CA_COMBINED];
+/** Sổ xuống nhập báo cáo MKT: chỉ hai ca tách (không còn gộp). */
+export const REPORT_CA_INPUT_OPTIONS = [...REPORT_CA_SHIFT_OPTIONS];
+
+/** true nếu ca là «Giữa ca» thuần (không kèm Hết ca). */
+export function isReportCaGiuacaOnly(caVal) {
+  const s = String(caVal ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const hasGua = s.includes('giua ca');
+  const hasHet = s.includes('het ca');
+  return hasGua && !hasHet;
+}
 
 /**
  * true nếu giá trị ca (sau khi bỏ dấu) chứa cả «hết ca» lẫn «giua ca»
