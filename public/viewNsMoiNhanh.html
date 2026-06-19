@@ -228,40 +228,6 @@
       color: #6b4e00;
     }
 
-    .mkt-manual-input {
-      width: 100%;
-      min-width: 72px;
-      max-width: 120px;
-      box-sizing: border-box;
-      padding: 4px 6px;
-      border: 1px solid #2d7c2d;
-      border-radius: 4px;
-      font-size: 13px;
-      text-align: right;
-      background: #f6fff6;
-    }
-
-    .mkt-manual-input:focus {
-      outline: 2px solid #2d7c2d;
-      background: #fff;
-    }
-
-    .mkt-manual-input.mkt-manual-saving {
-      opacity: 0.6;
-    }
-
-    .mkt-manual-input.mkt-manual-error {
-      border-color: #dc2626;
-      background: #fef2f2;
-    }
-
-    .mkt-manual-name-sub {
-      display: block;
-      font-size: 11px;
-      color: #666;
-      margin-top: 2px;
-    }
-
     .main-content-area {
       flex-grow: 1;
     }
@@ -572,9 +538,7 @@
             alt="Logo">
           <h2 id="report-title-tab1">DỮ LIỆU CHI PHÍ ADS</h2>
         </div>
-        <p id="giua-ca-manual-hint-tab1" class="mkt-giua-ca-manual-hint" style="display:none;">
-          Đang lọc <strong>Giữa ca</strong>: cột <strong>Số Đơn</strong> và <strong>DS Chốt</strong> cho nhập tay (lưu vào báo cáo khi rời ô). Ca Giữa ca bắt buộc nhập cả hai &gt; 0.
-        </p>
+        <p id="giua-ca-manual-hint-tab1" class="mkt-giua-ca-manual-hint" style="display:none;"></p>
         <div class="table-responsive-container">
           <table id="summary-table" class="sortable-table">
             <thead>
@@ -2081,6 +2045,12 @@
         const s = norms[0];
         return s.includes('giua ca') && !s.includes('het ca');
       })();
+      const isSingleHetCaFilter = (() => {
+        const norms = (selectedCas || []).map(normalizeCaForFilter).filter(Boolean);
+        if (norms.length !== 1) return false;
+        const s = norms[0];
+        return s.includes('het ca') && !s.includes('giua ca');
+      })();
       const rowPassesNonCaFilters = (r) => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
         if (!dateRaw || isNaN(dateRaw.getTime())) return false;
@@ -2114,7 +2084,16 @@
         if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
         return true;
       });
-      if (!isSingleGiuaCaFilter) return filteredDataResult;
+      if (!isSingleGiuaCaFilter) {
+        if (isSingleHetCaFilter) {
+          return filteredDataResult.map((r) => ({
+            ...r,
+            soDon: Number(r.soDonThucTe) || 0,
+            dsChot: Number(r.dsChotThucTe) || 0,
+          }));
+        }
+        return filteredDataResult;
+      }
 
       const manualByBaseKey = new Map();
       baseDataForReport.forEach((r) => {
@@ -2418,16 +2397,13 @@
 
     function applyTab1Filters() {
       const filteredData = getFilteredData('tab1');
-      const manualGiuaca = isGiuacaOnlyCaFilter('tab1');
-      updateGiuacaManualHint();
+      updateCaFilterHint();
 
-      const summaryList = manualGiuaca
-        ? generateGiuacaManualTableData(filteredData)
-        : generateSummaryTableData(filteredData);
+      const summaryList = generateSummaryTableData(filteredData);
       sortList(summaryList, sortStates.summary, summaryColumnSortKeys, { prop: 'team', type: 'string' });
-      renderSummary(summaryList, filteredData, manualGiuaca);
+      renderSummary(summaryList, filteredData);
       updateSortIcons(document.getElementById('summary-table'), sortStates.summary);
-      requestAnimationFrame(() => renderDailyBreakdown(filteredData, manualGiuaca));
+      requestAnimationFrame(() => renderDailyBreakdown(filteredData));
     }
 
     function applyTab3Filters() {
@@ -2642,7 +2618,21 @@
       return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
     }
 
-    /** Chỉ chọn «Giữa ca» (không Tất cả, không Hết ca) → bật nhập tay Số đơn / DS Chốt. */
+    /** Chỉ chọn «Hết ca» → Số Đơn / DS Chốt hiển thị theo cột TT. */
+    function isHetcaOnlyCaFilter(tabPrefix) {
+      const allEl = document.getElementById(`ca-all-${tabPrefix}`);
+      if (!allEl || allEl.checked) return false;
+      const checked = [...document.querySelectorAll(`.filter-ca-${tabPrefix}:checked`)].map((cb) => cb.value);
+      if (checked.length !== 1) return false;
+      const s = String(checked[0] || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      return s.includes('het ca') && !s.includes('giua ca');
+    }
+
+    /** Chỉ chọn «Giữa ca» — dùng để hiện gợi ý (số lấy từ báo cáo tay, không sửa tại đây). */
     function isGiuacaOnlyCaFilter(tabPrefix) {
       const allEl = document.getElementById(`ca-all-${tabPrefix}`);
       if (!allEl || allEl.checked) return false;
@@ -2656,99 +2646,22 @@
       return s.includes('giua ca') && !s.includes('het ca');
     }
 
-    /** Một dòng / bản ghi detail (Giữa ca) — mỗi ô nhập gắn reportId. */
-    function generateGiuacaManualTableData(data) {
-      return (data || []).map((r) => {
-        const sp = String(r.sanPham || '').trim();
-        const tt = String(r.thiTruong || '').trim();
-        const subParts = [];
-        if (sp && sp !== 'N/A') subParts.push(sp);
-        if (tt && tt !== 'N/A') subParts.push(tt);
-        return {
-          team: String(r.team || '').trim() || 'Khác',
-          name: String(r.ten || '').trim() || 'N/A',
-          nameSub: subParts.join(' · '),
-          mess: Number(r.soMessCmt) || 0,
-          cpqc: Number(r.cpqc) || 0,
-          don: Number(r.soDon) || 0,
-          chot: Number(r.dsChot) || 0,
-          donThucTe: Number(r.soDonThucTe) || 0,
-          chotThucTe: Number(r.dsChotThucTe) || 0,
-          reportId: r.reportId != null ? r.reportId : null,
-        };
-      });
-    }
-
-    function renderDonCell(s, manualGiuacaMode) {
-      if (!manualGiuacaMode || !s.reportId) {
-        return `<td>${formatNumber(s.don)}</td>`;
-      }
-      const v = Number(s.don) || 0;
-      return `<td class="mkt-manual-cell"><input type="number" min="0" step="1" class="mkt-manual-input mkt-manual-so-don" data-report-id="${s.reportId}" value="${v > 0 ? v : ''}" placeholder="0" title="Số đơn nhập tay (Giữa ca)" /></td>`;
-    }
-
-    function renderChotCell(s, manualGiuacaMode) {
-      if (!manualGiuacaMode || !s.reportId) {
-        return `<td>${formatCurrency(s.chot)}</td>`;
-      }
-      const v = Number(s.chot) || 0;
-      return `<td class="mkt-manual-cell"><input type="number" min="0" step="1000" class="mkt-manual-input mkt-manual-doanh-so" data-report-id="${s.reportId}" value="${v > 0 ? v : ''}" placeholder="0" title="Doanh số nhập tay (Giữa ca)" /></td>`;
-    }
-
-    async function persistGiuacaManualRow(reportId, soDon, doanhSo) {
-      if (reportId == null) throw new Error('Thiếu id báo cáo');
-      const patch = {};
-      if (soDon != null) patch['Số đơn'] = soDon;
-      if (doanhSo != null) patch['Doanh số'] = doanhSo;
-      const { error } = await supabase.from('detail_reports').update(patch).eq('id', reportId);
-      if (error) throw error;
-      const item = (masterData || []).find((m) => m.reportId === reportId);
-      if (item) {
-        if (soDon != null) item.soDon = soDon;
-        if (doanhSo != null) item.dsChot = doanhSo;
-      }
-    }
-
-    function bindGiuacaManualInputs(root) {
-      if (!root) return;
-      root.querySelectorAll('.mkt-manual-so-don, .mkt-manual-doanh-so').forEach((inp) => {
-        if (inp.dataset.bound === '1') return;
-        inp.dataset.bound = '1';
-        inp.addEventListener('change', async () => {
-          const reportId = Number(inp.dataset.reportId);
-          const tr = inp.closest('tr');
-          if (!reportId || !tr) return;
-          const soDonInp = tr.querySelector('.mkt-manual-so-don');
-          const dsInp = tr.querySelector('.mkt-manual-doanh-so');
-          const soDon = parseIntegerVi(soDonInp?.value ?? 0);
-          const doanhSo = parseMoneyNumber(dsInp?.value ?? 0);
-          if (!(soDon > 0 && doanhSo > 0)) {
-            inp.classList.add('mkt-manual-error');
-            alert('Ca «Giữa ca» bắt buộc nhập Số đơn và Doanh số (lớn hơn 0).');
-            return;
-          }
-          inp.classList.remove('mkt-manual-error');
-          soDonInp?.classList.add('mkt-manual-saving');
-          dsInp?.classList.add('mkt-manual-saving');
-          try {
-            await persistGiuacaManualRow(reportId, soDon, doanhSo);
-            applyTab1Filters();
-          } catch (err) {
-            console.error(err);
-            inp.classList.add('mkt-manual-error');
-            alert('Lỗi lưu: ' + (err?.message || String(err)));
-          } finally {
-            soDonInp?.classList.remove('mkt-manual-saving');
-            dsInp?.classList.remove('mkt-manual-saving');
-          }
-        });
-      });
-    }
-
-    function updateGiuacaManualHint() {
+    function updateCaFilterHint() {
       const el = document.getElementById('giua-ca-manual-hint-tab1');
       if (!el) return;
-      el.style.display = isGiuacaOnlyCaFilter('tab1') ? 'block' : 'none';
+      if (isGiuacaOnlyCaFilter('tab1')) {
+        el.style.display = 'block';
+        el.innerHTML =
+          'Đang lọc <strong>Giữa ca</strong>: cột <strong>Số Đơn</strong> và <strong>DS Chốt</strong> lấy từ cột nhập tay (<strong>Số đơn</strong>, <strong>Doanh số</strong>) trên <strong>Danh sách báo cáo tay MKT</strong> — chỉ xem, không sửa tại trang này.';
+        return;
+      }
+      if (isHetcaOnlyCaFilter('tab1')) {
+        el.style.display = 'block';
+        el.innerHTML =
+          'Đang lọc <strong>Hết ca</strong>: cột <strong>Số Đơn</strong> và <strong>DS Chốt</strong> lấy theo <strong>Số Đơn (TT)</strong> và <strong>DS Chốt (TT)</strong>.';
+        return;
+      }
+      el.style.display = 'none';
     }
 
     function generateKpiTableData(data) {
@@ -2781,14 +2694,11 @@
     // --- VII. CÁC HÀM HIỂN THỊ DỮ LIỆU (RENDERING) ---
     // =================================================================================
 
-    function renderSummary(dataList, rawFilteredRows, manualGiuacaMode) {
+    function renderSummary(dataList, rawFilteredRows) {
       const selM = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
-      const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, null, manualGiuacaMode);
+      const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, null);
       document.getElementById('summary-body').innerHTML = (footHtml || '') + bodyHtml;
       document.getElementById('summary-foot').innerHTML = '';
-      if (manualGiuacaMode) {
-        bindGiuacaManualInputs(document.getElementById('summary-table'));
-      }
     }
 
     function renderKpiSummary(dataList) {
@@ -2901,7 +2811,7 @@
         </tr>`;
     }
 
-    function renderDailyBreakdown(filteredData, manualGiuacaMode) {
+    function renderDailyBreakdown(filteredData) {
       const container = document.getElementById('daily-breakdown'); container.innerHTML = '';
       dailyRenderJobId += 1;
       const currentJobId = dailyRenderJobId;
@@ -2926,12 +2836,10 @@
 
       const renderOneDateHtml = (date) => {
         const dayRaw = groupedByDate[date] || [];
-        let dailyList = manualGiuacaMode
-          ? generateGiuacaManualTableData(dayRaw)
-          : generateSummaryTableData(dayRaw);
+        let dailyList = generateSummaryTableData(dayRaw);
         sortList(dailyList, { column: null, direction: 'asc' }, summaryColumnSortKeys, { prop: 'team', type: 'string' });
         window.__LUMI_MKT_ALERT_DATE_LABEL = date;
-        const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, null, manualGiuacaMode);
+        const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, null);
         return `<h3>${date}</h3><div class="table-responsive-container"><table class="sortable-table daily-summary-table" data-date="${date}">
         <thead><tr>
         <th class="green-header">STT<span class="sort-icon"></span></th>
@@ -2972,9 +2880,6 @@
           return;
         }
         loadingEl.remove();
-        if (manualGiuacaMode) {
-          bindGiuacaManualInputs(container);
-        }
       };
 
       setTimeout(renderNextChunk, 0);
@@ -2984,7 +2889,7 @@
     /**
      * @param detailTotalsOverride — nếu có: TỔNG CỘNG lấy trực tiếp từ mọi dòng detail (đã lọc), khớp tổng Số đơn / DS Chốt với dữ liệu gốc.
      */
-    function generateSummaryTableHTML(dataList, selectedMarkets, detailTotalsOverride, manualGiuacaMode) {
+    function generateSummaryTableHTML(dataList, selectedMarkets, detailTotalsOverride) {
       let total;
       if (detailTotalsOverride != null && typeof detailTotalsOverride === 'object') {
         total = {
@@ -3014,18 +2919,15 @@
         const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : '');
         const cpsClass = getCpsCellStyle(pd, selectedMarkets);
         const cpdsClass = pc > 0.33 ? 'bg-yellow' : '';
-        const nameCell = s.nameSub
-          ? `<td class="text-left">${s.name}<span class="mkt-manual-name-sub">${s.nameSub}</span></td>`
-          : `<td class="text-left">${s.name}</td>`;
-        return `<tr data-report-id="${s.reportId || ''}">
+        return `<tr>
                 <td class="text-center">${index + 1}</td>
                 <td class="text-left">${s.team}</td>
-                ${nameCell}
+                <td class="text-left">${s.name}</td>
                 <td>${formatNumber(s.mess)}</td>
                 <td>${formatCurrency(s.cpqc)}</td>
-                ${renderDonCell(s, manualGiuacaMode)}
+                <td>${formatNumber(s.don)}</td>
                 <td>${formatNumber(s.donThucTe)}</td>
-                ${renderChotCell(s, manualGiuacaMode)}
+                <td>${formatCurrency(s.chot)}</td>
                 <td>${formatCurrency(s.chotThucTe)}</td>
                 <td class="${rateClass}">${formatPercent(rate)}</td>
                 <td class="${rateThucTeClass}">${formatPercent(rateThucTe)}</td>
@@ -3111,13 +3013,10 @@
       const filteredData = getFilteredData('tab1');
       const dailyData = filteredData.filter(r => formatDate(r.ngay) === date);
       const dayDetailTotals = sumDetailTotalsFromRows(dailyData);
-      const manualGiuaca = isGiuacaOnlyCaFilter('tab1');
-      let dailyList = manualGiuaca
-        ? generateGiuacaManualTableData(dailyData)
-        : generateSummaryTableData(dailyData);
+      let dailyList = generateSummaryTableData(dailyData);
       sortList(dailyList, sortState, summaryColumnSortKeys, { prop: 'team', type: 'string' });
       const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
-      const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals, manualGiuaca);
+      const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals);
       const tb = table.querySelector('tbody');
       if (tb) tb.innerHTML = bodyHtml;
       let tf = table.querySelector('tfoot');
@@ -3127,7 +3026,6 @@
       }
       if (tf) tf.innerHTML = footHtml || '';
       updateSortIcons(table, sortState);
-      if (manualGiuaca) bindGiuacaManualInputs(table);
     }
 
     function sortList(list, sortState, columnKeys, defaultSortKey) {
