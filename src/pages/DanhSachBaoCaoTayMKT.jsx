@@ -1824,10 +1824,10 @@ export default function DanhSachBaoCaoTayMKT({
             return;
         }
         if (isReportCaGiuacaOnly(caValue)) {
-            const soDon = Number(editForm.orders || 0);
-            const doanhSo = Number(editForm.revenue || 0);
-            if (!(soDon > 0 && doanhSo > 0)) {
-                alert('Ca «Giữa ca» bắt buộc nhập Số đơn và Doanh số (lớn hơn 0).');
+            const isSoDonBlank = String(editForm.orders ?? '').trim() === '';
+            const isDoanhSoBlank = String(editForm.revenue ?? '').trim() === '';
+            if (isSoDonBlank || isDoanhSoBlank) {
+                alert('Ca «Giữa ca» bắt buộc nhập Số đơn và Doanh số. Có thể nhập 0 nếu không phát sinh.');
                 return;
             }
         }
