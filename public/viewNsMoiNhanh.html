@@ -1480,7 +1480,7 @@
     /**
     * @description Cấu hình các key để sắp xếp cho từng cột trong bảng Báo cáo chi tiết.
     */
-    const summaryColumnSortKeys = {
+    const SUMMARY_COLUMN_SORT_KEYS_FULL = {
       1: { prop: 'team', type: 'string' },
       2: { prop: 'name', type: 'string' },
       3: { prop: 'mess', type: 'number' },
@@ -1496,6 +1496,66 @@
       13: { prop: (s) => s.chot ? s.cpqc / s.chot : 0, type: 'number' }, // %CP/DS
       14: { prop: (s) => s.don ? s.chot / s.don : 0, type: 'number' }  // Giá TB Đơn
     };
+
+    /** Chỉ «Giữa ca»: ẩn cột TT — sort key khớp header rút gọn. */
+    const SUMMARY_COLUMN_SORT_KEYS_GIUA_CA = {
+      1: { prop: 'team', type: 'string' },
+      2: { prop: 'name', type: 'string' },
+      3: { prop: 'mess', type: 'number' },
+      4: { prop: 'cpqc', type: 'number' },
+      5: { prop: 'don', type: 'number' },
+      6: { prop: 'chot', type: 'number' },
+      7: { prop: (s) => s.mess ? s.don / s.mess : 0, type: 'number' },
+      8: { prop: (s) => s.mess ? s.cpqc / s.mess : 0, type: 'number' },
+      9: { prop: (s) => s.don ? s.cpqc / s.don : 0, type: 'number' },
+      10: { prop: (s) => s.chot ? s.cpqc / s.chot : 0, type: 'number' },
+      11: { prop: (s) => s.don ? s.chot / s.don : 0, type: 'number' }
+    };
+
+    function shouldHideSummaryTtColumns() {
+      return isGiuacaOnlyCaFilter('tab1');
+    }
+
+    function getSummaryColumnSortKeys() {
+      return shouldHideSummaryTtColumns()
+        ? SUMMARY_COLUMN_SORT_KEYS_GIUA_CA
+        : SUMMARY_COLUMN_SORT_KEYS_FULL;
+    }
+
+    /** @deprecated dùng getSummaryColumnSortKeys() */
+    const summaryColumnSortKeys = SUMMARY_COLUMN_SORT_KEYS_FULL;
+
+    function getSummaryTableHeaderInnerHtml() {
+      const ttHeader = shouldHideSummaryTtColumns()
+        ? ''
+        : `<th class="blue-header">Số Đơn (TT)<span class="sort-icon"></span></th>`;
+      const dsTtHeader = shouldHideSummaryTtColumns()
+        ? ''
+        : `<th class="blue-header">DS Chốt (TT)<span class="sort-icon"></span></th>`;
+      const rateTtHeader = shouldHideSummaryTtColumns()
+        ? ''
+        : `<th class="yellow-header">Tỉ lệ chốt (TT)<span class="sort-icon"></span></th>`;
+      return `<th class="green-header">STT<span class="sort-icon"></span></th>
+                <th class="green-header">Team<span class="sort-icon"></span></th>
+                <th class="green-header">Marketing<span class="sort-icon"></span></th>
+                <th class="green-header">Số Mess<span class="sort-icon"></span></th>
+                <th class="green-header">CPQC<span class="sort-icon"></span></th>
+                <th class="green-header">Số Đơn<span class="sort-icon"></span></th>
+                ${ttHeader}
+                <th class="green-header">DS Chốt<span class="sort-icon"></span></th>
+                ${dsTtHeader}
+                <th class="yellow-header">Tỉ lệ chốt<span class="sort-icon"></span></th>
+                ${rateTtHeader}
+                <th class="yellow-header">Giá Mess<span class="sort-icon"></span></th>
+                <th class="yellow-header">CPS<span class="sort-icon"></span></th>
+                <th class="yellow-header">%CP/DS<span class="sort-icon"></span></th>
+                <th class="yellow-header">Giá TB Đơn<span class="sort-icon"></span></th>`;
+    }
+
+    function updateSummaryTableHeader() {
+      const tr = document.querySelector('#summary-table thead tr');
+      if (tr) tr.innerHTML = getSummaryTableHeaderInnerHtml();
+    }
 
 
     /**
@@ -2398,9 +2458,13 @@
     function applyTab1Filters() {
       const filteredData = getFilteredData('tab1');
       updateCaFilterHint();
+      updateSummaryTableHeader();
+      if (shouldHideSummaryTtColumns()) {
+        sortStates.summary = { column: null, direction: 'asc' };
+      }
 
       const summaryList = generateSummaryTableData(filteredData);
-      sortList(summaryList, sortStates.summary, summaryColumnSortKeys, { prop: 'team', type: 'string' });
+      sortList(summaryList, sortStates.summary, getSummaryColumnSortKeys(), { prop: 'team', type: 'string' });
       renderSummary(summaryList, filteredData);
       updateSortIcons(document.getElementById('summary-table'), sortStates.summary);
       requestAnimationFrame(() => renderDailyBreakdown(filteredData));
@@ -2657,7 +2721,7 @@
       if (isGiuacaOnlyCaFilter('tab1')) {
         el.style.display = 'block';
         el.innerHTML =
-          'Đang lọc <strong>Giữa ca</strong>: cột <strong>Số Đơn</strong> và <strong>DS Chốt</strong> lấy từ cột nhập tay (<strong>Số đơn</strong>, <strong>Doanh số</strong>) trên <strong>Danh sách báo cáo tay MKT</strong> — chỉ xem, không sửa tại trang này.';
+          'Đang lọc <strong>Giữa ca</strong>: <strong>Số Đơn</strong> và <strong>DS Chốt</strong> lấy từ nhập tay trên <strong>Danh sách báo cáo tay MKT</strong>. Ẩn cột (TT); CPS, %CP/DS, Giá TB Đơn, Tỉ lệ chốt tính theo Số Đơn / DS Chốt.';
         return;
       }
       if (isHetcaOnlyCaFilter('tab1')) {
@@ -2702,7 +2766,8 @@
     function renderSummary(dataList, rawFilteredRows) {
       const selM = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
       const detailTotals = rawFilteredRows ? sumDetailTotalsFromRows(rawFilteredRows) : null;
-      const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, detailTotals);
+      const hideTtColumns = shouldHideSummaryTtColumns();
+      const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, detailTotals, { hideTtColumns });
       document.getElementById('summary-body').innerHTML = (footHtml || '') + bodyHtml;
       document.getElementById('summary-foot').innerHTML = '';
     }
@@ -2843,26 +2908,13 @@
       const renderOneDateHtml = (date) => {
         const dayRaw = groupedByDate[date] || [];
         let dailyList = generateSummaryTableData(dayRaw);
-        sortList(dailyList, { column: null, direction: 'asc' }, summaryColumnSortKeys, { prop: 'team', type: 'string' });
+        sortList(dailyList, { column: null, direction: 'asc' }, getSummaryColumnSortKeys(), { prop: 'team', type: 'string' });
         window.__LUMI_MKT_ALERT_DATE_LABEL = date;
-        const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, null);
+        const hideTtColumns = shouldHideSummaryTtColumns();
+        const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, null, { hideTtColumns });
         return `<h3>${date}</h3><div class="table-responsive-container"><table class="sortable-table daily-summary-table" data-date="${date}">
         <thead><tr>
-        <th class="green-header">STT<span class="sort-icon"></span></th>
-        <th class="green-header">Team<span class="sort-icon"></span></th>
-        <th class="green-header">Marketing<span class="sort-icon"></span></th>
-        <th class="green-header">Số Mess<span class="sort-icon"></span></th>
-        <th class="green-header">CPQC<span class="sort-icon"></span></th>
-        <th class="green-header">Số Đơn<span class="sort-icon"></span></th>
-        <th class="blue-header">Số Đơn (TT)<span class="sort-icon"></span></th>
-        <th class="green-header">DS Chốt<span class="sort-icon"></span></th>
-        <th class="blue-header">DS Chốt (TT)<span class="sort-icon"></span></th>
-        <th class="yellow-header">Tỉ lệ chốt<span class="sort-icon"></span></th>
-        <th class="yellow-header">Tỉ lệ chốt (TT)<span class="sort-icon"></span></th>
-        <th class="yellow-header">Giá Mess<span class="sort-icon"></span></th>
-        <th class="yellow-header">CPS<span class="sort-icon"></span></th>
-        <th class="yellow-header">%CP/DS<span class="sort-icon"></span></th>
-        <th class="yellow-header">Giá TB Đơn<span class="sort-icon"></span></th>
+        ${getSummaryTableHeaderInnerHtml()}
         </tr></thead><tbody>${(footHtml || '') + bodyHtml}</tbody><tfoot></tfoot></table></div>`;
       };
 
@@ -2895,7 +2947,8 @@
     /**
      * @param detailTotalsOverride — nếu có: TỔNG CỘNG lấy trực tiếp từ mọi dòng detail (đã lọc), khớp tổng Số đơn / DS Chốt với dữ liệu gốc.
      */
-    function generateSummaryTableHTML(dataList, selectedMarkets, detailTotalsOverride) {
+    function generateSummaryTableHTML(dataList, selectedMarkets, detailTotalsOverride, options = {}) {
+      const hideTtColumns = options.hideTtColumns ?? shouldHideSummaryTtColumns();
       let total;
       if (detailTotalsOverride != null && typeof detailTotalsOverride === 'object') {
         total = {
@@ -2932,11 +2985,11 @@
                 <td>${formatNumber(s.mess)}</td>
                 <td>${formatCurrency(s.cpqc)}</td>
                 <td>${formatNumber(s.don)}</td>
-                <td>${formatNumber(s.donThucTe)}</td>
+                ${hideTtColumns ? '' : `<td>${formatNumber(s.donThucTe)}</td>`}
                 <td>${formatCurrency(s.chot)}</td>
-                <td>${formatCurrency(s.chotThucTe)}</td>
+                ${hideTtColumns ? '' : `<td>${formatCurrency(s.chotThucTe)}</td>`}
                 <td class="${rateClass}">${formatPercent(rate)}</td>
-                <td class="${rateThucTeClass}">${formatPercent(rateThucTe)}</td>
+                ${hideTtColumns ? '' : `<td class="${rateThucTeClass}">${formatPercent(rateThucTe)}</td>`}
                 <td>${formatCurrency(pm)}</td>
                 <td class="${cpsClass}">${formatCurrency(pd)}</td>
                 <td class="${cpdsClass}">${formatPercent(pc)}</td>
@@ -2954,11 +3007,11 @@
             <td class="total-value">${formatNumber(total.mess)}</td>
             <td class="total-value">${formatCurrency(total.cpqc)}</td>
             <td class="total-value">${formatNumber(total.don)}</td>
-            <td class="total-value">${formatNumber(total.donThucTe)}</td>
+            ${hideTtColumns ? '' : `<td class="total-value">${formatNumber(total.donThucTe)}</td>`}
             <td class="total-value">${formatCurrency(total.chot)}</td>
-            <td class="total-value">${formatCurrency(total.chotThucTe)}</td>
+            ${hideTtColumns ? '' : `<td class="total-value">${formatCurrency(total.chotThucTe)}</td>`}
             <td class="total-value">${formatPercent(tRate)}</td>
-            <td class="total-value">${formatPercent(tRateThucTe)}</td>
+            ${hideTtColumns ? '' : `<td class="total-value">${formatPercent(tRateThucTe)}</td>`}
             <td class="total-value">${formatCurrency(tPm)}</td>
             <td class="total-value">${formatCurrency(tPd)}</td>
             <td class="total-value">${formatPercent(tPc)}</td>
@@ -3020,9 +3073,10 @@
       const dailyData = filteredData.filter(r => formatDate(r.ngay) === date);
       const dayDetailTotals = sumDetailTotalsFromRows(dailyData);
       let dailyList = generateSummaryTableData(dailyData);
-      sortList(dailyList, sortState, summaryColumnSortKeys, { prop: 'team', type: 'string' });
+      sortList(dailyList, sortState, getSummaryColumnSortKeys(), { prop: 'team', type: 'string' });
       const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
-      const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals);
+      const hideTtColumns = shouldHideSummaryTtColumns();
+      const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals, { hideTtColumns });
       const tb = table.querySelector('tbody');
       if (tb) tb.innerHTML = bodyHtml;
       let tf = table.querySelector('tfoot');
@@ -3278,13 +3332,15 @@
         const chot = Number(s?.chot) || 0;
         const cpqc = Number(s?.cpqc) || 0;
 
-        const tiLeChotTT = mess ? donThucTe / mess : 0;
+        const useManualMetrics = shouldHideSummaryTtColumns();
+        const donForRate = useManualMetrics ? don : donThucTe;
+        const tiLeChotLabel = useManualMetrics ? 'Tỉ lệ chốt' : 'Tỉ lệ chốt (TT)';
+        const tiLeChotVal = mess ? donForRate / mess : 0;
         const giaMess = mess ? cpqc / mess : 0;
-        const cps = donThucTe ? cpqc / donThucTe : 0;
+        const cps = donForRate ? cpqc / donForRate : 0;
         const cpds = chot ? cpqc / chot : 0;
 
-        // Tỉ lệ chốt (TT): theo logic tô màu (xanh >10%, vàng >5%)
-        if (tiLeChotTT <= 0.05) {
+        if (tiLeChotVal <= 0.05) {
           alerts.push({
             id: buildAlertId([dateLabel, employeeName, 'ti_le_chot_tt', 'critical']),
             ts: now,
@@ -3292,11 +3348,11 @@
             reportDateMs,
             employeeName,
             team,
-            content: `Tỉ lệ chốt (TT) thấp: ${formatPercent(tiLeChotTT)}`,
+            content: `${tiLeChotLabel} thấp: ${formatPercent(tiLeChotVal)}`,
             cause: 'Ngưỡng cảnh báo: <= 5%',
             severity: 'critical',
           });
-        } else if (tiLeChotTT <= 0.1) {
+        } else if (tiLeChotVal <= 0.1) {
           alerts.push({
             id: buildAlertId([dateLabel, employeeName, 'ti_le_chot_tt', 'warning']),
             ts: now,
@@ -3304,7 +3360,7 @@
             reportDateMs,
             employeeName,
             team,
-            content: `Tỉ lệ chốt (TT) chạm ngưỡng: ${formatPercent(tiLeChotTT)}`,
+            content: `${tiLeChotLabel} chạm ngưỡng: ${formatPercent(tiLeChotVal)}`,
             cause: 'Ngưỡng theo bảng: 5%–10%',
             severity: 'warning',
           });

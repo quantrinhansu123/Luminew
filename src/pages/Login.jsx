@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { supabase } from '../supabase/config';
-import bcrypt from 'bcryptjs';
+import { getUserStoredPassword, verifyUserPassword } from '../utils/verifyUserPassword';
 
 function Login() {
   console.log('🔐 Login component rendering...');
@@ -24,7 +24,8 @@ function Login() {
     setError('');
     setLoading(true);
 
-    console.log('🔐 Attempting login with email:', email);
+    const emailNorm = String(email || '').trim().toLowerCase();
+    console.log('🔐 Attempting login with email:', emailNorm);
 
     try {
       // Query Supabase users table
@@ -32,8 +33,8 @@ function Login() {
       const { data: user, error: userError } = await supabase
         .from('users')
         .select('*')
-        .eq('email', email)
-        .single();
+        .ilike('email', emailNorm)
+        .maybeSingle();
 
       console.log('📡 Query result:', { user: user ? 'Found' : 'Not found', error: userError });
 
@@ -56,10 +57,23 @@ function Login() {
       if (user) {
         const userData = user;
         const userId = user.id;
-        console.log('✅ User found:', { id: userId, email: userData.email, hasPassword: !!userData.password });
+        const storedPassword = getUserStoredPassword(userData);
+        console.log('✅ User found:', {
+          id: userId,
+          email: userData.email,
+          hasPassword: !!storedPassword,
+        });
 
-        // Kiểm tra xem user có mật khẩu không
-        if (!userData.password) {
+        if (userData.is_active === false || userData.is_active === 'false') {
+          toast.error('Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên!', {
+            position: 'top-right',
+            autoClose: 5000,
+          });
+          setLoading(false);
+          return;
+        }
+
+        if (!storedPassword) {
           console.log('⚠️ User has no password set');
           toast.error('Tài khoản chưa được thiết lập mật khẩu. Vui lòng liên hệ quản trị viên!', {
             position: "top-right",
@@ -69,9 +83,8 @@ function Login() {
           return;
         }
 
-        // So sánh mật khẩu đã hash
         console.log('🔒 Comparing password...');
-        const passwordMatch = bcrypt.compareSync(password, userData.password);
+        const passwordMatch = verifyUserPassword(password, storedPassword);
         console.log('🔒 Password match:', passwordMatch);
 
         if (passwordMatch) {
