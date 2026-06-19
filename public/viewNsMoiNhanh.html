@@ -2459,19 +2459,24 @@
     // --- VI. CÁC HÀM TÍNH TOÁN VÀ TỔNG HỢP DỮ LIỆU ---
     // =================================================================================
 
-    /**
-     * Cộng dồn từng chỉ số trên toàn bộ dòng detail đã lọc (không qua gom nhóm).
-     * Yêu cầu: tổng phải khớp với dữ liệu đang hiển thị bên dưới → không dedupe theo key và không tự trừ hủy.
-     */
     function sumDetailTotalsFromRows(rows) {
       const acc = { mess: 0, cpqc: 0, don: 0, chot: 0, donThucTe: 0, chotThucTe: 0 };
+      const seenDetailKeysSoDonTT = new Set();
       (rows || []).forEach((r) => {
         acc.mess += Number(r.soMessCmt) || 0;
         acc.cpqc += Number(r.cpqc) || 0;
         acc.don += Number(r.soDon) || 0;
         acc.chot += Number(r.dsChot) || 0;
-        acc.donThucTe += Number(r.soDonThucTe) || 0;
-        acc.chotThucTe += Number(r.dsChotThucTe) || 0;
+        const detailKey = String(r?.detailRowKey || '');
+        if (!seenDetailKeysSoDonTT.has(detailKey)) {
+          seenDetailKeysSoDonTT.add(detailKey);
+          const donTT = Number(r.soDonThucTe) || 0;
+          const donHuyTT = Number(r.soDonHuyThucTe) || 0;
+          acc.donThucTe += Math.max(0, donTT - donHuyTT);
+          const dsChotTT = Number(r.dsChotThucTe) || 0;
+          const dsHuyTT = Number(r.dsHoanHuyThucTe) || 0;
+          acc.chotThucTe += Math.max(0, dsChotTT - dsHuyTT);
+        }
       });
       return acc;
     }
@@ -2607,12 +2612,12 @@
         const detailKey = String(r?.detailRowKey || '');
         if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
           S.seenDetailKeysSoDonTT.add(detailKey);
-          // TT: cộng đúng số liệu TT gốc (không trừ hoàn/huỷ) để tổng khớp dữ liệu hiển thị bên dưới.
           const donTT = Number(r.soDonThucTe) || 0;
-          S.donThucTe += donTT;
-
+          const donHuyTT = Number(r.soDonHuyThucTe) || 0;
+          S.donThucTe += Math.max(0, donTT - donHuyTT);
           const dsChotTT = Number(r.dsChotThucTe) || 0;
-          S.chotThucTe += dsChotTT;
+          const dsHuyTT = Number(r.dsHoanHuyThucTe) || 0;
+          S.chotThucTe += Math.max(0, dsChotTT - dsHuyTT);
         }
       });
       return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
@@ -2696,7 +2701,8 @@
 
     function renderSummary(dataList, rawFilteredRows) {
       const selM = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
-      const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, null);
+      const detailTotals = rawFilteredRows ? sumDetailTotalsFromRows(rawFilteredRows) : null;
+      const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, detailTotals);
       document.getElementById('summary-body').innerHTML = (footHtml || '') + bodyHtml;
       document.getElementById('summary-foot').innerHTML = '';
     }
