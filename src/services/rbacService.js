@@ -837,22 +837,85 @@ export const getEmployees = async () => {
 };
 
 /**
- * Danh sách Team chính cho dropdown: distinct `users.team` trên Supabase (trim, sort vi).
+ * Danh sách Team cho dropdown / lọc: `users.team`, `leader_teams`, team MKT trên báo cáo.
  */
 export const getDistinctTeamsFromUsers = async () => {
-    try {
-        const { data, error } = await supabase.from('users').select('team');
-        if (error) throw error;
-        const set = new Set();
-        for (const row of data || []) {
-            const t = String(row?.team ?? '').trim();
-            if (t) set.add(t);
+    const set = new Set();
+    const add = (value) => {
+        const t = String(value ?? '').trim();
+        if (t) set.add(t);
+    };
+    const addLeaderTeams = (raw) => {
+        if (raw == null || raw === '') return;
+        if (Array.isArray(raw)) {
+            raw.forEach(add);
+            return;
         }
-        return [...set].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+        if (typeof raw === 'string') {
+            const s = raw.trim();
+            if (!s) return;
+            if (s.startsWith('[')) {
+                try {
+                    const parsed = JSON.parse(s);
+                    if (Array.isArray(parsed)) {
+                        parsed.forEach(add);
+                        return;
+                    }
+                } catch {
+                    /* fall through */
+                }
+            }
+            s.split(/[,;]/).forEach((part) => add(part));
+        }
+    };
+
+    try {
+        const { data, error } = await supabase.from('users').select('team, leader_teams');
+        if (error) throw error;
+        for (const row of data || []) {
+            add(row?.team);
+            addLeaderTeams(row?.leader_teams);
+        }
     } catch (error) {
         console.error('Error fetching distinct users.team:', error);
-        return [];
     }
+
+  /** Team MKT thường gặp trên báo cáo — luôn có trong lọc dù chưa gán users.team */
+    [
+        'HN-MKT',
+        'Team Test',
+        'MKT - Đức Anh',
+        'MKT-Công ty-HN',
+        'MKT-Công ty-HCM',
+    ].forEach(add);
+
+    try {
+        const { data: drTeams, error: drErr } = await supabase
+            .from('detail_reports')
+            .select('Team')
+            .not('Team', 'is', null)
+            .limit(5000);
+        if (!drErr) {
+            for (const row of drTeams || []) add(row?.Team);
+        }
+    } catch (err) {
+        console.warn('Could not load detail_reports.Team for team list:', err);
+    }
+
+    try {
+        const { data: hcmTeams, error: hcmErr } = await supabase
+            .from('marketing_report_hcm')
+            .select('Team')
+            .not('Team', 'is', null)
+            .limit(5000);
+        if (!hcmErr) {
+            for (const row of hcmTeams || []) add(row?.Team);
+        }
+    } catch (err) {
+        console.warn('Could not load marketing_report_hcm.Team for team list:', err);
+    }
+
+    return [...set].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
 };
 
 // --- PERMISSIONS ---
