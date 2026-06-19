@@ -1427,13 +1427,13 @@ export default function BaoCaoMarketing({
 
     const missingGiuacaMetricsRowIndex = tableRows.findIndex((r) => {
       if (!isReportCaGiuacaOnly(r?.data?.ca)) return false;
-      const soDon = Number(r?.data?.['Số đơn'] ?? 0);
-      const doanhSo = Number(r?.data?.['Doanh số'] ?? 0);
-      return !(soDon > 0 && doanhSo > 0);
+      const isSoDonBlank = String(r?.data?.['Số đơn'] ?? '').trim() === '';
+      const isDoanhSoBlank = String(r?.data?.['Doanh số'] ?? '').trim() === '';
+      return isSoDonBlank || isDoanhSoBlank;
     });
     if (missingGiuacaMetricsRowIndex !== -1) {
       setResponseMsg({
-        text: `Dòng ${missingGiuacaMetricsRowIndex + 1}: Ca «Giữa ca» bắt buộc nhập Số đơn và Doanh số (lớn hơn 0).`,
+        text: `Dòng ${missingGiuacaMetricsRowIndex + 1}: Ca «Giữa ca» bắt buộc nhập Số đơn và Doanh số. Có thể nhập 0 nếu không phát sinh.`,
         isSuccess: false,
         visible: true,
       });
