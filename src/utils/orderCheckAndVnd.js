@@ -1,6 +1,8 @@
-/** Dùng đúng cột Kết quả Check: chỉ lấy check_result */
+/** Giống cột hiển thị «Kết quả Check» trên lưới đơn: ưu tiên check_result, fallback payment_status (legacy). */
 export function getCheckResult(order) {
-  return String(order?.check_result ?? '').trim();
+  const check = String(order?.check_result ?? '').trim();
+  if (check) return check;
+  return String(order?.payment_status ?? '').trim();
 }
 
 /** Chuẩn hóa để khớp Hủy / Huỷ */

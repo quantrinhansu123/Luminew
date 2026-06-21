@@ -263,6 +263,91 @@ export function buildMktDetailReportRowKey(row) {
   return `${base}|${normalizeCaForRowKey(caRaw)}`;
 }
 
+/**
+ * Lấy đơn Supabase trong khoảng ngày — dùng chung recalc & danh sách báo cáo tay.
+ */
+export async function fetchMktOrdersInDateRange(startDate, endDate, tableName = 'orders') {
+  const normalizedStart = normalizeDateStr(startDate);
+  const normalizedEnd = normalizeDateStr(endDate);
+  if (!normalizedStart || !normalizedEnd) return [];
+  return fetchAllOrdersInRangeFromSupabaseTable(normalizedStart, normalizedEnd, tableName);
+}
+
+/**
+ * Tính Số đơn TT / Doanh số TT cho một dòng báo cáo — cùng logic `recalcMktSoDonThucTeFromOrders`.
+ * @returns {{ so_don_thuc_te: number, so_don_huy: number, doanh_so_thuc_te: number, so_don_gross: number }}
+ */
+export function computeMktOrderMetricsForReportRow(report, ordersList) {
+  const r = report || {};
+  const caGroups = reportCaGroupsForRecalc(r.ca ?? r['Ca'] ?? '');
+  if (!caGroups.length) {
+    return { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
+  }
+
+  const ek = effectiveKeyPartsForReportRow(r, ordersList);
+  const key = ek.key;
+  if (!key) {
+    return { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
+  }
+
+  let grossCount = 0;
+  let cancelCount = 0;
+  let totalRevenueVnd = 0;
+  let cancelRevenueVnd = 0;
+
+  for (const order of ordersList || []) {
+    const orderKey = buildKey(
+      order.order_date,
+      order.marketing_staff,
+      order.product,
+      order.country
+    );
+    if (orderKey !== key) continue;
+
+    const vnd = orderAmountVndHcmOverlay(order);
+    if (vnd <= 0) continue;
+
+    const orderGroups = orderShiftGroupsForRecalc(order.shift);
+    const matchesCa = orderGroups.some((g) => caGroups.includes(g));
+    if (!matchesCa) continue;
+
+    const huy = isCheckResultHuy(getCheckResult(order));
+    grossCount += 1;
+    totalRevenueVnd += vnd;
+    if (huy) {
+      cancelCount += 1;
+      cancelRevenueVnd += vnd;
+    }
+  }
+
+  const netCount = Math.max(0, grossCount - cancelCount);
+  const netRevenue = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
+
+  return {
+    so_don_thuc_te: netCount,
+    so_don_huy: cancelCount,
+    doanh_so_thuc_te: netRevenue,
+    so_don_gross: grossCount,
+  };
+}
+
+/** Fallback hiển thị khi chưa tính xong từ orders — đọc cột đã lưu trên báo cáo. */
+export function mktRealValuesFallbackFromReportRow(item, { grossSoDon = false } = {}) {
+  const net = Number(item?.['Số đơn thực tế'] || 0);
+  const huy = Number(
+    item?.['Số đơn hoàn hủy'] ??
+      item?.['Số đơn hoàn hủy thực tế'] ??
+      0
+  );
+  const dsTT = Number(item?.['Doanh số TT'] ?? item?.doanh_so_tt ?? 0);
+  return {
+    so_don_thuc_te: grossSoDon ? net + huy : net,
+    so_don_huy: huy,
+    doanh_so_thuc_te: dsTT,
+    so_don_gross: net + huy,
+  };
+}
+
 function parseSoDonThucTeFromRow(row) {
   if (!row) return 0;
   return parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
@@ -359,10 +444,7 @@ function isMktActualOrderCountable(order) {
 }
 
 function isOrderHuyHcmOverlay(order) {
-  const s = String(order?.check_result ?? '').trim();
-  if (!s) return false;
-  const ascii = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  return ascii === 'huy';
+  return isCheckResultHuy(getCheckResult(order));
 }
 
 function buildHcmActualsByReportKeyFromOrders(orders) {

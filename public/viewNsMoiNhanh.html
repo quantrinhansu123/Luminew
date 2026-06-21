@@ -2534,12 +2534,9 @@
         const detailKey = String(r?.detailRowKey || '');
         if (!seenDetailKeysSoDonTT.has(detailKey)) {
           seenDetailKeysSoDonTT.add(detailKey);
-          const donTT = Number(r.soDonThucTe) || 0;
-          const donHuyTT = Number(r.soDonHuyThucTe) || 0;
-          acc.donThucTe += Math.max(0, donTT - donHuyTT);
-          const dsChotTT = Number(r.dsChotThucTe) || 0;
-          const dsHuyTT = Number(r.dsHoanHuyThucTe) || 0;
-          acc.chotThucTe += Math.max(0, dsChotTT - dsHuyTT);
+          // Số đơn thực tế / Doanh số TT trên DB đã net (đã trừ hủy khi Cập nhật Số đơn TT).
+          acc.donThucTe += Number(r.soDonThucTe) || 0;
+          acc.chotThucTe += Number(r.dsChotThucTe) || 0;
         }
       });
       return acc;
@@ -2676,12 +2673,9 @@
         const detailKey = String(r?.detailRowKey || '');
         if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
           S.seenDetailKeysSoDonTT.add(detailKey);
-          const donTT = Number(r.soDonThucTe) || 0;
-          const donHuyTT = Number(r.soDonHuyThucTe) || 0;
-          S.donThucTe += Math.max(0, donTT - donHuyTT);
-          const dsChotTT = Number(r.dsChotThucTe) || 0;
-          const dsHuyTT = Number(r.dsHoanHuyThucTe) || 0;
-          S.chotThucTe += Math.max(0, dsChotTT - dsHuyTT);
+          // Số đơn thực tế / Doanh số TT trên DB đã net — không trừ Số đơn hoàn hủy thực tế lần nữa.
+          S.donThucTe += Number(r.soDonThucTe) || 0;
+          S.chotThucTe += Number(r.dsChotThucTe) || 0;
         }
       });
       return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
