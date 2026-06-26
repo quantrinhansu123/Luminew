@@ -695,7 +695,7 @@ function VanDon({ dataSource = 'default' }) {
   
   // State cho dialog xuất Excel với bộ lọc ngày
   const [showExportDateDialog, setShowExportDateDialog] = useState(false);
-  /** Chỉ /van-don-hcm: trùng nội dung order_code_hcm ↔ orders (Name, Phone, Add, Mặt hàng). */
+  /** Chỉ /van-don-hcm: trùng nội dung order_code_hcm ↔ orders (SĐT/Tên/Địa chỉ + Mặt hàng). */
   const [hcmCrossDupModalOpen, setHcmCrossDupModalOpen] = useState(false);
   const [hcmCrossDupLoading, setHcmCrossDupLoading] = useState(false);
   const [hcmCrossDupGroups, setHcmCrossDupGroups] = useState([]);
@@ -1076,7 +1076,7 @@ function VanDon({ dataSource = 'default' }) {
         if (showResultToast) {
           if (groups.length === 0) {
             addToast(
-              `Không có nhóm trùng (Name, Phone, Add, Mặt hàng) trong ${rangeNote}.`,
+              `Không có nhóm trùng (SĐT/Tên/Địa chỉ + Mặt hàng) trong ${rangeNote}.`,
               'info',
               6000
             );
@@ -6027,7 +6027,7 @@ function VanDon({ dataSource = 'default' }) {
                   onClick={handleShowHcmCrossTableDuplicates}
                   disabled={hcmCrossDupLoading || isQueryLoading || permissionsLoading}
                   className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
-                  title="So khớp order_code_hcm với toàn bộ orders: trùng Name*, Phone*, Add, Mặt hàng"
+                  title="So khớp order_code_hcm với toàn bộ orders: trùng SĐT/Tên/Địa chỉ cùng Mặt hàng"
                 >
                   {hcmCrossDupLoading ? (
                     <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
@@ -6952,8 +6952,9 @@ function VanDon({ dataSource = 'default' }) {
                     Mã đơn trùng nội dung — order_code_hcm ↔ orders
                   </h2>
                   <p className="text-xs text-gray-600 mt-0.5">
-                    Khớp: <strong>Name*</strong>, <strong>Phone*</strong>, <strong>Add</strong>,{' '}
-                    <strong>Mặt hàng</strong>. Sắp xếp theo <strong>Ngày lên đơn</strong> mới nhất trước. Phạm vi:{' '}
+                    Cảnh báo khi trùng <strong>SĐT + Mặt hàng</strong>, hoặc <strong>Tên + Mặt hàng</strong>, hoặc{' '}
+                    <strong>Địa chỉ + Mặt hàng</strong> giữa hai bảng. Sắp xếp theo <strong>Ngày lên đơn</strong> mới
+                    nhất trước. Phạm vi:{' '}
                     {hcmCrossDupRangeLabel || '—'}. Đã quét{' '}
                     <code className="bg-gray-200 px-1 rounded">order_code_hcm</code>:{' '}
                     <strong>{hcmCrossDupStats.hcm}</strong> — <code className="bg-gray-200 px-1 rounded">orders</code>{' '}
@@ -7012,7 +7013,7 @@ function VanDon({ dataSource = 'default' }) {
                   <p className="text-sm text-gray-600 py-8 text-center">Đang tải và đối chiếu hai bảng…</p>
                 ) : hcmCrossDupGroups.length === 0 ? (
                   <p className="text-sm text-gray-600 py-8 text-center">
-                    Không có nhóm nào có mã ở cả hai bảng với cùng bộ thông tin khách &amp; sản phẩm.
+                    Không có nhóm nào có mã ở cả hai bảng với trùng SĐT/Tên/Địa chỉ cùng Mặt hàng.
                   </p>
                 ) : (
                   <table className="min-w-full text-sm border-collapse select-text">
@@ -7023,6 +7024,7 @@ function VanDon({ dataSource = 'default' }) {
                         <th className="p-2 border border-gray-200">Phone*</th>
                         <th className="p-2 border border-gray-200">Add</th>
                         <th className="p-2 border border-gray-200">Mặt hàng</th>
+                        <th className="p-2 border border-gray-200 whitespace-nowrap">Lý do trùng</th>
                         <th className="p-2 border border-gray-200 whitespace-nowrap">Ngày lên đơn</th>
                         <th className="p-2 border border-gray-200">Mã order_code_hcm</th>
                         <th className="p-2 border border-gray-200">Mã orders</th>
@@ -7043,6 +7045,9 @@ function VanDon({ dataSource = 'default' }) {
                           </td>
                           <td className="p-2 border border-gray-200 max-w-[160px] break-words select-text">
                             {g.product || '—'}
+                          </td>
+                          <td className="p-2 border border-gray-200 max-w-[140px] text-xs text-rose-800 break-words select-text">
+                            {(g.matchReasons || []).join(' · ') || '—'}
                           </td>
                           <td className="p-2 border border-gray-200 whitespace-nowrap font-semibold text-gray-900 select-text">
                             {g.latestOrderDateLabel || '—'}

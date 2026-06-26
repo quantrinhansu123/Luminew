@@ -1,6 +1,6 @@
 import {
+  customerDupCheckContext,
   normalizeCustomerTextForDup,
-  normalizePhoneDigits,
 } from './customerDuplicateCanhBao';
 import { parseSmartDate } from './dateParsing';
 
@@ -40,49 +40,101 @@ export function formatCrossDupNgayLenDon(row) {
   return '—';
 }
 
-/**
- * Khóa so khớp: Name*, Phone*, Add, Mặt hàng.
- * Trả về null nếu không đủ dữ liệu (cần ít nhất SĐT hoặc tên).
- */
-export function buildHcmOrdersCrossDuplicateKey(row) {
+function rowDupFields(row) {
   const name = pickField(row, 'customer_name', 'Name*');
   const phone = pickField(row, 'customer_phone', 'Phone*');
   const address = pickField(row, 'customer_address', 'Add');
   const product = pickField(row, 'product', 'Mặt hàng');
-
-  const np = normalizePhoneDigits(phone);
-  const nn = normalizeCustomerTextForDup(name);
-  const na = normalizeCustomerTextForDup(address);
-  const npd = normalizeCustomerTextForDup(product);
-
-  const phoneOk = np.length >= 9;
-  const nameOk = nn.length >= 2;
-  if (!phoneOk && !nameOk) return null;
-
-  return `${np}\u001f${nn}\u001f${na}\u001f${npd}`;
+  const ctx = customerDupCheckContext(phone, name, address);
+  const normProduct = normalizeCustomerTextForDup(product);
+  const productOk = normProduct.length >= 1;
+  return { name, phone, address, product, normProduct, productOk, ...ctx };
 }
 
-function upsertCodeEntry(setMap, row, source) {
-  const key = buildHcmOrdersCrossDuplicateKey(row);
-  if (!key) return;
+/**
+ * Khóa so khớp (OR): trùng SĐT + Mặt hàng, hoặc Tên + Mặt hàng, hoặc Địa chỉ + Mặt hàng.
+ * Trả về [] nếu không đủ dữ liệu (cần Mặt hàng và ít nhất một tiêu chí khách).
+ */
+export function buildHcmOrdersCrossDuplicateKeys(row) {
+  const f = rowDupFields(row);
+  if (!f.productOk) return [];
+
+  const keys = [];
+  if (f.phoneOk) {
+    keys.push({ key: `p:${f.normPhone}\u001f${f.normProduct}`, reason: 'SĐT + Mặt hàng' });
+  }
+  if (f.nameOk) {
+    keys.push({ key: `n:${f.normName}\u001f${f.normProduct}`, reason: 'Tên + Mặt hàng' });
+  }
+  if (f.addrOk) {
+    keys.push({ key: `a:${f.normAddr}\u001f${f.normProduct}`, reason: 'Địa chỉ + Mặt hàng' });
+  }
+  return keys;
+}
+
+/** @deprecated Dùng buildHcmOrdersCrossDuplicateKeys — giữ để tương thích nếu có import cũ. */
+export function buildHcmOrdersCrossDuplicateKey(row) {
+  return buildHcmOrdersCrossDuplicateKeys(row)[0]?.key ?? null;
+}
+
+function nodeId(source, code) {
+  return `${source}:${code}`;
+}
+
+class UnionFind {
+  constructor(n) {
+    this.parent = Array.from({ length: n }, (_, i) => i);
+  }
+
+  find(i) {
+    if (this.parent[i] !== i) this.parent[i] = this.find(this.parent[i]);
+    return this.parent[i];
+  }
+
+  union(a, b) {
+    const ra = this.find(a);
+    const rb = this.find(b);
+    if (ra !== rb) this.parent[rb] = ra;
+  }
+}
+
+function registerRow(nodeMeta, byKey, row, source) {
   const code = row?.order_code != null ? String(row.order_code).trim() : '';
   if (!code) return;
 
-  if (!setMap.has(key)) {
-    setMap.set(key, { hcm: new Map(), orders: new Map() });
-  }
-  const bucket = setMap.get(key);
-  const side = source === 'hcm' ? bucket.hcm : bucket.orders;
+  const nid = nodeId(source, code);
   const ms = orderDateMsFromRow(row);
   const label = formatCrossDupNgayLenDon(row);
-  const prev = side.get(code);
+  const prev = nodeMeta.get(nid);
   if (!prev || ms >= prev.orderDateMs) {
-    side.set(code, { code, orderDateMs: ms, orderDateLabel: label });
+    nodeMeta.set(nid, { code, orderDateMs: ms, orderDateLabel: label, source, row });
+  }
+
+  for (const { key, reason } of buildHcmOrdersCrossDuplicateKeys(row)) {
+    if (!byKey.has(key)) {
+      byKey.set(key, { hcm: new Set(), orders: new Set(), reasons: new Set() });
+    }
+    const bucket = byKey.get(key);
+    bucket.reasons.add(reason);
+    bucket[source].add(nid);
   }
 }
 
-function entriesFromMap(map) {
-  return [...map.values()].sort((a, b) => b.orderDateMs - a.orderDateMs);
+function entriesFromNodes(nodeMeta, nids) {
+  const byCode = new Map();
+  for (const nid of nids) {
+    const meta = nodeMeta.get(nid);
+    if (!meta) continue;
+    const prev = byCode.get(meta.code);
+    if (!prev || meta.orderDateMs >= prev.orderDateMs) {
+      byCode.set(meta.code, {
+        code: meta.code,
+        orderDateMs: meta.orderDateMs,
+        orderDateLabel: meta.orderDateLabel,
+      });
+    }
+  }
+  return [...byCode.values()].sort((a, b) => b.orderDateMs - a.orderDateMs);
 }
 
 function latestMsFromEntries(hcmEntries, ordersEntries) {
@@ -108,35 +160,88 @@ export function formatCrossDupCodeList(entries) {
     .join(', ');
 }
 
+const MATCH_REASON_ORDER = ['SĐT + Mặt hàng', 'Tên + Mặt hàng', 'Địa chỉ + Mặt hàng'];
+
+function sortMatchReasons(reasons) {
+  const set = new Set(reasons || []);
+  return MATCH_REASON_ORDER.filter((r) => set.has(r));
+}
+
 /**
- * Nhóm trùng nội dung giữa order_code_hcm và orders (cùng khóa 4 trường, có mã ở cả hai bảng).
+ * Nhóm trùng nội dung giữa order_code_hcm và orders:
+ * trùng SĐT + Mặt hàng, hoặc Tên + Mặt hàng, hoặc Địa chỉ + Mặt hàng (có mã ở cả hai bảng).
  * Sắp xếp: ngày lên đơn gần hôm nay nhất lên đầu.
  */
 export function findHcmOrdersCrossTableDuplicateGroups(hcmRows, ordersRows) {
   const byKey = new Map();
+  const nodeMeta = new Map();
 
   for (const row of hcmRows || []) {
-    upsertCodeEntry(byKey, row, 'hcm');
+    registerRow(nodeMeta, byKey, row, 'hcm');
   }
   for (const row of ordersRows || []) {
-    upsertCodeEntry(byKey, row, 'orders');
+    registerRow(nodeMeta, byKey, row, 'orders');
+  }
+
+  const nodeList = [...nodeMeta.keys()];
+  if (nodeList.length === 0) return [];
+
+  const nodeIndex = new Map(nodeList.map((n, i) => [n, i]));
+  const uf = new UnionFind(nodeList.length);
+  const rootToReasons = new Map();
+
+  for (const [, { hcm, orders, reasons }] of byKey.entries()) {
+    if (hcm.size === 0 || orders.size === 0) continue;
+    const hcmArr = [...hcm];
+    const ordersArr = [...orders];
+    for (const h of hcmArr) {
+      for (const o of ordersArr) {
+        const hi = nodeIndex.get(h);
+        const oi = nodeIndex.get(o);
+        uf.union(hi, oi);
+        const root = uf.find(hi);
+        if (!rootToReasons.has(root)) rootToReasons.set(root, new Set());
+        for (const reason of reasons) rootToReasons.get(root).add(reason);
+      }
+    }
+  }
+
+  const rootToNodes = new Map();
+  for (const nid of nodeList) {
+    const root = uf.find(nodeIndex.get(nid));
+    if (!rootToNodes.has(root)) rootToNodes.set(root, []);
+    rootToNodes.get(root).push(nid);
   }
 
   const groups = [];
-  for (const [key, { hcm, orders }] of byKey.entries()) {
-    if (hcm.size === 0 || orders.size === 0) continue;
-    const hcmEntries = entriesFromMap(hcm);
-    const ordersEntries = entriesFromMap(orders);
+  for (const [root, nodes] of rootToNodes.entries()) {
+    const hcmNodes = nodes.filter((n) => nodeMeta.get(n)?.source === 'hcm');
+    const ordersNodes = nodes.filter((n) => nodeMeta.get(n)?.source === 'orders');
+    if (hcmNodes.length === 0 || ordersNodes.length === 0) continue;
+
+    const hcmEntries = entriesFromNodes(nodeMeta, hcmNodes);
+    const ordersEntries = entriesFromNodes(nodeMeta, ordersNodes);
     const latestOrderDateMs = latestMsFromEntries(hcmEntries, ordersEntries);
-    const sample =
-      (hcmRows || []).find((r) => buildHcmOrdersCrossDuplicateKey(r) === key) ||
-      (ordersRows || []).find((r) => buildHcmOrdersCrossDuplicateKey(r) === key);
+
+    let sample = null;
+    let sampleMs = -1;
+    for (const nid of nodes) {
+      const meta = nodeMeta.get(nid);
+      if (!meta?.row || meta.orderDateMs < sampleMs) continue;
+      sampleMs = meta.orderDateMs;
+      sample = meta.row;
+    }
+
+    const matchReasons = sortMatchReasons([...(rootToReasons.get(root) || [])]);
+    const key = [...nodes].sort().join('|');
+
     groups.push({
       key,
       name: pickField(sample, 'customer_name', 'Name*'),
       phone: pickField(sample, 'customer_phone', 'Phone*'),
       address: pickField(sample, 'customer_address', 'Add'),
       product: pickField(sample, 'product', 'Mặt hàng'),
+      matchReasons,
       latestOrderDateMs,
       latestOrderDateLabel: latestLabelFromMs(latestOrderDateMs, hcmEntries, ordersEntries),
       hcmEntries,
