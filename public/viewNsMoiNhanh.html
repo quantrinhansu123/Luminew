@@ -458,9 +458,28 @@
         grid-template-columns: 1fr;
       }
     }
+
+    .mkt-load-daily-btn {
+      background: #2d7c2d;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .mkt-load-daily-btn:hover {
+      background: #256825;
+    }
+
+    .daily-breakdown-hint {
+      color: #666;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 </head>
 
 <body>
@@ -977,7 +996,7 @@
       const personnelKey = MKT_PERSONNEL_SCOPE.skipPersonnelFilter
         ? 'ALL'
         : (MKT_PERSONNEL_SCOPE.allowedNames || []).slice().sort().join('|');
-      return `MKT_SUPABASE:v6:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
+      return `MKT_SUPABASE:v7:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -1315,7 +1334,7 @@
       let lastId = null;
 
       for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
-        let q = supabase.from('detail_reports').select('*');
+        let q = supabase.from('detail_reports').select(MKT_DETAIL_REPORTS_SELECT);
         q = applyMktTeamFilterToQuery(q);
         q = applyMktPersonnelFilterToQuery(q);
         if (startYmd) q = q.gte('Ngày', startYmd);
@@ -1365,7 +1384,7 @@
       let from = 0;
 
       for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
-        let q = supabase.from('detail_reports').select('*');
+        let q = supabase.from('detail_reports').select(MKT_DETAIL_REPORTS_SELECT);
         q = applyMktTeamFilterToQuery(q);
         q = applyMktPersonnelFilterToQuery(q);
         if (startYmd) q = q.gte('Ngày', startYmd);
@@ -1466,12 +1485,20 @@
     let masterData = [];
     let employeeData = [];
     let baseDataForReport = [];
-    const API_CACHE_TTL_MS = 120000;
-    const MAX_DAILY_BREAKDOWN_ROWS = 10000;
-    const DAILY_RENDER_CHUNK_SIZE = 5;
+    const API_CACHE_TTL_MS = 300000;
+    const MAX_DAILY_BREAKDOWN_ROWS = 2500;
+    const DAILY_RENDER_CHUNK_SIZE = 3;
+    const MKT_TAB1_FILTER_DEBOUNCE_MS = 150;
+    /** Chỉ các cột cần cho báo cáo — tránh select(*) tốn băng thông / RAM. */
+    const MKT_DETAIL_REPORTS_SELECT =
+      'id,"Ngày","Team","Tên","Email","Sản_phẩm","Thị_trường","CPQC","Số_Mess_Cmt","Số đơn","Số đơn thực tế","Doanh số","Doanh số TT","Doanh thu chốt thực tế","Số đơn hoàn hủy","Số đơn hoàn hủy thực tế","Doanh số hoàn hủy thực tế","DS sau hoàn hủy","Doanh số sau hoàn hủy thực tế","Doanh số sau ship","Doanh số TC","KPIs",ca,id_NS,"Chức vụ"';
     const mktApiCache = new Map();
     const charts = {};
     let dailyRenderJobId = 0;
+    let tab1FilterDebounceTimer = null;
+    let pendingDailyBreakdownData = null;
+    let dailyBreakdownExpanded = false;
+    let marketChartsInitialized = false;
     const sortStates = {
       summary: { column: null, direction: 'asc' },
       kpi: { column: null, direction: 'asc' },
@@ -1629,15 +1656,22 @@
       });
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      // Đăng ký plugin datalabels trên toàn cục
-      Chart.register(ChartDataLabels);
+    function showDefaultMktTab() {
+      document.querySelectorAll('.tab-content').forEach((tc) => {
+        tc.style.display = 'none';
+      });
+      document.querySelectorAll('.tablinks').forEach((tl) => tl.classList.remove('active'));
+      const tab = document.getElementById('DetailedReport');
+      if (tab) tab.style.display = 'block';
+      const btn = document.getElementById('defaultOpen');
+      if (btn) btn.classList.add('active');
+    }
 
+    document.addEventListener('DOMContentLoaded', () => {
       setupEventListeners();
       setDefaultDates();
+      showDefaultMktTab();
       fetchAndProcessData();
-      initMarketReportCharts(); // KHỞI TẠO BIỂU ĐỒ MKT
-      document.getElementById("defaultOpen").click();
     });
 
     window.addEventListener('message', (e) => {
@@ -1789,6 +1823,8 @@
 
     async function fetchAndProcessData() {
       showLoader();
+      dailyBreakdownExpanded = false;
+      pendingDailyBreakdownData = null;
       const savedFilters =
         mktPersistedFilterStates ||
         loadMktFilterStatesFromStorage() ||
@@ -1816,6 +1852,9 @@
         const rawRows = extractDetailReportsRows(resultMKT);
         const rowsNorm = rawRows.map(normalizeDetailReportRow);
         const rowsDeduped = dedupeMktDetailReportRows(rowsNorm);
+        const lo = document.getElementById('loading-overlay');
+        if (lo) lo.textContent = 'Đang xử lý dữ liệu…';
+        await new Promise((r) => requestAnimationFrame(r));
         let rdProductsSet = null;
         if (RD_PRODUCTS_ONLY) {
           try {
@@ -1837,60 +1876,67 @@
           MKT_ALLOWED_TEAMS && MKT_ALLOWED_TEAMS.length
             ? new Set(MKT_ALLOWED_TEAMS.map((t) => String(t).trim()))
             : null;
-        const masterDataMKT = rowsDeduped
-          .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
-          .filter((r) => {
-            if (!allowedSet) return true;
-            const t = String(r['Team'] || '').trim();
-            return allowedSet.has(t);
-          })
-          .filter((r) => {
-            if (!rdProductsSet) return true;
-            const p = String(r['Sản_phẩm'] || '').trim().toLowerCase();
-            return p && rdProductsSet.has(p);
-          })
-          .map(r => {
+        const masterDataMKT = [];
+        const mapChunkSize = 400;
+        for (let i = 0; i < rowsDeduped.length; i += mapChunkSize) {
+          const slice = rowsDeduped.slice(i, i + mapChunkSize);
+          for (const r of slice) {
+            if (!r['Tên'] || String(r['Tên']).trim() === '') continue;
+            if (allowedSet) {
+              const t = String(r['Team'] || '').trim();
+              if (!allowedSet.has(t)) continue;
+            }
+            if (rdProductsSet) {
+              const p = String(r['Sản_phẩm'] || '').trim().toLowerCase();
+              if (!p || !rdProductsSet.has(p)) continue;
+            }
             const dsChotTT =
-              parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0) ||
-              parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
-            /** DS Chốt = cột «Doanh số» nhập tay; DS Chốt (TT) vẫn từ Doanh số TT. */
-            const dsChotGross = parseMoneyNumber(r["Doanh số"] ?? r.doanh_so ?? 0);
-            const donTT = parseIntegerVi(r["Số đơn thực tế"] ?? r.so_don_thuc_te ?? 0);
-            const dsHuyVnd = parseMoneyNumber(r["Doanh số hoàn hủy thực tế"] ?? 0);
-            const dsSauHoanHuy = parseMoneyNumber(r["DS sau hoàn hủy"] ?? 0);
-            const ngayParsed = parseNgayToDate(r["Ngày"]);
-            const ngayKey = normalizeNgayForKey(ngayParsed || r["Ngày"]);
-            return {
+              parseMoneyNumber(r['Doanh số TT'] ?? r.doanh_so_tt ?? 0) ||
+              parseMoneyNumber(r['Doanh thu chốt thực tế'] ?? 0);
+            const dsChotGross = parseMoneyNumber(r['Doanh số'] ?? r.doanh_so ?? 0);
+            const donTT = parseIntegerVi(r['Số đơn thực tế'] ?? r.so_don_thuc_te ?? 0);
+            const dsHuyVnd = parseMoneyNumber(r['Doanh số hoàn hủy thực tế'] ?? 0);
+            const dsSauHoanHuy = parseMoneyNumber(r['DS sau hoàn hủy'] ?? 0);
+            const ngayParsed = parseNgayToDate(r['Ngày']);
+            const ngayKey = normalizeNgayForKey(ngayParsed || r['Ngày']);
+            masterDataMKT.push({
               reportId: r.id != null ? r.id : null,
-              idnv: (r["id_NS"] || '').trim(),
-              ten: (r["Tên"] || 'N/A').trim(),
-              email: (r["Email"] || '').trim(),
+              idnv: (r['id_NS'] || '').trim(),
+              ten: (r['Tên'] || 'N/A').trim(),
+              email: (r['Email'] || '').trim(),
               ngay: ngayParsed,
               ngayKey,
-              ca: String(r["ca"] || '').trim(),
-              sanPham: (r["Sản_phẩm"] || 'N/A').trim(),
-              thiTruong: (r["Thị_trường"] || 'N/A').trim(),
-              team: (r["Team"] || 'Khác').trim(),
-              chucVu: String(r["Chức vụ"] || '').trim().toLowerCase(),
-              cpqc: parseMoneyNumber(r["CPQC"]),
-              soMessCmt: parseIntegerVi(r["Số_Mess_Cmt"]),
+              ca: String(r['ca'] || '').trim(),
+              sanPham: (r['Sản_phẩm'] || 'N/A').trim(),
+              thiTruong: (r['Thị_trường'] || 'N/A').trim(),
+              team: (r['Team'] || 'Khác').trim(),
+              chucVu: String(r['Chức vụ'] || '').trim().toLowerCase(),
+              cpqc: parseMoneyNumber(r['CPQC']),
+              soMessCmt: parseIntegerVi(r['Số_Mess_Cmt']),
               soDon: parseIntegerVi(r['Số đơn'] ?? r.so_don ?? 0),
               dsChot: dsChotGross,
-              soDonHuy: parseIntegerVi(r["Số đơn hoàn hủy"]),
+              soDonHuy: parseIntegerVi(r['Số đơn hoàn hủy']),
               doanhSoHuy: dsHuyVnd > 0 ? dsHuyVnd : Math.max(0, dsChotTT - dsSauHoanHuy),
               dsSauHoanHuy: dsSauHoanHuy,
-              dsSauShip: Number(r["Doanh số sau ship"]) || 0,
-              dsThanhCong: Number(r["Doanh số TC"]) || 0,
-              kpiValue: Number(r["KPIs"]) || 0,
+              dsSauShip: Number(r['Doanh số sau ship']) || 0,
+              dsThanhCong: Number(r['Doanh số TC']) || 0,
+              kpiValue: Number(r['KPIs']) || 0,
               soDonThucTe: donTT,
               dsChotThucTe: dsChotTT,
               dsHoanHuyThucTe: dsHuyVnd,
-              soDonHuyThucTe: parseIntegerVi(r["Số đơn hoàn hủy thực tế"]),
-              dsSauHoanHuyThucTe: Number(r["Doanh số sau hoàn hủy thực tế"]) || 0,
-              dsThanhCongThucTe: Number(r["Doanh số đi thực tế"]) || 0,
+              soDonHuyThucTe: parseIntegerVi(r['Số đơn hoàn hủy thực tế']),
+              dsSauHoanHuyThucTe: Number(r['Doanh số sau hoàn hủy thực tế']) || 0,
+              dsThanhCongThucTe: Number(r['Doanh số đi thực tế']) || 0,
               detailRowKey: buildMktDetailReportRowKey(r),
-            };
-          });
+            });
+          }
+          if (lo && rowsDeduped.length > mapChunkSize) {
+            lo.textContent = `Đang xử lý dữ liệu… ${Math.min(i + mapChunkSize, rowsDeduped.length)}/${rowsDeduped.length}`;
+          }
+          if (i + mapChunkSize < rowsDeduped.length) {
+            await new Promise((r) => setTimeout(r, 0));
+          }
+        }
 
         masterData = masterDataMKT;
 
@@ -2322,7 +2368,7 @@
       const visibleTab = Array.from(document.querySelectorAll('.tab-content'))
         .find((el) => el.style.display !== 'none');
       const tabId = visibleTab ? visibleTab.id : 'DetailedReport';
-      if (tabId === 'DetailedReport') applyTab1Filters();
+      if (tabId === 'DetailedReport') applyTab1Filters({ immediate: true });
       else if (tabId === 'KpiReport') applyTab3Filters();
       else if (tabId === 'MarketReport') applyTab4Filters();
     }
@@ -2471,8 +2517,27 @@
     // --- V. CÁC HÀM ÁP DỤNG BỘ LỌC CHO TỪNG TAB ---
     // =================================================================================
 
-    function applyTab1Filters() {
+    function applyTab1Filters(opts = {}) {
+      const immediate = opts.immediate === true;
+      const run = () => applyTab1FiltersCore();
+      if (immediate) {
+        if (tab1FilterDebounceTimer) {
+          clearTimeout(tab1FilterDebounceTimer);
+          tab1FilterDebounceTimer = null;
+        }
+        run();
+        return;
+      }
+      if (tab1FilterDebounceTimer) clearTimeout(tab1FilterDebounceTimer);
+      tab1FilterDebounceTimer = setTimeout(() => {
+        tab1FilterDebounceTimer = null;
+        run();
+      }, MKT_TAB1_FILTER_DEBOUNCE_MS);
+    }
+
+    function applyTab1FiltersCore() {
       const filteredData = getFilteredData('tab1');
+      pendingDailyBreakdownData = filteredData;
       updateCaFilterHint();
       updateSummaryTableHeader();
       if (shouldHideSummaryTtColumns()) {
@@ -2483,7 +2548,40 @@
       sortList(summaryList, sortStates.summary, getSummaryColumnSortKeys(), { prop: 'team', type: 'string' });
       renderSummary(summaryList);
       updateSortIcons(document.getElementById('summary-table'), sortStates.summary);
-      requestAnimationFrame(() => renderDailyBreakdown(filteredData));
+      if (dailyBreakdownExpanded) {
+        requestAnimationFrame(() => renderDailyBreakdown(filteredData));
+      } else {
+        renderDailyBreakdownPlaceholder(filteredData);
+      }
+    }
+
+    function renderDailyBreakdownPlaceholder(filteredData) {
+      const container = document.getElementById('daily-breakdown');
+      if (!container) return;
+      dailyRenderJobId += 1;
+      if (!filteredData || filteredData.length === 0) {
+        container.innerHTML = '';
+        return;
+      }
+      const daySet = new Set();
+      filteredData.forEach((r) => {
+        const d = formatDate(r.ngay);
+        if (d) daySet.add(d);
+      });
+      const dayCount = daySet.size;
+      const rowCount = filteredData.length;
+      container.innerHTML = `
+        <div class="daily-breakdown-toggle-wrap" style="margin:16px 0;text-align:center;">
+          <p class="daily-breakdown-hint">Bảng tổng đã sẵn sàng. Chi tiết theo ngày (${formatNumber(dayCount)} ngày, ${formatNumber(rowCount)} dòng) chỉ tải khi bạn bấm — giúp máy yếu mở trang nhanh hơn.</p>
+          <button type="button" id="mkt-load-daily-breakdown-btn" class="mkt-load-daily-btn">Hiện chi tiết theo ngày</button>
+        </div>`;
+      const btn = document.getElementById('mkt-load-daily-breakdown-btn');
+      if (btn) {
+        btn.addEventListener('click', () => {
+          dailyBreakdownExpanded = true;
+          renderDailyBreakdown(pendingDailyBreakdownData || filteredData);
+        }, { once: true });
+      }
     }
 
     function applyTab3Filters() {
@@ -2791,6 +2889,7 @@
       const selM = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
       const detailTotals = sumGroupedSummaryTotals(dataList);
       const hideTtColumns = shouldHideSummaryTtColumns();
+      window.__LUMI_MKT_ALERT_DATE_LABEL = 'Tổng hợp';
       const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, detailTotals, { hideTtColumns });
       document.getElementById('summary-body').innerHTML = (footHtml || '') + bodyHtml;
       document.getElementById('summary-foot').innerHTML = '';
@@ -2936,7 +3035,7 @@
         window.__LUMI_MKT_ALERT_DATE_LABEL = date;
         const hideTtColumns = shouldHideSummaryTtColumns();
         const dayDetailTotals = sumGroupedSummaryTotals(dailyList);
-        const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals, { hideTtColumns });
+        const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals, { hideTtColumns, skipAlerts: true });
         return `<h3>${date}</h3><div class="table-responsive-container"><table class="sortable-table daily-summary-table" data-date="${date}">
         <thead><tr>
         ${getSummaryTableHeaderInnerHtml()}
@@ -3042,14 +3141,15 @@
             <td class="total-value">${formatPercent(tPc)}</td>
             <td class="total-value">${formatCurrency(tPdt)}</td>
         </tr>`;
-      // Phát cảnh báo KPI theo nhân sự (dựa vào dataList hiện tại). Nếu là bảng ngày, dateLabel sẽ được set từ context.
-      try {
-        const dateLabel = String(window.__LUMI_MKT_ALERT_DATE_LABEL || '').trim() || 'Tổng hợp';
-        const alerts = buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets);
-        // Gửi ngay để header cập nhật khi user đổi filter.
-        safePostMktAlerts(alerts);
-      } catch {
-        // ignore
+      // Phát cảnh báo KPI theo nhân sự (chỉ bảng tổng — tránh spam khi render theo ngày).
+      if (!options.skipAlerts) {
+        try {
+          const dateLabel = String(window.__LUMI_MKT_ALERT_DATE_LABEL || '').trim() || 'Tổng hợp';
+          const alerts = buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets);
+          safePostMktAlerts(alerts);
+        } catch {
+          // ignore
+        }
       }
       return { bodyHtml: bodyRowsHtml, footHtml: totalRowHtml };
     }
@@ -3086,7 +3186,7 @@
       if (tableType === 'daily') {
         sortAndRenderDailyTable(tableElement, sortState);
       } else if (tableType === 'summary') {
-        applyTab1Filters();
+        applyTab1Filters({ immediate: true });
       } else if (tableType === 'kpi') {
         applyTab3Filters();
       }
@@ -3101,7 +3201,7 @@
       const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
       const hideTtColumns = shouldHideSummaryTtColumns();
       const dayDetailTotals = sumGroupedSummaryTotals(dailyList);
-      const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals, { hideTtColumns });
+      const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals, { hideTtColumns, skipAlerts: true });
       const tb = table.querySelector('tbody');
       if (tb) tb.innerHTML = bodyHtml;
       let tf = table.querySelector('tfoot');
@@ -3153,6 +3253,46 @@
     // --- IX. LOGIC TAB VÀ BIỂU ĐỒ ---
     // =================================================================================
 
+    function loadExternalScriptOnce(src) {
+      const key = `mkt-script:${src}`;
+      if (window[key]) return window[key];
+      window[key] = new Promise((resolve, reject) => {
+        const existing = document.querySelector(`script[data-mkt-src="${src}"]`);
+        if (existing) {
+          if (existing.dataset.loaded === '1') {
+            resolve();
+            return;
+          }
+          existing.addEventListener('load', () => resolve(), { once: true });
+          existing.addEventListener('error', () => reject(new Error(`Không tải được ${src}`)), { once: true });
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = src;
+        s.dataset.mktSrc = src;
+        s.async = true;
+        s.onload = () => {
+          s.dataset.loaded = '1';
+          resolve();
+        };
+        s.onerror = () => reject(new Error(`Không tải được ${src}`));
+        document.head.appendChild(s);
+      });
+      return window[key];
+    }
+
+    async function ensureMarketReportCharts() {
+      if (marketChartsInitialized) return;
+      await loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/chart.js');
+      await loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels');
+      if (typeof Chart === 'undefined') return;
+      if (typeof ChartDataLabels !== 'undefined') {
+        Chart.register(ChartDataLabels);
+      }
+      initMarketReportCharts();
+      marketChartsInitialized = true;
+    }
+
     function openTab(evt, tabName) {
       document.querySelectorAll(".tab-content").forEach(tc => tc.style.display = "none");
       document.querySelectorAll(".tablinks").forEach(tl => tl.classList.remove("active"));
@@ -3164,18 +3304,20 @@
       if (currentTabButton) currentTabButton.classList.add("active");
 
       showLoader();
-      setTimeout(() => {
+      setTimeout(async () => {
         try {
-          // Chỉ áp dụng bộ lọc cho tab tương ứng thay vì tải lại toàn bộ
-          if (tabName === 'DetailedReport') applyTab1Filters();
+          if (tabName === 'DetailedReport') applyTab1Filters({ immediate: true });
           if (tabName === 'KpiReport') applyTab3Filters();
-          if (tabName === 'MarketReport') applyTab4Filters();
+          if (tabName === 'MarketReport') {
+            await ensureMarketReportCharts();
+            applyTab4Filters();
+          }
         } catch (error) {
           console.error('Lỗi khi chuyển tab:', tabName, error);
         } finally {
           hideLoader();
         }
-      }, 100);
+      }, 50);
     }
 
     function initMarketReportCharts() {
