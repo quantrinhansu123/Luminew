@@ -996,7 +996,7 @@
       const personnelKey = MKT_PERSONNEL_SCOPE.skipPersonnelFilter
         ? 'ALL'
         : (MKT_PERSONNEL_SCOPE.allowedNames || []).slice().sort().join('|');
-      return `MKT_SUPABASE:v8:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
+      return `MKT_SUPABASE:v9:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -1047,8 +1047,14 @@
         'Số đơn': parseIntegerVi(item['Số đơn'] ?? item.so_don ?? 0),
         'Số đơn thực tế': parseIntegerVi(item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0),
         'Doanh số': item['Doanh số'] ?? item.doanh_so ?? 0,
-        /** API trả `doanh_so_tt` — đồng bộ React / pickDoanhSoTT (DS Chốt TT). */
-        'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
+        /** DS Chốt (TT) — cột «Doanh số TT» / doanh_so_tt (recalc từ orders). */
+        'Doanh số TT': parseMoneyNumber(
+          item.doanh_so_tt ??
+            item['Doanh số TT'] ??
+            item['Doanh thu chốt thực tế'] ??
+            item.doanh_thu_chot_thuc_te ??
+            0
+        ),
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] ?? item.doanh_thu_chot_thuc_te ?? 0,
         'Số đơn hoàn hủy': parseIntegerVi(
           item['Số đơn hoàn hủy'] ??
@@ -1165,7 +1171,10 @@
 
     function parseDoanhSoChotTTFromRow(row) {
       if (!row) return 0;
-      return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
+      return (
+        parseMoneyNumber(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) ||
+        parseMoneyNumber(row['Doanh thu chốt thực tế'] ?? row.doanh_thu_chot_thuc_te ?? 0)
+      );
     }
 
     function parseSoDonHoanHuyFromRow(row) {
@@ -1521,9 +1530,9 @@
     const MAX_DAILY_BREAKDOWN_ROWS = 2500;
     const DAILY_RENDER_CHUNK_SIZE = 3;
     const MKT_TAB1_FILTER_DEBOUNCE_MS = 150;
-    /** Chỉ cột có trên detail_reports (không gồm alias «Doanh số TT» / «Chức vụ»). */
+    /** Cột detail_reports cho báo cáo MKT (gồm DS Chốt TT). */
     const MKT_DETAIL_REPORTS_SELECT =
-      'id,"Ngày","Team","Tên","Email","Sản_phẩm","Thị_trường","CPQC","Số_Mess_Cmt","Số đơn","Số đơn thực tế","Doanh số","Doanh thu chốt thực tế","Số đơn hoàn hủy","Số đơn hoàn hủy thực tế","Doanh số hoàn hủy thực tế","DS sau hoàn hủy","Doanh số sau hoàn hủy thực tế","Doanh số sau ship","Doanh số TC","KPIs","Doanh số đi thực tế",ca,id_NS,department';
+      'id,"Ngày","Team","Tên","Email","Sản_phẩm","Thị_trường","CPQC","Số_Mess_Cmt","Số đơn","Số đơn thực tế","Doanh số","Doanh số TT",doanh_so_tt,"Doanh thu chốt thực tế","Số đơn hoàn hủy","Số đơn hoàn hủy thực tế","Doanh số hoàn hủy thực tế","DS sau hoàn hủy","Doanh số sau hoàn hủy thực tế","Doanh số sau ship","Doanh số TC","KPIs","Doanh số đi thực tế",ca,id_NS,department';
     let mktDetailReportsSelectActive = MKT_DETAIL_REPORTS_SELECT;
     const mktApiCache = new Map();
     const charts = {};
