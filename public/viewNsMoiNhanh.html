@@ -2159,34 +2159,14 @@
         if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
         return true;
       });
-      const messCpqcByBaseKey = new Map();
-      baseDataForReport.forEach((r) => {
-        if (!rowPassesNonCaFilters(r)) return;
-        const key = manualMetricBaseKey(r);
-        if (!key) return;
-        const prev = messCpqcByBaseKey.get(key) || { mess: 0, cpqc: 0 };
-        prev.mess += Number(r.soMessCmt) || 0;
-        prev.cpqc += Number(r.cpqc) || 0;
-        messCpqcByBaseKey.set(key, prev);
-      });
-      const overlayMessCpqcOntoRow = (r) => {
-        const overlay = messCpqcByBaseKey.get(manualMetricBaseKey(r));
-        if (!overlay) return r;
-        const next = { ...r };
-        if (!(Number(next.soMessCmt) || 0) && overlay.mess) next.soMessCmt = overlay.mess;
-        if (!(Number(next.cpqc) || 0) && overlay.cpqc) next.cpqc = overlay.cpqc;
-        return next;
-      };
 
       if (!isSingleGiuaCaFilter) {
         if (isSingleHetCaFilter) {
-          return filteredDataResult.map((r) =>
-            overlayMessCpqcOntoRow({
-              ...r,
-              soDon: Number(r.soDonThucTe) || 0,
-              dsChot: Number(r.dsChotThucTe) || 0,
-            })
-          );
+          return filteredDataResult.map((r) => ({
+            ...r,
+            soDon: Number(r.soDonThucTe) || 0,
+            dsChot: Number(r.dsChotThucTe) || 0,
+          }));
         }
         return filteredDataResult;
       }
@@ -2771,7 +2751,7 @@
       if (isHetcaOnlyCaFilter('tab1')) {
         el.style.display = 'block';
         el.innerHTML =
-          'Đang lọc <strong>Hết ca</strong>: cột <strong>Số Đơn</strong> và <strong>DS Chốt</strong> lấy theo <strong>Số Đơn (TT)</strong> và <strong>DS Chốt (TT)</strong>. <strong>Số Mess</strong> và <strong>CPQC</strong> gộp từ mọi ca (thường nhập ở Giữa ca).';
+          'Đang lọc <strong>Hết ca</strong>: <strong>Số Đơn</strong> và <strong>DS Chốt</strong> lấy theo <strong>Số Đơn (TT)</strong> / <strong>DS Chốt (TT)</strong>; <strong>Số Mess</strong> và <strong>CPQC</strong> chỉ từ dòng báo cáo <strong>Hết ca</strong>.';
         return;
       }
       el.style.display = 'none';
