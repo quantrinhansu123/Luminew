@@ -432,6 +432,7 @@ function QuanLyCSKH({
     'Kết quả Check',
     'CSKH',
     'Trạng thái giao hàng',
+    'Trạng thái thu tiền',
     'Ngày đối soát bill',
     'Ngày đối soát cước',
     'Tổng tiền VNĐ',

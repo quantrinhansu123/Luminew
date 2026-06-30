@@ -589,6 +589,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Ca',
     'Mã Tracking',
     'Trạng thái giao hàng',
+    'Trạng thái thu tiền',
     'Phản hồi tích cực',
     'Phản hồi tiêu cực',
     'Ngày đối soát bill',
