@@ -66,6 +66,24 @@ table textarea {
   user-select: text;
 }
 
+/* Quản lý CSKH / danh sách đơn: bôi đen vùng chọn + Ctrl+C (ghi đè user-select: none trên table) */
+[data-cskh-grid-root],
+[data-cskh-grid-root] table,
+[data-cskh-grid-root] td,
+[data-cskh-grid-root] th {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+[data-cskh-grid-root] button,
+[data-cskh-grid-root] input,
+[data-cskh-grid-root] select {
+  cursor: pointer;
+}
+
 /* Modal trùng HCM ↔ orders (/van-don-hcm): cho bôi đen & Ctrl+C */
 .van-don-hcm-cross-dup-modal,
 .van-don-hcm-cross-dup-modal table,

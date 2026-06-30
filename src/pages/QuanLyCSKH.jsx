@@ -13,6 +13,7 @@ import {
   sortOrdersByDisplayDateDesc,
 } from '../utils/dateParsing';
 import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
+import '../styles/selection.css';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
 
 /** Hotfix: chỉ bật gửi feedback_* khi DB production đã sẵn sàng cho cả orders + order_code_hcm */
@@ -1227,78 +1228,6 @@ function QuanLyCSKH({
     }
   };
 
-  // Handle Ctrl+C to copy selected row
-  useEffect(() => {
-    const handleKeyDown = async (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        if (!selectedRowId) return;
-
-        const filteredRow = filteredData.find(row => row.id === selectedRowId);
-        if (!filteredRow) return;
-
-        // Prevent default copy behavior if we are handling it
-        e.preventDefault();
-
-        // Format data based on visible columns (displayColumns)
-        const rowValues = displayColumns.map(col => {
-          let value = filteredRow[col];
-
-          if (col === 'CSKH') {
-            value = filteredRow['CSKH'];
-            value = value != null && value !== '' ? String(value).trim() : '';
-          } else if (col === 'Mã Tracking') {
-            value = filteredRow['Mã Tracking'] ?? filteredRow.tracking_code;
-          } else if (col === 'Kết quả Check') {
-            value = filteredRow['Kết quả Check'] ?? filteredRow.check_result;
-          } else if (col === 'Trạng thái thu tiền') {
-            value = filteredRow['Trạng thái thu tiền'] ?? filteredRow.payment_status_detail ?? filteredRow.payment_status;
-          } else if (value === undefined || value === null) {
-            const key = COLUMN_MAPPING[col];
-            if (key) value = filteredRow[key];
-          }
-
-          value = value ?? '';
-
-          // Format date
-          if (col.includes('Ngày') || col.includes('Time') || col === 'order_date') {
-            value = formatDate(value);
-          }
-
-          // Format money
-          if (['Tổng tiền VNĐ', 'Tiền Hàng', 'Phí ship', 'Phí Chung'].includes(col)) {
-            const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
-            value = num.toLocaleString('vi-VN') + ' ₫';
-          }
-
-          return String(value).replace(/\t/g, ' ').trim(); // Remove tabs from content to avoid breaking TSV
-        });
-
-        const tsv = rowValues.join('\t');
-
-        try {
-          await navigator.clipboard.writeText(tsv);
-          toast.success("📋 Đã sao chép dòng vào bộ nhớ tạm!", {
-            autoClose: 2000,
-            hideProgressBar: true,
-          });
-        } catch (err) {
-          console.error('Copy failed:', err);
-          toast.error("❌ Sao chép thất bại");
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedRowId, filteredData, displayColumns]);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredData.length / rowsPerPage);
-  const paginatedData = useMemo(() => {
-    const start = (currentPage - 1) * rowsPerPage;
-    return filteredData.slice(start, start + rowsPerPage);
-  }, [filteredData, currentPage, rowsPerPage]);
-
   // Format date
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -1313,6 +1242,100 @@ function QuanLyCSKH({
       return dateString;
     }
   };
+
+  /** Giá trị ô như trên lưới — dùng cho Ctrl+C / sao chép dòng. */
+  const getCellDisplayValueForRow = useCallback((row, col) => {
+    let value = row[col];
+
+    if (col === 'CSKH') {
+      value = row['CSKH'];
+      value = value != null && value !== '' ? String(value).trim() : '';
+    } else if (col === 'Mã Tracking') {
+      value = row['Mã Tracking'] ?? row.tracking_code;
+    } else if (col === 'Kết quả Check') {
+      value = row['Kết quả Check'] ?? row.check_result;
+    } else if (col === 'Trạng thái thu tiền') {
+      value = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
+    } else if (value === undefined || value === null) {
+      const key = COLUMN_MAPPING[col];
+      if (key) value = row[key];
+    }
+
+    value = value ?? '';
+
+    if (col.includes('Ngày') || col.includes('Time') || col === 'order_date') {
+      value = formatDate(value);
+    }
+
+    if (['Tổng tiền VNĐ', 'Tiền Hàng', 'Phí ship', 'Phí Chung'].includes(col)) {
+      const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
+      value = num.toLocaleString('vi-VN') + ' ₫';
+    }
+
+    return String(value).replace(/\t/g, ' ').trim();
+  }, []);
+
+  // Bôi đen vùng chọn → Ctrl+C; hoặc click dòng (highlight) rồi Ctrl+C copy cả dòng
+  useEffect(() => {
+    const gridRoot = () => document.querySelector('[data-cskh-grid-root]');
+
+    const handleCopy = (e) => {
+      const active = document.activeElement;
+      const isInInput =
+        active &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+      if (isInInput && active && !active.closest('[data-cskh-grid-root]')) return;
+
+      const root = gridRoot();
+      const sel = window.getSelection();
+      const selectedText = sel?.toString().trim() ?? '';
+      if (
+        selectedText &&
+        root &&
+        sel?.anchorNode &&
+        root.contains(sel.anchorNode)
+      ) {
+        return;
+      }
+
+      if (selectedRowId == null) return;
+
+      const filteredRow = filteredData[selectedRowId];
+      if (!filteredRow) return;
+
+      const rowValues = displayColumns.map((col) => getCellDisplayValueForRow(filteredRow, col));
+      const tsv = rowValues.join('\t');
+      if (!tsv) return;
+
+      try {
+        e.preventDefault();
+        e.clipboardData.setData('text/plain', tsv);
+        toast.success('📋 Đã sao chép dòng vào bộ nhớ tạm!', {
+          autoClose: 2000,
+          hideProgressBar: true,
+        });
+      } catch (err) {
+        console.error('Copy failed:', err);
+        navigator.clipboard.writeText(tsv).catch(() => {
+          toast.error('❌ Sao chép thất bại');
+        });
+      }
+    };
+
+    document.addEventListener('copy', handleCopy, true);
+    return () => document.removeEventListener('copy', handleCopy, true);
+  }, [selectedRowId, filteredData, displayColumns, getCellDisplayValueForRow]);
+
+  useEffect(() => {
+    setSelectedRowId(null);
+  }, [currentPage, rowsPerPage]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return filteredData.slice(start, start + rowsPerPage);
+  }, [filteredData, currentPage, rowsPerPage]);
 
   // Handle sort
   const handleSort = (column) => {
@@ -2398,7 +2421,10 @@ function QuanLyCSKH({
 
         {/* Table */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <p className="px-4 py-2 text-xs text-gray-500 border-b border-gray-100">
+            Click dòng để bôi xanh → <kbd className="px-1 py-0.5 bg-gray-100 rounded text-[10px]">Ctrl+C</kbd> sao chép cả dòng. Hoặc kéo chuột bôi đen nhiều ô → <kbd className="px-1 py-0.5 bg-gray-100 rounded text-[10px]">Ctrl+C</kbd> dán vào Excel.
+          </p>
+          <div className="overflow-x-auto" data-cskh-grid-root>
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
@@ -2442,49 +2468,27 @@ function QuanLyCSKH({
                     </td>
                   </tr>
                 ) : (
-                  paginatedData.map((row, index) => (
+                  paginatedData.map((row, index) => {
+                    const rowIndexFiltered = (currentPage - 1) * rowsPerPage + index;
+                    const isSelected = selectedRowId === rowIndexFiltered;
+                    const trClass = isSelected
+                      ? 'cursor-pointer transition-colors bg-blue-100 ring-2 ring-inset ring-blue-500 hover:bg-blue-100'
+                      : 'cursor-pointer transition-colors hover:bg-gray-50';
+
+                    return (
                     <tr
-                      key={row[PRIMARY_KEY_COLUMN] || index}
-                      onClick={() => setSelectedRowId(row.id)}
-                      className={`cursor-pointer transition-colors ${selectedRowId === row.id ? 'bg-blue-100 hover:bg-blue-200' : 'hover:bg-gray-50'}`}
+                      key={row[PRIMARY_KEY_COLUMN] || row.id || index}
+                      onMouseDown={() => setSelectedRowId(rowIndexFiltered)}
+                      className={trClass}
                     >
                       {displayColumns.map((col) => {
-                        // Priority: Check if row has exact key 'col'. If not, try COLUMN_MAPPING.
-                        // This prevents COLUMN_MAPPING from overriding our manually mapped friendly keys.
-                        let value = row[col];
-
-                        if (col === 'CSKH') {
-                          value = row['CSKH'];
-                          value = value != null && value !== '' ? String(value).trim() : '';
-                        } else if (col === 'Mã Tracking') {
-                          value = row['Mã Tracking'] ?? row.tracking_code;
-                        } else if (col === 'Kết quả Check') {
-                          value = row['Kết quả Check'] ?? row.check_result;
-                        } else if (col === 'Trạng thái thu tiền') {
-                          value = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
-                        } else if (value === undefined || value === null) {
-                          const key = COLUMN_MAPPING[col];
-                          if (key) value = row[key];
-                        }
-
-                        value = value ?? '';
-
-                        // Format date
-                        if (col.includes('Ngày') || col.includes('Time') || col === 'order_date') {
-                          value = formatDate(value);
-                        }
-
-                        // Format money
-                        if (['Tổng tiền VNĐ', 'Tiền Hàng', 'Phí ship', 'Phí Chung'].includes(col)) {
-                          const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
-                          value = num.toLocaleString('vi-VN') + ' ₫';
-                        }
+                        const value = getCellDisplayValueForRow(row, col);
 
                         return (
                           <td
                             key={col}
-                            className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50"
-                            title={`${value || '-'} (Double-click để copy)`}
+                            className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                            title={`${value || '-'} (Double-click để copy ô)`}
                             onDoubleClick={(e) => handleCellClick(e, value)}
                           >
                             {value || '-'}
@@ -2494,7 +2498,12 @@ function QuanLyCSKH({
 
                       {/* Action Column - Chỉ Admin mới thấy */}
                       {isAdmin() && (
-                        <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap border-l border-gray-200 sticky right-0 bg-white z-10 text-center">
+                        <td
+                          className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap border-l border-gray-200 sticky right-0 z-10 text-center ${
+                            isSelected ? 'bg-blue-100' : 'bg-white'
+                          }`}
+                          onMouseDown={(e) => e.stopPropagation()}
+                        >
                           <div className="flex items-center justify-center gap-1.5">
                             {/* View - Open Modal Read Only */}
                             <button
@@ -2542,7 +2551,8 @@ function QuanLyCSKH({
                         </td>
                       )}
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
