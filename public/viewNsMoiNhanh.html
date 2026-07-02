@@ -1863,7 +1863,8 @@
      * Khi xem báo cáo, phủ lại các chỉ số thực tế từ bảng đơn HN để khớp `/danh-sach-don`.
      */
     const MKT_HN_ORDERS_TABLE = 'orders';
-    const MKT_HN_ORDERS_PAGE_SIZE = 2000;
+    /** PostgREST thường giới hạn ~1000 dòng/response — page >1000 dễ tưởng đã hết và dừng sớm. */
+    const MKT_HN_ORDERS_PAGE_SIZE = 500;
     const MKT_HN_ORDERS_MAX_PAGES = 2000;
 
     function normalizeShiftSegStr(str) {
@@ -1898,6 +1899,7 @@
       const allRows = [];
       const { startYmd, endYmd } = dateRange || {};
       let from = 0;
+      let complete = true;
 
       for (let page = 0; page < MKT_HN_ORDERS_MAX_PAGES; page++) {
         let q = supabase
@@ -1920,9 +1922,15 @@
         allRows.push(...chunk);
         if (chunk.length < MKT_HN_ORDERS_PAGE_SIZE) break;
         from += chunk.length;
+        if (page >= MKT_HN_ORDERS_MAX_PAGES - 1) {
+          complete = false;
+          console.warn(
+            `⚠️ ${MKT_HN_ORDERS_TABLE} có thể chưa tải hết cho overlay: đã chạm giới hạn ${MKT_HN_ORDERS_MAX_PAGES} trang × ${MKT_HN_ORDERS_PAGE_SIZE} dòng.`
+          );
+        }
       }
 
-      return allRows;
+      return { orders: allRows, complete };
     }
 
     function buildMktActualBaseKey(dateVal, nameVal, productVal, marketVal) {
@@ -2034,7 +2042,13 @@
     }
 
     async function overlayHnActualsFromOrders(rowsNorm, dateRange) {
-      const orders = await fetchAllHnOrdersForActualOverlay(dateRange);
+      const { orders, complete } = await fetchAllHnOrdersForActualOverlay(dateRange);
+      if (!complete) {
+        console.warn(
+          `[MKT HN] Bỏ qua phủ số TT từ ${MKT_HN_ORDERS_TABLE} vì tải đơn chưa đủ — giữ số trên detail_reports để tránh hiển thị 0 sai.`
+        );
+        return rowsNorm;
+      }
       const actualsByKey = buildHnActualsByReportKey(orders);
       let changedRows = 0;
 
