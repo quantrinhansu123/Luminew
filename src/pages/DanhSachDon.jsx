@@ -3241,13 +3241,24 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
-    const cols = displayColumns || [];
+    let cols = displayColumns || [];
     if (cols.length === 0) {
       toast.info('Không có cột hiển thị để xuất — bật cột trong Cài đặt cột.', {
         autoClose: 2500,
         hideProgressBar: true,
       });
       return;
+    }
+    // Đảm bảo «Trạng thái thu tiền» luôn đứng cạnh «Trạng thái giao hàng» trong file Excel
+    // (theo yêu cầu cho cả /danh-sach-don và /danh-sach-don-hcm), kể cả khi người dùng
+    // đã kéo sắp xếp khác trên lưới.
+    const giaoHangIdx = cols.indexOf('Trạng thái giao hàng');
+    const thuTienIdx = cols.indexOf('Trạng thái thu tiền');
+    if (giaoHangIdx !== -1 && thuTienIdx !== -1 && thuTienIdx !== giaoHangIdx + 1) {
+      const nextCols = cols.slice();
+      const [thuTienCol] = nextCols.splice(thuTienIdx, 1);
+      nextCols.splice(giaoHangIdx + 1, 0, thuTienCol);
+      cols = nextCols;
     }
     const exportRows = rows.map((row) => {
       const obj = {};
