@@ -1047,12 +1047,10 @@
         'Số đơn': parseIntegerVi(item['Số đơn'] ?? item.so_don ?? 0),
         'Số đơn thực tế': parseIntegerVi(item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0),
         'Doanh số': item['Doanh số'] ?? item.doanh_so ?? 0,
-        /** DS Chốt (TT) — cột «Doanh số TT» / doanh_so_tt (recalc từ orders). */
+        /** DS Chốt (TT) — chỉ «Doanh số TT» / doanh_so_tt; không fallback cột legacy. */
         'Doanh số TT': parseMoneyNumber(
           item.doanh_so_tt ??
             item['Doanh số TT'] ??
-            item['Doanh thu chốt thực tế'] ??
-            item.doanh_thu_chot_thuc_te ??
             0
         ),
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] ?? item.doanh_thu_chot_thuc_te ?? 0,
@@ -1171,10 +1169,7 @@
 
     function parseDoanhSoChotTTFromRow(row) {
       if (!row) return 0;
-      return (
-        parseMoneyNumber(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) ||
-        parseMoneyNumber(row['Doanh thu chốt thực tế'] ?? row.doanh_thu_chot_thuc_te ?? 0)
-      );
+      return parseMoneyNumber(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0);
     }
 
     function parseSoDonHoanHuyFromRow(row) {
@@ -1863,6 +1858,212 @@
       }
     }
 
+    /**
+     * `detail_reports` có thể còn số TT cũ sau khi đơn đã chuyển/xóa khỏi `orders`.
+     * Khi xem báo cáo, phủ lại các chỉ số thực tế từ bảng đơn HN để khớp `/danh-sach-don`.
+     */
+    const MKT_HN_ORDERS_TABLE = 'orders';
+    const MKT_HN_ORDERS_PAGE_SIZE = 2000;
+    const MKT_HN_ORDERS_MAX_PAGES = 2000;
+
+    function normalizeShiftSegStr(str) {
+      if (str == null || str === undefined) return '';
+      return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    /** Giống orderShiftToGroups trong mktRecalcSoDonThucTeFromOrders.js. */
+    function orderShiftToGroupsForMktKey(shiftVal) {
+      const raw = String(shiftVal ?? '').trim();
+      if (!raw) return [];
+      const segments = raw
+        .split(/[,，;；]/)
+        .map((p) => normalizeShiftSegStr(String(p).trim()))
+        .filter((p) => p.length > 0);
+      const parts = segments.length > 0 ? segments : [normalizeShiftSegStr(raw)];
+      let hasHet = false;
+      let hasGua = false;
+      for (const seg of parts) {
+        if (!seg) continue;
+        if (seg.includes('hết ca') || seg.includes('het ca')) hasHet = true;
+        if (seg.includes('giữa ca') || seg.includes('giua ca')) hasGua = true;
+      }
+      const groups = [];
+      if (hasHet) groups.push('Hết ca');
+      if (hasGua) groups.push('Giữa ca');
+      return groups;
+    }
+
+    async function fetchAllHnOrdersForActualOverlay(dateRange) {
+      const supabase = await getSupabaseClient();
+      const allRows = [];
+      const { startYmd, endYmd } = dateRange || {};
+      let from = 0;
+
+      for (let page = 0; page < MKT_HN_ORDERS_MAX_PAGES; page++) {
+        let q = supabase
+          .from(MKT_HN_ORDERS_TABLE)
+          .select(
+            'order_code, order_date, marketing_staff, product, country, shift, check_result, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
+          );
+        if (startYmd) q = q.gte('order_date', startYmd);
+        if (endYmd) q = q.lte('order_date', endYmd);
+        q = q
+          .order('order_date', { ascending: true })
+          .order('order_code', { ascending: true })
+          .range(from, from + MKT_HN_ORDERS_PAGE_SIZE - 1);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        const chunk = data || [];
+        if (chunk.length === 0) break;
+
+        allRows.push(...chunk);
+        if (chunk.length < MKT_HN_ORDERS_PAGE_SIZE) break;
+        from += chunk.length;
+      }
+
+      return allRows;
+    }
+
+    function buildMktActualBaseKey(dateVal, nameVal, productVal, marketVal) {
+      return [
+        normalizeNgayForKey(dateVal),
+        normalizeNameForKey(nameVal),
+        normalizeFieldForKey(productVal),
+        normalizeFieldForKey(marketVal),
+      ].join('|');
+    }
+
+    function caSegmentFromGroupLabel(groupLabel) {
+      const norm = normalizeShiftSegStr(groupLabel);
+      if (norm.includes('hết ca') || norm.includes('het ca')) return 'het';
+      if (norm.includes('giữa ca') || norm.includes('giua ca')) return 'gua';
+      return normalizeCaForRowKey(groupLabel);
+    }
+
+    function orderShiftGroupsForActualOverlay(shiftVal) {
+      const groups = orderShiftToGroupsForMktKey(shiftVal);
+      return groups.length > 0 ? groups : ['Hết ca'];
+    }
+
+    function orderAmountVndForActualOverlay(order) {
+      const candidates = [
+        order?.total_amount_vnd,
+        order?.total_vnd,
+        order?.tong_tien_vnd,
+        order?.van_don_line_total_vnd,
+        order?.reconciled_vnd,
+        order?.goods_amount,
+      ];
+      for (const raw of candidates) {
+        if (raw == null || raw === '') continue;
+        const n = parseMoneyNumber(raw);
+        if (n > 0) return n;
+      }
+      return parseMoneyNumber(order?.sale_price ?? 0);
+    }
+
+    function isMktActualOrderCountable(order) {
+      return orderAmountVndForActualOverlay(order) > 0;
+    }
+
+    function isOrderHuyForActualOverlay(order) {
+      const s = String(order?.check_result ?? '').trim();
+      if (!s) return false;
+      const ascii = s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      return ascii === 'huy';
+    }
+
+    function buildHnActualsByReportKey(orders) {
+      const counts = new Map();
+      for (const order of orders || []) {
+        if (!isMktActualOrderCountable(order)) continue;
+        const baseKey = buildMktActualBaseKey(
+          order.order_date,
+          order.marketing_staff,
+          order.product,
+          order.country
+        );
+        if (!baseKey || baseKey.split('|').some((part) => !part)) continue;
+
+        const amount = orderAmountVndForActualOverlay(order);
+        const isHuy = isOrderHuyForActualOverlay(order);
+        for (const group of orderShiftGroupsForActualOverlay(order.shift)) {
+          const key = `${baseKey}|${caSegmentFromGroupLabel(group)}`;
+          const prev =
+            counts.get(key) ||
+            { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0 };
+          prev.count += 1;
+          prev.totalRevenueVnd += amount;
+          if (isHuy) {
+            prev.cancelCount += 1;
+            prev.cancelRevenueVnd += amount;
+          }
+          counts.set(key, prev);
+        }
+      }
+      return counts;
+    }
+
+    function applyMktActualsToReportRow(row, actual) {
+      const count = actual?.count || 0;
+      const cancelCount = actual?.cancelCount || 0;
+      const totalRevenueVnd = actual?.totalRevenueVnd || 0;
+      const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
+      const netCount = Math.max(0, count - cancelCount);
+      const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
+      return {
+        ...row,
+        'Số đơn thực tế': netCount,
+        so_don_thuc_te: row.so_don_thuc_te != null ? netCount : row.so_don_thuc_te,
+        order_count_actual: row.order_count_actual != null ? netCount : row.order_count_actual,
+        'Doanh số TT': netRevenueVnd,
+        doanh_so_tt: row.doanh_so_tt != null ? netRevenueVnd : row.doanh_so_tt,
+        'Số đơn hoàn hủy': cancelCount,
+        'Số đơn hoàn hủy thực tế': cancelCount,
+        so_don_hoan_huy: row.so_don_hoan_huy != null ? cancelCount : row.so_don_hoan_huy,
+        so_don_hoan_huy_thuc_te:
+          row.so_don_hoan_huy_thuc_te != null ? cancelCount : row.so_don_hoan_huy_thuc_te,
+        'Doanh số hoàn hủy thực tế': cancelRevenueVnd,
+        doanh_so_hoan_huy_thuc_te:
+          row.doanh_so_hoan_huy_thuc_te != null ? cancelRevenueVnd : row.doanh_so_hoan_huy_thuc_te,
+      };
+    }
+
+    async function overlayHnActualsFromOrders(rowsNorm, dateRange) {
+      const orders = await fetchAllHnOrdersForActualOverlay(dateRange);
+      const actualsByKey = buildHnActualsByReportKey(orders);
+      let changedRows = 0;
+
+      const rows = (rowsNorm || []).map((row) => {
+        const baseKey = buildMktActualBaseKey(
+          row['Ngày'],
+          row['Tên'],
+          row['Sản_phẩm'],
+          row['Thị_trường']
+        );
+        if (!baseKey || baseKey.split('|').some((part) => !part)) return row;
+
+        const caKey = normalizeCaForRowKey(row.ca ?? row['Ca'] ?? row.shift);
+        const actual = actualsByKey.get(`${baseKey}|${caKey}`);
+        const beforeCount = parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
+        const beforeCancel = parseIntegerVi(row['Số đơn hoàn hủy'] ?? row.so_don_hoan_huy ?? 0);
+        const netCount = Math.max(0, (actual?.count || 0) - (actual?.cancelCount || 0));
+        const cancelCount = actual?.cancelCount || 0;
+        if (beforeCount !== netCount || beforeCancel !== cancelCount) changedRows += 1;
+
+        return applyMktActualsToReportRow(row, actual);
+      });
+
+      console.log(
+        `🔁 Phủ số TT HN từ ${MKT_HN_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
+      );
+      return rows;
+    }
+
     async function fetchAndProcessData() {
       showLoader();
       dailyBreakdownExpanded = false;
@@ -1893,8 +2094,18 @@
 
         const rawRows = extractDetailReportsRows(resultMKT);
         const rowsNorm = rawRows.map(normalizeDetailReportRow);
-        const rowsDeduped = dedupeMktDetailReportRows(rowsNorm);
         const lo = document.getElementById('loading-overlay');
+        if (lo) lo.textContent = 'Đang đồng bộ số TT từ đơn hàng…';
+        let rowsActualized = rowsNorm;
+        try {
+          rowsActualized = await overlayHnActualsFromOrders(rowsNorm, dateRange);
+        } catch (actualsErr) {
+          console.warn(
+            `[MKT HN] Không phủ được số TT từ ${MKT_HN_ORDERS_TABLE}; dùng số đã lưu trên detail_reports:`,
+            actualsErr?.message || actualsErr
+          );
+        }
+        const rowsDeduped = dedupeMktDetailReportRows(rowsActualized);
         if (lo) lo.textContent = 'Đang xử lý dữ liệu…';
         await new Promise((r) => requestAnimationFrame(r));
         let rdProductsSet = null;
@@ -1932,9 +2143,7 @@
               const p = String(r['Sản_phẩm'] || '').trim().toLowerCase();
               if (!p || !rdProductsSet.has(p)) continue;
             }
-            const dsChotTT =
-              parseMoneyNumber(r['Doanh số TT'] ?? r.doanh_so_tt ?? 0) ||
-              parseMoneyNumber(r['Doanh thu chốt thực tế'] ?? 0);
+            const dsChotTT = parseMoneyNumber(r['Doanh số TT'] ?? r.doanh_so_tt ?? 0);
             const dsChotGross = parseMoneyNumber(r['Doanh số'] ?? r.doanh_so ?? 0);
             const donTT = parseIntegerVi(r['Số đơn thực tế'] ?? r.so_don_thuc_te ?? 0);
             const dsHuyVnd = parseMoneyNumber(r['Doanh số hoàn hủy thực tế'] ?? 0);
@@ -2197,18 +2406,6 @@
           return false;
         });
       };
-      const manualMetricBaseKey = (r) => [
-        normalizeNgayForKey(r.ngay || r.ngayKey),
-        normalizeNameForKey(r.ten),
-        normalizeFieldForKey(r.sanPham),
-        normalizeFieldForKey(r.thiTruong),
-      ].join('|');
-      const isSingleGiuaCaFilter = (() => {
-        const norms = (selectedCas || []).map(normalizeCaForFilter).filter(Boolean);
-        if (norms.length !== 1) return false;
-        const s = norms[0];
-        return s.includes('giua ca') && !s.includes('het ca');
-      })();
       const isSingleHetCaFilter = (() => {
         const norms = (selectedCas || []).map(normalizeCaForFilter).filter(Boolean);
         if (norms.length !== 1) return false;
@@ -2249,40 +2446,14 @@
         return true;
       });
 
-      if (!isSingleGiuaCaFilter) {
-        if (isSingleHetCaFilter) {
-          return filteredDataResult.map((r) => ({
-            ...r,
-            soDon: Number(r.soDonThucTe) || 0,
-            dsChot: Number(r.dsChotThucTe) || 0,
-          }));
-        }
-        return filteredDataResult;
+      if (isSingleHetCaFilter) {
+        return filteredDataResult.map((r) => ({
+          ...r,
+          soDon: Number(r.soDonThucTe) || 0,
+          dsChot: Number(r.dsChotThucTe) || 0,
+        }));
       }
-
-      const manualByBaseKey = new Map();
-      baseDataForReport.forEach((r) => {
-        if (!rowPassesNonCaFilters(r)) return;
-        const key = manualMetricBaseKey(r);
-        if (!key) return;
-        const prev = manualByBaseKey.get(key) || { mess: 0, cpqc: 0, don: 0, chot: 0 };
-        prev.mess += Number(r.soMessCmt) || 0;
-        prev.cpqc += Number(r.cpqc) || 0;
-        prev.don += Number(r.soDon) || 0;
-        prev.chot += Number(r.dsChot) || 0;
-        manualByBaseKey.set(key, prev);
-      });
-
-      return filteredDataResult.map((r) => {
-        const manual = manualByBaseKey.get(manualMetricBaseKey(r));
-        if (!manual) return r;
-        const next = { ...r };
-        if (!(Number(next.soMessCmt) || 0) && manual.mess) next.soMessCmt = manual.mess;
-        if (!(Number(next.cpqc) || 0) && manual.cpqc) next.cpqc = manual.cpqc;
-        if (!(Number(next.soDon) || 0) && manual.don) next.soDon = manual.don;
-        if (!(Number(next.dsChot) || 0) && manual.chot) next.dsChot = manual.chot;
-        return next;
-      });
+      return filteredDataResult;
     }
 
     const MKT_FILTER_PREFS_STORAGE_KEY = 'luminew.mktReport.filterPrefs';
@@ -2886,7 +3057,7 @@
       if (isGiuacaOnlyCaFilter('tab1')) {
         el.style.display = 'block';
         el.innerHTML =
-          'Đang lọc <strong>Giữa ca</strong>: <strong>Số Đơn</strong> và <strong>DS Chốt</strong> lấy từ nhập tay trên <strong>Danh sách báo cáo tay MKT</strong>. Ẩn cột (TT); CPS, %CP/DS, Giá TB Đơn, Tỉ lệ chốt tính theo Số Đơn / DS Chốt.';
+          'Đang lọc <strong>Giữa ca</strong>: <strong>Số Đơn</strong> và <strong>DS Chốt</strong> chỉ lấy từ đúng dòng báo cáo <strong>Giữa ca</strong> (nhập tay), không gộp từ ca khác. Ẩn cột (TT); CPS, %CP/DS, Giá TB Đơn, Tỉ lệ chốt tính theo Số Đơn / DS Chốt.';
         return;
       }
       if (isHetcaOnlyCaFilter('tab1')) {

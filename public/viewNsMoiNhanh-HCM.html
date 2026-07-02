@@ -1369,7 +1369,6 @@
 
         const caKey = normalizeCaForRowKey(row.ca ?? row['Ca'] ?? row.shift);
         const actual = actualsByKey.get(`${baseKey}|${caKey}`);
-        if (!actual) return row;
         const count = actual?.count || 0;
         const cancelCount = actual?.cancelCount || 0;
         const totalRevenueVnd = actual?.totalRevenueVnd || 0;
@@ -1769,9 +1768,7 @@
         const masterDataMKT = rowsDeduped
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
           .map(r => {
-            const dsNetTt =
-              parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0) ||
-              parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
+            const dsNetTt = parseMoneyNumber(r['Doanh số TT'] ?? r.doanh_so_tt ?? 0);
             const dsHuyVnd = parseMoneyNumber(r["Doanh số hoàn hủy thực tế"] ?? 0);
             /** DS Chốt = cột «Doanh số» nhập tay (báo cáo tay); DS Chốt (TT) vẫn từ TT/Doanh thu chốt thực tế. */
             const dsChotGross = parseMoneyNumber(r["Doanh số"] ?? r.doanh_so ?? r.revenue ?? 0);
@@ -2050,17 +2047,11 @@
           return false;
         });
       };
-      const manualMetricBaseKey = (r) => [
-        normalizeNgayForKey(r.ngay || r.ngayKey),
-        normalizeNameForKey(r.ten),
-        normalizeFieldForKey(r.sanPham),
-        normalizeFieldForKey(r.thiTruong),
-      ].join('|');
-      const isSingleGiuaCaFilter = (() => {
+      const isSingleHetCaFilter = (() => {
         const norms = (selectedCas || []).map(normalizeCaForFilter).filter(Boolean);
         if (norms.length !== 1) return false;
         const s = norms[0];
-        return s.includes('giua ca') && !s.includes('het ca');
+        return s.includes('het ca') && !s.includes('giua ca');
       })();
       const rowPassesNonCaFilters = (r) => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
@@ -2095,31 +2086,14 @@
         if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
         return true;
       });
-      if (!isSingleGiuaCaFilter) return filteredDataResult;
-
-      const manualByBaseKey = new Map();
-      baseDataForReport.forEach((r) => {
-        if (!rowPassesNonCaFilters(r)) return;
-        const key = manualMetricBaseKey(r);
-        if (!key) return;
-        const prev = manualByBaseKey.get(key) || { mess: 0, cpqc: 0, don: 0, chot: 0 };
-        prev.mess += Number(r.soMessCmt) || 0;
-        prev.cpqc += Number(r.cpqc) || 0;
-        prev.don += Number(r.soDon) || 0;
-        prev.chot += Number(r.dsChot) || 0;
-        manualByBaseKey.set(key, prev);
-      });
-
-      return filteredDataResult.map((r) => {
-        const manual = manualByBaseKey.get(manualMetricBaseKey(r));
-        if (!manual) return r;
-        const next = { ...r };
-        if (!(Number(next.soMessCmt) || 0) && manual.mess) next.soMessCmt = manual.mess;
-        if (!(Number(next.cpqc) || 0) && manual.cpqc) next.cpqc = manual.cpqc;
-        if (!(Number(next.soDon) || 0) && manual.don) next.soDon = manual.don;
-        if (!(Number(next.dsChot) || 0) && manual.chot) next.dsChot = manual.chot;
-        return next;
-      });
+      if (isSingleHetCaFilter) {
+        return filteredDataResult.map((r) => ({
+          ...r,
+          soDon: Number(r.soDonThucTe) || 0,
+          dsChot: Number(r.dsChotThucTe) || 0,
+        }));
+      }
+      return filteredDataResult;
     }
 
     /** Lưu / khôi phục bộ lọc checkbox & select khi đổi ngày (tải lại báo cáo). */
