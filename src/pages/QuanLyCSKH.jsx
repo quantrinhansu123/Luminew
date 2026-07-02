@@ -79,6 +79,125 @@ function mapOrderRowToFriendlyCSKH(item) {
 }
 
 const EMPTY_ORDER_QUERY_ID = '00000000-0000-0000-0000-000000000000';
+const CSKH_ORDERS_PAGE_SIZE = 1000;
+/** PostgREST `.or()` dễ Bad Request khi quá nhiều điều kiện — chia nhỏ theo lô tên. */
+const CSKH_MAX_STAFF_VARIANTS_PER_OR = 8;
+
+function quotePostgrestOrIlikePattern(pat) {
+  return `"${String(pat ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function chunkStringArray(arr, size) {
+  const out = [];
+  for (let i = 0; i < (arr || []).length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function buildCSKHStaffOrFilter(variants) {
+  const orParts = [];
+  for (const n of variants) {
+    const name = String(n ?? '').trim();
+    if (!name) continue;
+    const pattern = quotePostgrestOrIlikePattern(`%${name}%`);
+    orParts.push(
+      `sale_staff.ilike.${pattern}`,
+      `marketing_staff.ilike.${pattern}`,
+      `delivery_staff.ilike.${pattern}`,
+      `cskh.ilike.${pattern}`
+    );
+  }
+  return orParts.length ? orParts.join(',') : null;
+}
+
+async function fetchAllPagesForCSKHQuery(makeQuery) {
+  const all = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await makeQuery().range(from, from + CSKH_ORDERS_PAGE_SIZE - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < CSKH_ORDERS_PAGE_SIZE) break;
+    from += chunk.length;
+  }
+  return all;
+}
+
+async function fetchCSKHOrdersForDateMode({
+  ordersTableName,
+  startDate,
+  endDate,
+  createdStart,
+  createdEnd,
+  variants,
+  bypassStaffFilter,
+  dateMode,
+}) {
+  const makeBaseQuery = () => {
+    let q = supabase.from(ordersTableName).select('*');
+    if (dateMode === 'order_date') {
+      q = q
+        .gte('order_date', startDate)
+        .lte('order_date', endDate)
+        .order('order_date', { ascending: false });
+    } else {
+      q = q
+        .is('order_date', null)
+        .gte('created_at', createdStart)
+        .lte('created_at', createdEnd)
+        .order('created_at', { ascending: false });
+    }
+    return q;
+  };
+
+  if (bypassStaffFilter) {
+    return fetchAllPagesForCSKHQuery(makeBaseQuery);
+  }
+
+  if (!variants.length) {
+    const { data, error } = await makeBaseQuery().eq('id', EMPTY_ORDER_QUERY_ID);
+    if (error) throw error;
+    return data || [];
+  }
+
+  const variantChunks =
+    variants.length <= CSKH_MAX_STAFF_VARIANTS_PER_OR
+      ? [variants]
+      : chunkStringArray(variants, CSKH_MAX_STAFF_VARIANTS_PER_OR);
+
+  const byId = new Map();
+  for (const variantChunk of variantChunks) {
+    const orFilter = buildCSKHStaffOrFilter(variantChunk);
+    if (!orFilter) continue;
+    const rows = await fetchAllPagesForCSKHQuery(() => makeBaseQuery().or(orFilter));
+    for (const row of rows) {
+      if (row?.id != null) byId.set(row.id, row);
+    }
+  }
+  return [...byId.values()];
+}
+
+function rowMatchesCSKHStaffScope(row, variants) {
+  if (!variants?.length) return false;
+  const fields = [
+    row?.sale_staff,
+    row?.marketing_staff,
+    row?.delivery_staff,
+    row?.cskh,
+    row?.['Nhân viên Sale'],
+    row?.['Nhân viên Marketing'],
+    row?.CSKH,
+  ];
+  const haystack = fields
+    .map((v) => String(v ?? '').trim().toLowerCase())
+    .filter(Boolean);
+  if (!haystack.length) return false;
+  return variants.some((name) => {
+    const needle = String(name ?? '').trim().toLowerCase();
+    if (!needle) return false;
+    return haystack.some((h) => h.includes(needle));
+  });
+}
 
 /**
  * Gộp mọi biến thể tên để khớp cột sale_staff / marketing_staff / delivery_staff / cskh.
@@ -175,21 +294,6 @@ function canonicalCskhNameForSaleStaff(saleStaff, aliasToCanonical) {
   return aliasToCanonical.get(k) ?? null;
 }
 
-function applyCSKHStaffOrFilter(query, variants, bypassStaffFilter) {
-  if (bypassStaffFilter) return query;
-  if (!variants.length) return query.eq('id', EMPTY_ORDER_QUERY_ID);
-  const orParts = [];
-  for (const n of variants) {
-    const pattern = `%${n}%`;
-    orParts.push(
-      `sale_staff.ilike.${pattern}`,
-      `marketing_staff.ilike.${pattern}`,
-      `delivery_staff.ilike.${pattern}`,
-      `cskh.ilike.${pattern}`
-    );
-  }
-  return query.or(orParts.join(','));
-}
 
 /** Cùng logic lọc/sắp với bảng (sau khi đã có đủ dòng từ server). */
 function applyCSKHClientFilters(data, ctx) {
@@ -802,35 +906,67 @@ function QuanLyCSKH({
         }
       }
 
-      const FETCH_LIMIT = 10000;
       const { start: createdStart, end: createdEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
 
-      let q1 = supabase
-        .from(ordersTableName)
-        .select('*')
-        .gte('order_date', startDate)
-        .lte('order_date', endDate)
-        .order('order_date', { ascending: false })
-        .limit(FETCH_LIMIT);
-      q1 = applyCSKHStaffOrFilter(q1, variants, bypassStaffFilter);
-
-      const { data: d1, error: e1 } = await q1;
-      if (e1) throw e1;
-
+      let d1 = [];
       let d2 = [];
-      if (createdStart && createdEnd) {
-        let q2 = supabase
-          .from(ordersTableName)
-          .select('*')
-          .is('order_date', null)
-          .gte('created_at', createdStart)
-          .lte('created_at', createdEnd)
-          .order('created_at', { ascending: false })
-          .limit(FETCH_LIMIT);
-        q2 = applyCSKHStaffOrFilter(q2, variants, bypassStaffFilter);
-        const { data: d2raw, error: e2 } = await q2;
-        if (e2) throw e2;
-        d2 = d2raw || [];
+      try {
+        d1 = await fetchCSKHOrdersForDateMode({
+          ordersTableName,
+          startDate,
+          endDate,
+          variants,
+          bypassStaffFilter,
+          dateMode: 'order_date',
+        });
+
+        if (createdStart && createdEnd) {
+          d2 = await fetchCSKHOrdersForDateMode({
+            ordersTableName,
+            startDate,
+            endDate,
+            createdStart,
+            createdEnd,
+            variants,
+            bypassStaffFilter,
+            dateMode: 'created_at_fallback',
+          });
+        }
+      } catch (fetchErr) {
+        const fetchMsg = String(fetchErr?.message || fetchErr || '');
+        const isBadRequest =
+          fetchMsg.toLowerCase().includes('bad request') ||
+          fetchErr?.code === '400' ||
+          fetchErr?.status === 400;
+        if (!isBadRequest || bypassStaffFilter) throw fetchErr;
+
+        console.warn(
+          '[CSKH] Lỗi filter nhân sự trên server (Bad Request) — tải theo ngày rồi lọc client-side:',
+          fetchMsg
+        );
+        d1 = await fetchCSKHOrdersForDateMode({
+          ordersTableName,
+          startDate,
+          endDate,
+          variants: [],
+          bypassStaffFilter: true,
+          dateMode: 'order_date',
+        });
+        if (createdStart && createdEnd) {
+          d2 = await fetchCSKHOrdersForDateMode({
+            ordersTableName,
+            startDate,
+            endDate,
+            createdStart,
+            createdEnd,
+            variants: [],
+            bypassStaffFilter: true,
+            dateMode: 'created_at_fallback',
+          });
+        }
+        const mergedRaw = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(d1, d2));
+        d1 = mergedRaw.filter((row) => rowMatchesCSKHStaffScope(row, variants));
+        d2 = [];
       }
 
       const merged = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(d1, d2));
