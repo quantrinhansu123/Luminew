@@ -51,6 +51,77 @@ function uniqueSortedPersonnelFilterLabels(values) {
     return [...map.values()].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
 }
 
+function normalizePersonnelNameKey(name) {
+    return rbacService
+        .normalizeMktPersonWhitespace(name)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+}
+
+function getEmployeePersonnelName(emp) {
+    return rbacService.normalizeMktPersonWhitespace(
+        emp?.['Họ Và Tên'] || emp?.name || emp?.email || ''
+    );
+}
+
+function isPersonnelNameInList(name, list) {
+    const key = normalizePersonnelNameKey(name);
+    if (!key) return false;
+    return (list || []).some((n) => normalizePersonnelNameKey(n) === key);
+}
+
+function uniquePersonnelNamesFromEmployees(employeeList) {
+    const byKey = new Map();
+    for (const emp of employeeList || []) {
+        const name = getEmployeePersonnelName(emp);
+        const key = normalizePersonnelNameKey(name);
+        if (!key) continue;
+        if (!byKey.has(key)) byKey.set(key, name);
+    }
+    return [...byKey.values()];
+}
+
+function mergePersonnelNameLists(...lists) {
+    const byKey = new Map();
+    for (const list of lists) {
+        for (const raw of list || []) {
+            const name = rbacService.normalizeMktPersonWhitespace(raw);
+            const key = normalizePersonnelNameKey(name);
+            if (!key) continue;
+            if (!byKey.has(key)) byKey.set(key, name);
+        }
+    }
+    return [...byKey.values()];
+}
+
+function removePersonnelNamesFromList(list, toRemove) {
+    const removeKeys = new Set((toRemove || []).map(normalizePersonnelNameKey));
+    const byKey = new Map();
+    for (const raw of list || []) {
+        const name = rbacService.normalizeMktPersonWhitespace(raw);
+        const key = normalizePersonnelNameKey(name);
+        if (!key || removeKeys.has(key)) continue;
+        if (!byKey.has(key)) byKey.set(key, name);
+    }
+    return [...byKey.values()];
+}
+
+function canonicalizeStoredPersonnelNames(storedNames, employeeList) {
+    const keyToCanonical = new Map();
+    for (const emp of employeeList || []) {
+        const name = getEmployeePersonnelName(emp);
+        const key = normalizePersonnelNameKey(name);
+        if (key) keyToCanonical.set(key, name);
+    }
+    return mergePersonnelNameLists(
+        (storedNames || []).map((raw) => {
+            const key = normalizePersonnelNameKey(raw);
+            return keyToCanonical.get(key) || rbacService.normalizeMktPersonWhitespace(raw);
+        })
+    );
+}
+
 // Searchable Select Component
 const SearchableSelect = ({ value, onChange, options, placeholder = "Chọn...", className = "", searchFields = [] }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -402,25 +473,18 @@ const EmployeesList = ({
 
     const availableEmployees = allEmployees;
 
-    const getEmployeeDisplayName = (emp) =>
-        String(emp?.['Họ Và Tên'] || emp?.name || emp?.email || '').trim();
+    const getEmployeeDisplayName = (emp) => getEmployeePersonnelName(emp);
 
-    const collectSelectableEmployeeNames = () => {
-        const names = [];
-        for (const emp of availableEmployees) {
-            const empEmail = emp.email || emp.Email || '';
-            if (!empEmail || !empEmail.includes('@')) continue;
-            const empName = getEmployeeDisplayName(emp);
-            if (empName) names.push(empName);
-        }
-        return [...new Set(names)];
-    };
+    const collectSelectableEmployeeNames = () =>
+        uniquePersonnelNamesFromEmployees(availableEmployees);
 
     const toggleEmployee = (emp) => {
         const employeeName = getEmployeeDisplayName(emp);
         if (!employeeName) return;
         setSelectedEmployees((prev) =>
-            prev.includes(employeeName) ? prev.filter((e) => e !== employeeName) : [...prev, employeeName]
+            isPersonnelNameInList(employeeName, prev)
+                ? removePersonnelNamesFromList(prev, [employeeName])
+                : mergePersonnelNameLists(prev, [employeeName])
         );
     };
 
@@ -445,7 +509,9 @@ const EmployeesList = ({
             return;
         }
 
-        const validNames = rbacService.normalizeSelectedPersonnelNamesInput(selectedEmployees);
+        const validNames = mergePersonnelNameLists(
+            rbacService.normalizeSelectedPersonnelNamesInput(selectedEmployees)
+        );
 
         console.log('📝 Valid names to save:', validNames);
         console.log('📞 Calling onUpdateEmployees with:', validNames);
@@ -507,13 +573,15 @@ const EmployeesList = ({
 
     const allEmployeesSelectedForEdit = () => {
         const names = collectSelectableEmployeeNames();
-        return names.length > 0 && names.every((name) => selectedEmployees.includes(name));
+        return names.length > 0 && names.every((name) => isPersonnelNameInList(name, selectedEmployees));
     };
 
     const handleToggleSelectAllEmployees = () => {
         const names = collectSelectableEmployeeNames();
         if (names.length === 0) return;
-        setSelectedEmployees(allEmployeesSelectedForEdit() ? [] : names);
+        setSelectedEmployees(
+            allEmployeesSelectedForEdit() ? [] : mergePersonnelNameLists(names)
+        );
     };
 
     if (isEditing) {
@@ -539,7 +607,7 @@ const EmployeesList = ({
                             return null;
                         }
 
-                        const isSelected = selectedEmployees.includes(empName);
+                        const isSelected = isPersonnelNameInList(empName, selectedEmployees);
                         return (
                             <label key={empEmail} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
                                 <input
@@ -574,13 +642,10 @@ const EmployeesList = ({
     // Nếu là Nhân viên: hiển thị danh sách nhân sự đã chọn (nếu có) hoặc cho phép thêm
     // Không tự động load từ teams, nhưng vẫn có thể edit và thêm nhân sự thủ công
         if (isNhanVien && currentUserEmail) {
-            // Nếu có selectedPersonnel, hiển thị danh sách đó (selectedPersonnel là tên)
             if (personnelNamesNorm.length > 0) {
-                const selectedEmps = allEmployees.filter(emp => {
-                    const empName = emp['Họ Và Tên'] || emp.name || emp.email;
-                    return personnelNamesNorm.includes(empName);
-                });
-                if (selectedEmps.length > 0) {
+                const selectedEmps = allEmployees.filter((emp) =>
+                    isPersonnelNameInList(getEmployeePersonnelName(emp), personnelNamesNorm)
+                );
                 return (
                     <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -588,7 +653,7 @@ const EmployeesList = ({
                                 onClick={() => setIsExpanded(!isExpanded)}
                                 className="text-xs text-blue-600 hover:text-blue-700 underline"
                             >
-                                {isExpanded ? 'Ẩn' : `Xem ${selectedEmps.length} nhân sự`}
+                                {isExpanded ? 'Ẩn' : `Xem ${personnelNamesNorm.length} nhân sự`}
                             </button>
                             <button
                                 onClick={() => setIsEditing(true)}
@@ -602,16 +667,23 @@ const EmployeesList = ({
                             <div className="max-h-40 overflow-y-auto border rounded p-2 mt-1 space-y-1 bg-gray-50">
                                 {selectedEmps.map(emp => (
                                     <div key={emp.email} className="text-xs text-gray-700 py-1 border-b last:border-0">
-                                        <div className="font-medium">{emp['Họ Và Tên']}</div>
+                                        <div className="font-medium">{getEmployeePersonnelName(emp)}</div>
                                         <div className="text-gray-500">{emp.email} - {emp.team}</div>
                                     </div>
                                 ))}
+                                {selectedEmps.length < personnelNamesNorm.length && (
+                                    <p className="text-xs text-gray-500 pt-1">
+                                        Đã lưu {personnelNamesNorm.length} tên
+                                        {selectedEmps.length > 0
+                                            ? ` (${selectedEmps.length} khớp danh sách users)`
+                                            : ' (chưa khớp tên trên danh sách users)'}
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>
                 );
             }
-        }
         
         // Nếu không có selectedPersonnel, hiển thị nút thêm nhân sự
         return (
@@ -637,7 +709,7 @@ const EmployeesList = ({
     }
 
     // Nếu không có teams và không có selectedPersonnel (và không phải Leader)
-    if ((!teams || teams.length === 0) && (!selectedPersonnel || selectedPersonnel.length === 0) && !isLeader) {
+    if ((!teams || teams.length === 0) && personnelNamesNorm.length === 0 && !isLeader) {
         return (
             <div className="space-y-1">
                 <span className="text-sm text-gray-400">Chưa chọn nhân sự</span>
@@ -655,21 +727,47 @@ const EmployeesList = ({
     // selectedEmployees giờ chứa TÊN, không phải email
     const filteredEmployees = selectedEmployees.length > 0
         ? (isLeader && teamEmployees.length > 0
-            ? teamEmployees.filter(emp => {
-                const empName = emp['Họ Và Tên'] || emp.name || emp.email;
-                return selectedEmployees.includes(empName);
-            })
-            : allEmployees.filter(emp => {
-                const empName = emp['Họ Và Tên'] || emp.name || emp.email;
-                return selectedEmployees.includes(empName);
-            }))
+            ? teamEmployees.filter(emp =>
+                isPersonnelNameInList(getEmployeePersonnelName(emp), selectedEmployees)
+            )
+            : allEmployees.filter(emp =>
+                isPersonnelNameInList(getEmployeePersonnelName(emp), selectedEmployees)
+            ))
         : (isLeader && teams && teams.length > 0 && teamEmployees.length > 0
             ? teamEmployees
             : allEmployees.filter(emp => {
                 const empTeam = emp.team || emp.Team || '';
                 return teams.some(team => empTeam === team || String(empTeam).toLowerCase() === String(team).toLowerCase());
             }));
-    
+
+    if (personnelNamesNorm.length > 0 && filteredEmployees.length === 0) {
+        return (
+            <div className="space-y-1">
+                <button
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="text-xs text-blue-600 hover:text-blue-700 underline"
+                >
+                    {isExpanded ? 'Ẩn' : `Xem ${personnelNamesNorm.length} nhân sự`}
+                </button>
+                <button
+                    onClick={() => setIsEditing(true)}
+                    className="text-xs text-gray-500 hover:text-gray-700 ml-2"
+                    title="Chỉnh sửa"
+                >
+                    <Edit size={12} />
+                </button>
+                {isExpanded && (
+                    <div className="max-h-40 overflow-y-auto border rounded p-2 mt-1 bg-gray-50 text-xs text-gray-600">
+                        {personnelNamesNorm.map((name) => (
+                            <div key={name} className="py-1 border-b last:border-0">
+                                {name}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     if (filteredEmployees.length === 0) {
         return (
@@ -874,6 +972,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
     const [editPersonnelSearch, setEditPersonnelSearch] = useState('');
     const [editPersonnelDepartmentFilter, setEditPersonnelDepartmentFilter] = useState([]);
     const [editPersonnelTeamFilter, setEditPersonnelTeamFilter] = useState([]);
+    const [editPersonnelBranchFilter, setEditPersonnelBranchFilter] = useState([]);
     const [newPrimaryTeamInput, setNewPrimaryTeamInput] = useState('');
     const [leaderTeamsMap, setLeaderTeamsMap] = useState({}); // { email: [teams] }
     const [allTeams, setAllTeams] = useState([]);
@@ -882,6 +981,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
 
     const getEmployeeDepartmentLabel = (emp) =>
         normalizePersonnelFilterLabel(departmentsMap[emp?.email] || emp?.department);
+
+    const getEmployeeBranchLabel = (emp) =>
+        normalizePersonnelFilterLabel(emp?.branch || emp?.['chi nhánh'] || emp?.chi_nhanh || '');
 
     const employeesMatchingDepartmentFilter = useMemo(() => {
         if (editPersonnelDepartmentFilter.includes('__NONE__')) return [];
@@ -897,7 +999,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
         });
     }, [employees, editPersonnelDepartmentFilter, departmentsMap]);
 
-    const filteredEmployeesForEditPersonnel = useMemo(() => {
+    const employeesMatchingTeamFilter = useMemo(() => {
         let list = employeesMatchingDepartmentFilter;
         if (editPersonnelTeamFilter.includes('__NONE__')) return [];
         if (editPersonnelTeamFilter.length > 0) {
@@ -911,6 +1013,23 @@ const PermissionManager = ({ searchQuery = "" }) => {
                 return teamSet.has(t);
             });
         }
+        return list;
+    }, [employeesMatchingDepartmentFilter, editPersonnelTeamFilter]);
+
+    const filteredEmployeesForEditPersonnel = useMemo(() => {
+        let list = employeesMatchingTeamFilter;
+        if (editPersonnelBranchFilter.includes('__NONE__')) return [];
+        if (editPersonnelBranchFilter.length > 0) {
+            const branchSet = new Set(
+                editPersonnelBranchFilter
+                    .map((b) => normalizePersonnelFilterLabel(b).toLowerCase())
+                    .filter(Boolean)
+            );
+            list = list.filter((emp) => {
+                const b = getEmployeeBranchLabel(emp).toLowerCase();
+                return b && branchSet.has(b);
+            });
+        }
         const q = editPersonnelSearch.trim().toLowerCase();
         if (!q) return list;
         return list.filter((emp) => {
@@ -918,45 +1037,51 @@ const PermissionManager = ({ searchQuery = "" }) => {
             const email = String(emp.email || '').toLowerCase();
             const team = String(emp.team || emp.Team || '').toLowerCase();
             const dept = getEmployeeDepartmentLabel(emp).toLowerCase();
+            const branch = getEmployeeBranchLabel(emp).toLowerCase();
             return (
                 empName.includes(q) ||
                 email.includes(q) ||
                 team.includes(q) ||
-                dept.includes(q)
+                dept.includes(q) ||
+                branch.includes(q)
             );
         });
     }, [
-        employeesMatchingDepartmentFilter,
+        employeesMatchingTeamFilter,
         editPersonnelSearch,
-        editPersonnelTeamFilter,
+        editPersonnelBranchFilter,
         departmentsMap,
     ]);
 
     const selectableEditPersonnelNames = useMemo(
-        () =>
-            filteredEmployeesForEditPersonnel
-                .map((emp) => String(emp['Họ Và Tên'] || emp.name || emp.email || '').trim())
-                .filter(Boolean),
+        () => uniquePersonnelNamesFromEmployees(filteredEmployeesForEditPersonnel),
         [filteredEmployeesForEditPersonnel]
     );
 
     const allEditPersonnelSelected =
         selectableEditPersonnelNames.length > 0 &&
-        selectableEditPersonnelNames.every((name) => editFormData.selectedPersonnel.includes(name));
+        selectableEditPersonnelNames.every((name) =>
+            isPersonnelNameInList(name, editFormData.selectedPersonnel)
+        );
 
     const handleToggleSelectAllEditPersonnel = () => {
         if (selectableEditPersonnelNames.length === 0) return;
         setEditFormData((prev) => {
             if (allEditPersonnelSelected) {
-                const visible = new Set(selectableEditPersonnelNames);
                 return {
                     ...prev,
-                    selectedPersonnel: prev.selectedPersonnel.filter((name) => !visible.has(name)),
+                    selectedPersonnel: removePersonnelNamesFromList(
+                        prev.selectedPersonnel,
+                        selectableEditPersonnelNames
+                    ),
                 };
             }
             return {
                 ...prev,
-                selectedPersonnel: [...new Set([...prev.selectedPersonnel, ...selectableEditPersonnelNames])],
+                selectedPersonnel: mergePersonnelNameLists(
+                    prev.selectedPersonnel,
+                    selectableEditPersonnelNames
+                ),
             };
         });
     };
@@ -1008,6 +1133,12 @@ const PermissionManager = ({ searchQuery = "" }) => {
         editFormData.teams,
         editFormData.team,
     ]);
+
+    const uniqueBranchesForPersonnelFilter = useMemo(() => {
+        return uniqueSortedPersonnelFilterLabels(
+            employeesMatchingTeamFilter.map((e) => getEmployeeBranchLabel(e))
+        );
+    }, [employeesMatchingTeamFilter]);
 
     const editPrimaryTeamSelectOptions = useMemo(() => {
         const fromDb = new Set(primaryTeamChoices);
@@ -1070,17 +1201,19 @@ const PermissionManager = ({ searchQuery = "" }) => {
                 }
             }
 
-            // Load selected_personnel from users table
+            // Load selected_personnel đã lưu (không gộp leader_teams — tránh lệch khi chỉnh trên form)
             if (uData && uData.length > 0) {
                 try {
-                    const personnelMap = await rbacService.getSelectedPersonnel(uData.map(u => u.email));
+                    const personnelMap = await rbacService.getStoredSelectedPersonnelMap(
+                        uData.map(u => u.email)
+                    );
                     const normalizedMap = {};
                     Object.keys(personnelMap || {}).forEach((key) => {
                         normalizedMap[key] = rbacService.normalizeSelectedPersonnelNamesInput(
                             personnelMap[key] || []
                         );
                     });
-                    console.log('📥 Loaded selected_personnel map:', normalizedMap);
+                    console.log('📥 Loaded selected_personnel map (stored):', normalizedMap);
                     setSelectedPersonnelMap(normalizedMap);
                 } catch (err) {
                     console.error("❌ Could not load selected_personnel:", err);
@@ -1241,7 +1374,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
             
             // Cập nhật danh sách nhân sự nếu có
             if (editFormData.selectedPersonnel && Array.isArray(editFormData.selectedPersonnel)) {
-                await rbacService.updateSelectedPersonnel(editingUser.email, editFormData.selectedPersonnel);
+                const namesToSave = mergePersonnelNameLists(editFormData.selectedPersonnel);
+                await rbacService.updateSelectedPersonnel(editingUser.email, namesToSave);
+                setSelectedPersonnelMap((prev) => ({ ...prev, [editingUser.email]: namesToSave }));
             }
             
             toast.success(`Đã cập nhật thông tin cho ${editingUser.email}`);
@@ -1249,6 +1384,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             setEditPersonnelSearch('');
             setEditPersonnelDepartmentFilter([]);
             setEditPersonnelTeamFilter([]);
+            setEditPersonnelBranchFilter([]);
             setEditFormData({ name: '', department: '', position: '', branch: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
             loadData();
         } catch (error) {
@@ -1304,14 +1440,19 @@ const PermissionManager = ({ searchQuery = "" }) => {
             } else if (personnelNames) {
                 namesArray = [personnelNames];
             }
-            const validNames = rbacService.normalizeSelectedPersonnelNamesInput(namesArray);
+            const validNames = mergePersonnelNameLists(namesArray);
             
             console.log('✅ Valid names to save:', validNames);
             
             const result = await rbacService.updateSelectedPersonnel(email, validNames);
             console.log('✅ Update result:', result);
             
-            setSelectedPersonnelMap(prev => ({ ...prev, [email]: validNames }));
+            const emailLo = String(email || '').trim().toLowerCase();
+            setSelectedPersonnelMap((prev) => ({
+                ...prev,
+                [email]: validNames,
+                [emailLo]: validNames,
+            }));
             toast.success(`Đã cập nhật danh sách nhân sự cho ${email} (${validNames.length} người)`);
             
             // Reload data để cập nhật UI
@@ -1904,7 +2045,11 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                         allEmployees={employees}
                                                         position={emp?.position || ''}
                                                         currentUserEmail={ur.email}
-                                                        selectedPersonnel={selectedPersonnelMap[ur.email] || []}
+                                                        selectedPersonnel={
+                                                            selectedPersonnelMap[ur.email] ||
+                                                            selectedPersonnelMap[String(ur.email || '').toLowerCase()] ||
+                                                            []
+                                                        }
                                                         onUpdateEmployees={async (selectedNames) => {
                                                             console.log('📞 onUpdateEmployees called:', { 
                                                                 userEmail: ur.email, 
@@ -1948,6 +2093,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                 setEditPersonnelSearch('');
                                                                 setEditPersonnelDepartmentFilter([]);
                                                                 setEditPersonnelTeamFilter([]);
+                                                                setEditPersonnelBranchFilter([]);
                                                                 setEditFormData({
                                                                     name: emp ? emp['Họ Và Tên'] : '',
                                                                     department: departmentsMap[ur.email] || emp?.department || '',
@@ -1958,8 +2104,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                         ? leaderTeamsMap[ur.email]
                                                                         : (emp?.team ? [emp.team] : []),
                                                                     role_code: ur.role_code,
-                                                                    selectedPersonnel: rbacService.normalizeSelectedPersonnelNamesInput(
-                                                                        selectedPersonnelMap[ur.email] || []
+                                                                    selectedPersonnel: canonicalizeStoredPersonnelNames(
+                                                                        selectedPersonnelMap[ur.email] || [],
+                                                                        employees
                                                                     ),
                                                                 });
                                                             }}
@@ -2020,6 +2167,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     setEditPersonnelSearch('');
                                     setEditPersonnelDepartmentFilter([]);
                                     setEditPersonnelTeamFilter([]);
+                                    setEditPersonnelBranchFilter([]);
                                     setEditFormData({ name: '', department: '', position: '', branch: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
                                     setNewPrimaryTeamInput('');
                                 }}
@@ -2187,7 +2335,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Nhân sự:
                                             </label>
-                                            <div className="grid grid-cols-2 gap-3 mb-2">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-2">
                                                 <div>
                                                     <label className="block text-xs font-medium text-gray-600 mb-1">
                                                         Lọc theo Bộ phận:
@@ -2199,6 +2347,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                         selected={editPersonnelDepartmentFilter}
                                                         onChange={(next) => {
                                                             setEditPersonnelTeamFilter([]);
+                                                            setEditPersonnelBranchFilter([]);
                                                             setEditPersonnelDepartmentFilter(next);
                                                         }}
                                                     />
@@ -2212,7 +2361,22 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                         placeholder="Tất cả team"
                                                         options={uniqueTeamsForPersonnelFilter}
                                                         selected={editPersonnelTeamFilter}
-                                                        onChange={setEditPersonnelTeamFilter}
+                                                        onChange={(next) => {
+                                                            setEditPersonnelBranchFilter([]);
+                                                            setEditPersonnelTeamFilter(next);
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                                                        Lọc theo Chi nhánh:
+                                                    </label>
+                                                    <MultiSelect
+                                                        label="Chi nhánh"
+                                                        placeholder="Tất cả chi nhánh"
+                                                        options={uniqueBranchesForPersonnelFilter}
+                                                        selected={editPersonnelBranchFilter}
+                                                        onChange={setEditPersonnelBranchFilter}
                                                     />
                                                 </div>
                                             </div>
@@ -2222,7 +2386,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                     type="search"
                                                     value={editPersonnelSearch}
                                                     onChange={(e) => setEditPersonnelSearch(e.target.value)}
-                                                    placeholder="Tìm theo tên, email, team, bộ phận..."
+                                                    placeholder="Tìm theo tên, email, team, bộ phận, chi nhánh..."
                                                     className="border rounded text-sm w-full pl-9 pr-3 py-2 bg-white"
                                                     autoComplete="off"
                                                 />
@@ -2243,8 +2407,11 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                             <div className="border rounded p-3 bg-gray-50 max-h-60 overflow-y-auto">
                                                 <div className="space-y-2">
                                                     {filteredEmployeesForEditPersonnel.map(emp => {
-                                                        const empName = emp['Họ Và Tên'] || emp.name || emp.email;
-                                                        const isSelected = editFormData.selectedPersonnel.includes(empName);
+                                                        const empName = getEmployeePersonnelName(emp);
+                                                        const isSelected = isPersonnelNameInList(
+                                                            empName,
+                                                            editFormData.selectedPersonnel
+                                                        );
                                                         return (
                                                             <label
                                                                 key={emp.email}
@@ -2257,12 +2424,18 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                         if (e.target.checked) {
                                                                             setEditFormData({
                                                                                 ...editFormData,
-                                                                                selectedPersonnel: [...editFormData.selectedPersonnel, empName]
+                                                                                selectedPersonnel: mergePersonnelNameLists(
+                                                                                    editFormData.selectedPersonnel,
+                                                                                    [empName]
+                                                                                ),
                                                                             });
                                                                         } else {
                                                                             setEditFormData({
                                                                                 ...editFormData,
-                                                                                selectedPersonnel: editFormData.selectedPersonnel.filter(name => name !== empName)
+                                                                                selectedPersonnel: removePersonnelNamesFromList(
+                                                                                    editFormData.selectedPersonnel,
+                                                                                    [empName]
+                                                                                ),
                                                                             });
                                                                         }
                                                                     }}
@@ -2274,6 +2447,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                         {emp.email}
                                                                         {getEmployeeDepartmentLabel(emp) ? ` · ${getEmployeeDepartmentLabel(emp)}` : ''}
                                                                         {' · '}{emp.team || 'N/A'}
+                                                                        {getEmployeeBranchLabel(emp) ? ` · ${getEmployeeBranchLabel(emp)}` : ''}
                                                                     </div>
                                                                 </div>
                                                             </label>
@@ -2298,6 +2472,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                 setEditPersonnelSearch('');
                                                 setEditPersonnelDepartmentFilter([]);
                                                 setEditPersonnelTeamFilter([]);
+                                                setEditPersonnelBranchFilter([]);
                                                 setEditFormData({ name: '', department: '', position: '', branch: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
                                                 setNewPrimaryTeamInput('');
                                             }}

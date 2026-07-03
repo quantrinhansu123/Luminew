@@ -343,12 +343,29 @@ export const updateSelectedPersonnel = async (email, personnelNames) => {
         const { data, error } = await supabase
             .from('users')
             .update({ selected_personnel: updateData })
-            .eq('email', email)
+            .eq('email', String(email || '').trim())
             .select();
 
         if (error) {
             console.error('❌ Supabase error:', error);
             throw error;
+        }
+
+        if (!data?.length) {
+            const { data: dataIlike, error: errIlike } = await supabase
+                .from('users')
+                .update({ selected_personnel: updateData })
+                .ilike('email', String(email || '').trim())
+                .select();
+            if (errIlike) {
+                console.error('❌ Supabase error (ilike fallback):', errIlike);
+                throw errIlike;
+            }
+            if (!dataIlike?.length) {
+                throw new Error(`Không tìm thấy user để cập nhật nhân sự: ${email}`);
+            }
+            console.log('✅ Update successful (ilike email), returned data:', dataIlike);
+            return dataIlike[0];
         }
         
         console.log('✅ Update successful, returned data:', data);
@@ -356,6 +373,47 @@ export const updateSelectedPersonnel = async (email, personnelNames) => {
     } catch (err) {
         console.error('❌ Error in updateSelectedPersonnel:', err);
         throw err;
+    }
+};
+
+/**
+ * Chỉ `users.selected_personnel` đã lưu — không gộp leader_teams / tên HR (dùng form Admin chỉnh nhân sự).
+ */
+export const getStoredSelectedPersonnelMap = async (emails) => {
+    if (!emails || emails.length === 0) return {};
+
+    const emailList = [...new Set(emails.map((e) => String(e || '').trim()).filter(Boolean))];
+    if (emailList.length === 0) return {};
+
+    try {
+        const { data, error } = await supabase
+            .from('users')
+            .select('email, selected_personnel')
+            .in('email', emailList);
+
+        if (error) throw error;
+
+        const map = {};
+        for (const u of data || []) {
+            const list = parseSelectedPersonnelRaw(u.selected_personnel);
+            const rawEmail = String(u.email || '').trim();
+            if (!rawEmail) continue;
+            map[rawEmail] = list;
+            map[rawEmail.toLowerCase()] = list;
+        }
+
+        for (const req of emailList) {
+            const lo = req.toLowerCase();
+            if (!(req in map) && !(lo in map)) {
+                map[req] = [];
+                map[lo] = [];
+            }
+        }
+
+        return map;
+    } catch (error) {
+        console.error('Error fetching stored selected_personnel:', error);
+        return {};
     }
 };
 

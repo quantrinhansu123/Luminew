@@ -274,6 +274,37 @@ const HIDDEN_COLUMNS = [
   '_id'
 ];
 
+/** Cột trạng thái giao — «Trạng thái thu tiền» luôn đứng ngay sau nhóm này trên lưới / Excel. */
+const DELIVERY_STATUS_COLUMN_NAMES = ['Trạng thái giao hàng', 'Trạng thái giao hàng NB'];
+const PINNED_END_COLUMNS = [
+  ...DELIVERY_STATUS_COLUMN_NAMES,
+  'Trạng thái thu tiền',
+  'Tổng tiền VNĐ',
+];
+
+/** Đặt «Trạng thái thu tiền» ngay sau cột trạng thái giao cuối cùng trong danh sách. */
+function orderColumnsWithThuTienAfterGiaoHang(cols) {
+  const thuTienIdx = cols.indexOf('Trạng thái thu tiền');
+  if (thuTienIdx === -1) return cols;
+
+  let anchorIdx = -1;
+  for (const name of DELIVERY_STATUS_COLUMN_NAMES) {
+    const idx = cols.indexOf(name);
+    if (idx > anchorIdx) anchorIdx = idx;
+  }
+  if (anchorIdx === -1 || thuTienIdx === anchorIdx + 1) return cols;
+
+  const next = cols.slice();
+  const [thuTienCol] = next.splice(thuTienIdx, 1);
+  const insertAfter = DELIVERY_STATUS_COLUMN_NAMES.reduce(
+    (maxIdx, name) => Math.max(maxIdx, next.indexOf(name)),
+    -1
+  );
+  if (insertAfter === -1) return cols;
+  next.splice(insertAfter + 1, 0, thuTienCol);
+  return next;
+}
+
 /**
  * Cùng phạm vi đơn như loadData: team, nhân sự, khoảng ngày (order_date hoặc ngay_chia_van_don).
  * Với order_date: thêm đơn order_date null nhưng created_at trong khoảng.
@@ -644,18 +675,16 @@ function DanhSachDon({ dataSource = 'default' }) {
     // 2. Other/Dynamic Cols: Alphabetic sort
     // 3. End Cols: Pinned ones (Status, Total)
 
-    const pinnedEndColumns = ['Trạng thái giao hàng', 'Tổng tiền VNĐ'];
-
     const startDefaults = defaultColumns
-      .filter(col => !pinnedEndColumns.includes(col) && allKeys.has(col));
+      .filter(col => !PINNED_END_COLUMNS.includes(col) && allKeys.has(col));
 
     const otherCols = Array.from(allKeys)
-      .filter(key => !defaultColumns.includes(key))
+      .filter(key => !defaultColumns.includes(key) && !PINNED_END_COLUMNS.includes(key))
       .sort();
 
-    const endCols = pinnedEndColumns.filter(col => allKeys.has(col));
+    const endCols = PINNED_END_COLUMNS.filter(col => allKeys.has(col));
 
-    return [...startDefaults, ...otherCols, ...endCols];
+    return orderColumnsWithThuTienAfterGiaoHang([...startDefaults, ...otherCols, ...endCols]);
   }, [allData, defaultColumns.join('|')]);
 
   // Default columns
@@ -3249,17 +3278,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
-    // Đảm bảo «Trạng thái thu tiền» luôn đứng cạnh «Trạng thái giao hàng» trong file Excel
-    // (theo yêu cầu cho cả /danh-sach-don và /danh-sach-don-hcm), kể cả khi người dùng
-    // đã kéo sắp xếp khác trên lưới.
-    const giaoHangIdx = cols.indexOf('Trạng thái giao hàng');
-    const thuTienIdx = cols.indexOf('Trạng thái thu tiền');
-    if (giaoHangIdx !== -1 && thuTienIdx !== -1 && thuTienIdx !== giaoHangIdx + 1) {
-      const nextCols = cols.slice();
-      const [thuTienCol] = nextCols.splice(thuTienIdx, 1);
-      nextCols.splice(giaoHangIdx + 1, 0, thuTienCol);
-      cols = nextCols;
-    }
+    cols = orderColumnsWithThuTienAfterGiaoHang(cols);
     const exportRows = rows.map((row) => {
       const obj = {};
       for (const col of cols) {
