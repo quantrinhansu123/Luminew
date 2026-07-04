@@ -274,7 +274,7 @@ const HIDDEN_COLUMNS = [
   '_id'
 ];
 
-/** Thứ tự cột mặc định (đoạn đầu → Phí ship; Tổng tiền VNĐ ở cuối mẫu đầy đủ). */
+/** Thứ tự cột mặc định: Mã Tracking → Phản hồi… → Phí ship (không đặt trạng thái giao/thu tiền ở đây). */
 const DANH_SACH_DON_DEFAULT_COLUMNS = [
   'Mã đơn hàng',
   'Ngày lên đơn',
@@ -290,8 +290,6 @@ const DANH_SACH_DON_DEFAULT_COLUMNS = [
   'Tỉ giá',
   'Ca',
   'Mã Tracking',
-  'Trạng thái giao hàng',
-  'Trạng thái thu tiền',
   'Phản hồi tích cực',
   'Phản hồi tiêu cực',
   'Ngày đối soát bill',
@@ -299,7 +297,7 @@ const DANH_SACH_DON_DEFAULT_COLUMNS = [
   'Phí ship',
 ];
 
-/** Cột bổ sung sau Phí ship — khớp thứ tự mẫu Excel HCM (ảnh chuẩn). */
+/** Sau Phí ship — khớp dòng chuẩn trong mẫu Excel HCM. */
 const DANH_SACH_DON_EXTENDED_COLUMNS = [
   'CSKH',
   'Cảnh báo trùng',
@@ -318,6 +316,7 @@ const DANH_SACH_DON_EXTENDED_COLUMNS = [
   'Tiền Việt đã đối soát',
   'Trạng thái Bill',
   'Trạng thái giao hàng NB',
+  'Trạng thái giao hàng',
   'Tên Page',
   'Tên mặt hàng 1',
   'Tên mặt hàng 2',
@@ -325,6 +324,7 @@ const DANH_SACH_DON_EXTENDED_COLUMNS = [
   'check_result',
   'Đơn vị vận chuyển',
   'Ảnh thanh toán',
+  'Trạng thái thu tiền',
   'Nhật ký',
 ];
 
@@ -3301,10 +3301,15 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
-    // HCM: xuất đủ cột theo mẫu đầy đủ (Tổng tiền VNĐ ở cuối).
-    cols = orderColumnsByDanhSachDonTemplate(cols, {
-      includeAllDefaultTemplate: isHcmView,
-    });
+    // HCM: luôn xuất đúng thứ tự mẫu đầy đủ (không phụ thuộc thứ tự lưới).
+    if (isHcmView) {
+      const extraVisible = (displayColumns || []).filter(
+        (c) => !DANH_SACH_DON_FULL_DISPLAY_ORDER.includes(c)
+      );
+      cols = [...DANH_SACH_DON_FULL_DISPLAY_ORDER, ...extraVisible];
+    } else {
+      cols = orderColumnsByDanhSachDonTemplate(cols);
+    }
     const exportRows = rows.map((row) => {
       const obj = {};
       for (const col of cols) {
