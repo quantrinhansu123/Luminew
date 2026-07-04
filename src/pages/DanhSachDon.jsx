@@ -316,7 +316,6 @@ const DANH_SACH_DON_EXTENDED_COLUMNS = [
   'Tiền Việt đã đối soát',
   'Trạng thái Bill',
   'Trạng thái giao hàng NB',
-  'Trạng thái giao hàng',
   'Tên Page',
   'Tên mặt hàng 1',
   'Tên mặt hàng 2',
@@ -325,10 +324,13 @@ const DANH_SACH_DON_EXTENDED_COLUMNS = [
   'Đơn vị vận chuyển',
   'Ảnh thanh toán',
   'Trạng thái thu tiền',
-  'Nhật ký',
 ];
 
-const DANH_SACH_DON_TAIL_COLUMNS = ['Tổng tiền VNĐ'];
+/** Cuối mẫu Excel HCM: Trạng thái giao hàng ngay trước Tổng tiền VNĐ (không chèn Nhật ký). */
+const DANH_SACH_DON_TAIL_COLUMNS = [
+  'Trạng thái giao hàng',
+  'Tổng tiền VNĐ',
+];
 
 /** Cột bật mặc định khi reset / lần đầu (21 cột đầu + Tổng tiền VNĐ). */
 const DANH_SACH_DON_DEFAULT_VISIBLE_COLUMNS = [
