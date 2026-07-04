@@ -274,10 +274,7 @@ const HIDDEN_COLUMNS = [
   '_id'
 ];
 
-/** Cột trạng thái giao — «Trạng thái thu tiền» luôn đứng ngay sau nhóm này trên lưới / Excel. */
-const DELIVERY_STATUS_COLUMN_NAMES = ['Trạng thái giao hàng', 'Trạng thái giao hàng NB'];
-
-/** Thứ tự cột mặc định / mẫu Excel danh sách đơn (HN + HCM). */
+/** Thứ tự cột mặc định (đoạn đầu → Phí ship; Tổng tiền VNĐ ở cuối mẫu đầy đủ). */
 const DANH_SACH_DON_DEFAULT_COLUMNS = [
   'Mã đơn hàng',
   'Ngày lên đơn',
@@ -300,94 +297,64 @@ const DANH_SACH_DON_DEFAULT_COLUMNS = [
   'Ngày đối soát bill',
   'Ngày đối soát cước',
   'Phí ship',
-  'Tổng tiền VNĐ',
 ];
 
-/** Cột bổ sung trên lưới — đứng sau nhóm mặc định, trước cột ghim cuối. */
+/** Cột bổ sung sau Phí ship — khớp thứ tự mẫu Excel HCM (ảnh chuẩn). */
 const DANH_SACH_DON_EXTENDED_COLUMNS = [
-  'Ngày chia đơn',
-  'Thành phố',
-  'Tỉnh/Bang',
-  'Mã bưu điện',
-  'Tên mặt hàng 1',
-  'Tên mặt hàng 2',
+  'CSKH',
+  'Cảnh báo trùng',
+  'Ghi chú',
   'Hình thức thanh toán',
+  'Kế toán xác nhận thu tiền về',
+  'Kết quả Check',
+  'Lý do',
+  'Mã bưu điện',
+  'NV Vận đơn',
+  'Ngày chia đơn',
   'Nhân viên Marketing',
   'Nhân viên Sale',
   'Team',
-  'Trạng thái giao hàng NB',
-  'Kết quả Check',
-  'Ghi chú',
-  'CSKH',
-  'NV Vận đơn',
+  'Thành phố',
   'Tiền Việt đã đối soát',
-  'Đơn vị vận chuyển',
-  'Kế toán xác nhận thu tiền về',
-  'Lý do',
-  'Tên Page',
   'Trạng thái Bill',
+  'Trạng thái giao hàng NB',
+  'Tên Page',
+  'Tên mặt hàng 1',
+  'Tên mặt hàng 2',
+  'Tỉnh/Bang',
+  'check_result',
+  'Đơn vị vận chuyển',
   'Ảnh thanh toán',
-  'Cảnh báo trùng',
   'Nhật ký',
+];
+
+const DANH_SACH_DON_TAIL_COLUMNS = ['Tổng tiền VNĐ'];
+
+/** Cột bật mặc định khi reset / lần đầu (21 cột đầu + Tổng tiền VNĐ). */
+const DANH_SACH_DON_DEFAULT_VISIBLE_COLUMNS = [
+  ...DANH_SACH_DON_DEFAULT_COLUMNS,
+  ...DANH_SACH_DON_TAIL_COLUMNS,
 ];
 
 const DANH_SACH_DON_FULL_DISPLAY_ORDER = [
   ...DANH_SACH_DON_DEFAULT_COLUMNS,
-  ...DANH_SACH_DON_EXTENDED_COLUMNS.filter(
-    (col) => !DANH_SACH_DON_DEFAULT_COLUMNS.includes(col)
-  ),
+  ...DANH_SACH_DON_EXTENDED_COLUMNS,
+  ...DANH_SACH_DON_TAIL_COLUMNS,
 ];
 
-/** Sắp cột theo mẫu cố định; cột lạ (không trong mẫu) xếp cuối theo extended rồi A→Z. */
+/** Sắp cột theo mẫu cố định; cột lạ (không trong mẫu) xếp cuối A→Z. */
 function orderColumnsByDanhSachDonTemplate(cols, { includeAllDefaultTemplate = false } = {}) {
   const input = cols || [];
   const colSet = includeAllDefaultTemplate
-    ? new Set([...DANH_SACH_DON_DEFAULT_COLUMNS, ...input])
+    ? new Set([...DANH_SACH_DON_FULL_DISPLAY_ORDER, ...input])
     : new Set(input);
 
-  const fromDefaultTemplate = DANH_SACH_DON_DEFAULT_COLUMNS.filter(
+  const ordered = DANH_SACH_DON_FULL_DISPLAY_ORDER.filter(
     (c) => includeAllDefaultTemplate || colSet.has(c)
   );
-
-  const extras = [...colSet].filter((c) => !DANH_SACH_DON_DEFAULT_COLUMNS.includes(c));
-  extras.sort((a, b) => {
-    const ia = DANH_SACH_DON_EXTENDED_COLUMNS.indexOf(a);
-    const ib = DANH_SACH_DON_EXTENDED_COLUMNS.indexOf(b);
-    if (ia !== -1 && ib !== -1) return ia - ib;
-    if (ia !== -1) return -1;
-    if (ib !== -1) return 1;
-    const fa = DANH_SACH_DON_FULL_DISPLAY_ORDER.indexOf(a);
-    const fb = DANH_SACH_DON_FULL_DISPLAY_ORDER.indexOf(b);
-    if (fa !== -1 && fb !== -1) return fa - fb;
-    if (fa !== -1) return -1;
-    if (fb !== -1) return 1;
-    return a.localeCompare(b, 'vi', { sensitivity: 'base' });
-  });
-
-  return orderColumnsWithThuTienAfterGiaoHang([...fromDefaultTemplate, ...extras]);
-}
-
-/** Đặt «Trạng thái thu tiền» ngay sau cột trạng thái giao cuối cùng trong danh sách. */
-function orderColumnsWithThuTienAfterGiaoHang(cols) {
-  const thuTienIdx = cols.indexOf('Trạng thái thu tiền');
-  if (thuTienIdx === -1) return cols;
-
-  let anchorIdx = -1;
-  for (const name of DELIVERY_STATUS_COLUMN_NAMES) {
-    const idx = cols.indexOf(name);
-    if (idx > anchorIdx) anchorIdx = idx;
-  }
-  if (anchorIdx === -1 || thuTienIdx === anchorIdx + 1) return cols;
-
-  const next = cols.slice();
-  const [thuTienCol] = next.splice(thuTienIdx, 1);
-  const insertAfter = DELIVERY_STATUS_COLUMN_NAMES.reduce(
-    (maxIdx, name) => Math.max(maxIdx, next.indexOf(name)),
-    -1
-  );
-  if (insertAfter === -1) return cols;
-  next.splice(insertAfter + 1, 0, thuTienCol);
-  return next;
+  const extras = [...colSet].filter((c) => !DANH_SACH_DON_FULL_DISPLAY_ORDER.includes(c));
+  extras.sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  return ordered.concat(extras);
 }
 
 /**
@@ -692,7 +659,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   /** Tên NV vận đơn chuẩn từ master (users/danh_sach_van_don) — luôn có trong dropdown lọc chia vận đơn */
   const [vanDonStaffMasterNames, setVanDonStaffMasterNames] = useState([]);
 
-  const defaultColumns = DANH_SACH_DON_DEFAULT_COLUMNS;
+  const defaultColumns = DANH_SACH_DON_DEFAULT_VISIBLE_COLUMNS;
 
   // Debounce search text for better performance
   useEffect(() => {
@@ -725,8 +692,8 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
     }
 
-    // Đảm bảo các cột mặc định luôn có trong danh sách, ngay cả khi không có trong dữ liệu
-    defaultColumns.forEach(col => {
+    // Đảm bảo mọi cột trong mẫu đầy đủ có trong picker, kể cả khi chưa có trong dữ liệu.
+    DANH_SACH_DON_FULL_DISPLAY_ORDER.forEach((col) => {
       if (!HIDDEN_COLUMNS.includes(col)) {
         allKeys.add(col);
       }
@@ -738,7 +705,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       .filter((key) => !DANH_SACH_DON_FULL_DISPLAY_ORDER.includes(key))
       .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
 
-    return orderColumnsWithThuTienAfterGiaoHang([...knownOrdered, ...unknown]);
+    return [...knownOrdered, ...unknown];
   }, [allData, defaultColumns.join('|')]);
 
   // Default columns
@@ -783,11 +750,8 @@ function DanhSachDon({ dataSource = 'default' }) {
   // Update displayColumns based on visibleColumns (HCM: khớp thứ tự mẫu 22 cột / Excel)
   const displayColumns = useMemo(() => {
     const visible = allAvailableColumns.filter((col) => visibleColumns[col] === true);
-    if (isHcmView) {
-      return orderColumnsByDanhSachDonTemplate(visible);
-    }
-    return orderColumnsWithThuTienAfterGiaoHang(visible);
-  }, [allAvailableColumns, visibleColumns, isHcmView]);
+    return orderColumnsByDanhSachDonTemplate(visible);
+  }, [allAvailableColumns, visibleColumns]);
 
   // Clean up hidden columns from visibleColumns and ensure default columns exist
   useEffect(() => {
@@ -908,6 +872,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
     "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
     "Cảnh báo trùng": item.canh_bao || '',
+    "Nhật ký": item.log ?? '',
     _id: item.id,
     _log: item.log ?? null,
     // Note: _id and technical keys excluded from column picker via allAvailableColumns filter
@@ -3336,13 +3301,10 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
-    // HCM: luôn xuất đủ 22 cột mẫu theo thứ tự cố định (khớp lưới), rồi cột phụ.
+    // HCM: xuất đủ cột theo mẫu đầy đủ (Tổng tiền VNĐ ở cuối).
     cols = orderColumnsByDanhSachDonTemplate(cols, {
       includeAllDefaultTemplate: isHcmView,
     });
-    if (!isHcmView) {
-      cols = orderColumnsWithThuTienAfterGiaoHang(cols);
-    }
     const exportRows = rows.map((row) => {
       const obj = {};
       for (const col of cols) {
