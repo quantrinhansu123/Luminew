@@ -276,11 +276,101 @@ const HIDDEN_COLUMNS = [
 
 /** Cột trạng thái giao — «Trạng thái thu tiền» luôn đứng ngay sau nhóm này trên lưới / Excel. */
 const DELIVERY_STATUS_COLUMN_NAMES = ['Trạng thái giao hàng', 'Trạng thái giao hàng NB'];
+
+/** Thứ tự cột mặc định / mẫu Excel danh sách đơn (HN + HCM). */
+const DANH_SACH_DON_DEFAULT_COLUMNS = [
+  'Mã đơn hàng',
+  'Ngày lên đơn',
+  'Name*',
+  'Phone*',
+  'Địa chỉ',
+  'Khu vực',
+  'Mặt hàng',
+  'Số lượng mặt hàng 1',
+  'Số lượng mặt hàng 2',
+  'Loại tiền thanh toán',
+  'Giá bán',
+  'Tỉ giá',
+  'Ca',
+  'Mã Tracking',
+  'Trạng thái giao hàng',
+  'Trạng thái thu tiền',
+  'Phản hồi tích cực',
+  'Phản hồi tiêu cực',
+  'Ngày đối soát bill',
+  'Ngày đối soát cước',
+  'Phí ship',
+  'Tổng tiền VNĐ',
+];
+
+/** Cột bổ sung trên lưới — đứng sau nhóm mặc định, trước cột ghim cuối. */
+const DANH_SACH_DON_EXTENDED_COLUMNS = [
+  'Ngày chia đơn',
+  'Thành phố',
+  'Tỉnh/Bang',
+  'Mã bưu điện',
+  'Tên mặt hàng 1',
+  'Tên mặt hàng 2',
+  'Hình thức thanh toán',
+  'Nhân viên Marketing',
+  'Nhân viên Sale',
+  'Team',
+  'Trạng thái giao hàng NB',
+  'Kết quả Check',
+  'Ghi chú',
+  'CSKH',
+  'NV Vận đơn',
+  'Tiền Việt đã đối soát',
+  'Đơn vị vận chuyển',
+  'Kế toán xác nhận thu tiền về',
+  'Lý do',
+  'Tên Page',
+  'Trạng thái Bill',
+  'Ảnh thanh toán',
+  'Cảnh báo trùng',
+  'Nhật ký',
+];
+
 const PINNED_END_COLUMNS = [
   ...DELIVERY_STATUS_COLUMN_NAMES,
   'Trạng thái thu tiền',
   'Tổng tiền VNĐ',
 ];
+
+const DANH_SACH_DON_FULL_DISPLAY_ORDER = [
+  ...DANH_SACH_DON_DEFAULT_COLUMNS.filter((col) => !PINNED_END_COLUMNS.includes(col)),
+  ...DANH_SACH_DON_EXTENDED_COLUMNS.filter((col) => !PINNED_END_COLUMNS.includes(col)),
+  ...PINNED_END_COLUMNS,
+];
+
+/** Sắp cột theo mẫu cố định; cột lạ (không trong mẫu) xếp cuối theo extended rồi A→Z. */
+function orderColumnsByDanhSachDonTemplate(cols, { includeAllDefaultTemplate = false } = {}) {
+  const input = cols || [];
+  const colSet = includeAllDefaultTemplate
+    ? new Set([...DANH_SACH_DON_DEFAULT_COLUMNS, ...input])
+    : new Set(input);
+
+  const fromDefaultTemplate = DANH_SACH_DON_DEFAULT_COLUMNS.filter(
+    (c) => includeAllDefaultTemplate || colSet.has(c)
+  );
+
+  const extras = [...colSet].filter((c) => !DANH_SACH_DON_DEFAULT_COLUMNS.includes(c));
+  extras.sort((a, b) => {
+    const ia = DANH_SACH_DON_EXTENDED_COLUMNS.indexOf(a);
+    const ib = DANH_SACH_DON_EXTENDED_COLUMNS.indexOf(b);
+    if (ia !== -1 && ib !== -1) return ia - ib;
+    if (ia !== -1) return -1;
+    if (ib !== -1) return 1;
+    const fa = DANH_SACH_DON_FULL_DISPLAY_ORDER.indexOf(a);
+    const fb = DANH_SACH_DON_FULL_DISPLAY_ORDER.indexOf(b);
+    if (fa !== -1 && fb !== -1) return fa - fb;
+    if (fa !== -1) return -1;
+    if (fb !== -1) return 1;
+    return a.localeCompare(b, 'vi', { sensitivity: 'base' });
+  });
+
+  return orderColumnsWithThuTienAfterGiaoHang([...fromDefaultTemplate, ...extras]);
+}
 
 /** Đặt «Trạng thái thu tiền» ngay sau cột trạng thái giao cuối cùng trong danh sách. */
 function orderColumnsWithThuTienAfterGiaoHang(cols) {
@@ -607,30 +697,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   /** Tên NV vận đơn chuẩn từ master (users/danh_sach_van_don) — luôn có trong dropdown lọc chia vận đơn */
   const [vanDonStaffMasterNames, setVanDonStaffMasterNames] = useState([]);
 
-  const defaultColumns = [
-    'Mã đơn hàng',
-    'Ngày lên đơn',
-    'Name*',
-    'Phone*',
-    'Địa chỉ',
-    'Khu vực',
-    'Mặt hàng',
-    'Số lượng mặt hàng 1',
-    'Số lượng mặt hàng 2',
-    'Loại tiền thanh toán',
-    'Giá bán',
-    'Tỉ giá',
-    'Ca',
-    'Mã Tracking',
-    'Trạng thái giao hàng',
-    'Trạng thái thu tiền',
-    'Phản hồi tích cực',
-    'Phản hồi tiêu cực',
-    'Ngày đối soát bill',
-    'Ngày đối soát cước',
-    'Phí ship',
-    'Tổng tiền VNĐ',
-  ];
+  const defaultColumns = DANH_SACH_DON_DEFAULT_COLUMNS;
 
   // Debounce search text for better performance
   useEffect(() => {
@@ -670,21 +737,13 @@ function DanhSachDon({ dataSource = 'default' }) {
       }
     });
 
-    // Strategy:
-    // 1. Start Defaults: Defaults excluding pinned ones
-    // 2. Other/Dynamic Cols: Alphabetic sort
-    // 3. End Cols: Pinned ones (Status, Total)
+    // Sắp cột theo mẫu cố định (không xếp A→Z giữa các cột mặc định).
+    const knownOrdered = DANH_SACH_DON_FULL_DISPLAY_ORDER.filter((col) => allKeys.has(col));
+    const unknown = Array.from(allKeys)
+      .filter((key) => !DANH_SACH_DON_FULL_DISPLAY_ORDER.includes(key))
+      .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
 
-    const startDefaults = defaultColumns
-      .filter(col => !PINNED_END_COLUMNS.includes(col) && allKeys.has(col));
-
-    const otherCols = Array.from(allKeys)
-      .filter(key => !defaultColumns.includes(key) && !PINNED_END_COLUMNS.includes(key))
-      .sort();
-
-    const endCols = PINNED_END_COLUMNS.filter(col => allKeys.has(col));
-
-    return orderColumnsWithThuTienAfterGiaoHang([...startDefaults, ...otherCols, ...endCols]);
+    return orderColumnsWithThuTienAfterGiaoHang([...knownOrdered, ...unknown]);
   }, [allData, defaultColumns.join('|')]);
 
   // Default columns
@@ -3278,7 +3337,10 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
-    cols = orderColumnsWithThuTienAfterGiaoHang(cols);
+    // HCM: luôn xuất đủ 22 cột mẫu theo thứ tự cố định (khớp file Excel ngoài), rồi cột phụ.
+    cols = orderColumnsByDanhSachDonTemplate(cols, {
+      includeAllDefaultTemplate: isHcmView,
+    });
     const exportRows = rows.map((row) => {
       const obj = {};
       for (const col of cols) {

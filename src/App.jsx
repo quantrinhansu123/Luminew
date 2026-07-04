@@ -65,7 +65,8 @@ import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
 import DashboardQuanTri from './pages/DashboardQuanTri';
 import DashboardDieuHanh from './pages/DashboardDieuHanh';
 import BaoCaoCeo from './pages/BaoCaoCeo';
-import XemBaoCaoMKTLegacy, { XEM_BAO_CAO_MKT_HCM_TEAM } from './pages/XemBaoCaoMKTLegacy';
+import XemBaoCaoMKTLegacy from './pages/XemBaoCaoMKTLegacy';
+import XemBaoCaoMKTHcm from './pages/XemBaoCaoMKTHcm';
 import XemBaoCaoMKTRnD from './pages/XemBaoCaoMKTRnD';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import MktKpiAlertsAdmin from './pages/MktKpiAlertsAdmin';
@@ -291,11 +292,7 @@ function AppShell() {
               path="/xem-bao-cao-mkt-hcm"
               element={
                 <ProtectedRoute>
-                  <XemBaoCaoMKTLegacy
-                    legacyHtmlPath="/viewNsMoiNhanh-HCM.html"
-                    iframeAllowedTeams={[XEM_BAO_CAO_MKT_HCM_TEAM]}
-                    iframeTitle="Xem báo cáo MKT HCM (viewNsMoiNhanh-HCM)"
-                  />
+                  <XemBaoCaoMKTHcm />
                 </ProtectedRoute>
               }
             />

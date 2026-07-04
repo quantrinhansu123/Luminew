@@ -852,7 +852,7 @@
       return ['HN-MKT', 'Team Test'];
     }
     const MKT_ALLOWED_TEAMS = getMktAllowedTeamsFromPage();
-    const MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
+    const MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktLegacy.scope';
     const MKT_EMPTY_ROW_ID = '00000000-0000-0000-0000-000000000000';
     const RD_PRODUCTS_ONLY = (() => {
       try {
@@ -886,7 +886,7 @@
       const tryRead = (store) => {
         if (!store || typeof store.getItem !== 'function') return null;
         try {
-          const raw = store.getItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY);
+          const raw = store.getItem(MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY);
           if (!raw) return null;
           return parseMktScopePayload(JSON.parse(raw));
         } catch {
@@ -921,8 +921,8 @@
     function mktHasExplicitPersonnelScopeInStorage() {
       try {
         return !!(
-          localStorage.getItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY) ||
-          sessionStorage.getItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY)
+          localStorage.getItem(MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY) ||
+          sessionStorage.getItem(MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY)
         );
       } catch (e) {
         return false;

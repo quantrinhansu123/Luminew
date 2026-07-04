@@ -9,8 +9,7 @@ import {
   writeDashboardGlobalDateRange,
 } from '../utils/dashboardGlobalDateRange';
 
-/** Khớp XemBaoCaoMKTLegacy / viewNsMoiNhanh*.html — iframe dashboard cần skip lọc nhân sự. */
-const MKT_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
+import { MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY } from './XemBaoCaoMKTLegacy';
 import { isExecutiveDashboardAudience } from '../utils/executiveAccess';
 import { getLastNDaysRangeLocal } from '../utils/nhanSuSaleLumiMoiLogic';
 import DashboardQuanTriBaoCaoTongPanel from '../components/dashboard/DashboardQuanTriBaoCaoTongPanel';
@@ -79,8 +78,8 @@ export default function DashboardQuanTri() {
       source: 'dashboard-quan-tri',
     });
     try {
-      localStorage.setItem(MKT_LEGACY_PERSONNEL_SCOPE_KEY, payload);
-      sessionStorage.setItem(MKT_LEGACY_PERSONNEL_SCOPE_KEY, payload);
+      localStorage.setItem(MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY, payload);
+      sessionStorage.setItem(MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY, payload);
     } catch {
       /* private mode / quota */
     }

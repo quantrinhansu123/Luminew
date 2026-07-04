@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { submitMktKpiAlertExplanation } from "../services/mktKpiAlertsService";
 
 const MKT_ALERTS_STORAGE_KEY = "luminew.mktAlerts.v1";
+const MKT_HCM_ALERTS_STORAGE_KEY = "luminew.mktAlerts.hcm.v1";
 const MKT_ALERTS_READ_KEY = "luminew.mktAlerts.read.v1";
 
 function normalizeNameKey(s) {
@@ -31,7 +32,18 @@ export default function Header() {
   const username = localStorage.getItem("username") || "User";
   const userRole = localStorage.getItem("userRole") || "user";
   const userTeam = localStorage.getItem("userTeam") || "";
-  const [alertsPayload, setAlertsPayload] = useState(() => readJsonSafe(MKT_ALERTS_STORAGE_KEY, null));
+  const [alertsPayload, setAlertsPayload] = useState(() => {
+    const hn = readJsonSafe(MKT_ALERTS_STORAGE_KEY, null);
+    const hcm = readJsonSafe(MKT_HCM_ALERTS_STORAGE_KEY, null);
+    const hnAlerts = Array.isArray(hn?.alerts) ? hn.alerts : [];
+    const hcmAlerts = Array.isArray(hcm?.alerts) ? hcm.alerts : [];
+    if (hnAlerts.length === 0 && hcmAlerts.length === 0) return hn || hcm;
+    return {
+      v: 1,
+      ts: Math.max(Number(hn?.ts) || 0, Number(hcm?.ts) || 0),
+      alerts: [...hnAlerts, ...hcmAlerts],
+    };
+  });
   const [readIds, setReadIds] = useState(() => {
     const o = readJsonSafe(MKT_ALERTS_READ_KEY, { v: 1, ids: [] });
     const ids = Array.isArray(o?.ids) ? o.ids : [];
@@ -65,9 +77,24 @@ export default function Header() {
     location.pathname === "/dashboard-quan-tri" || location.pathname === "/bao-cao-ceo";
 
   useEffect(() => {
+    const reloadAlerts = () => {
+      const hn = readJsonSafe(MKT_ALERTS_STORAGE_KEY, null);
+      const hcm = readJsonSafe(MKT_HCM_ALERTS_STORAGE_KEY, null);
+      const hnAlerts = Array.isArray(hn?.alerts) ? hn.alerts : [];
+      const hcmAlerts = Array.isArray(hcm?.alerts) ? hcm.alerts : [];
+      if (hnAlerts.length === 0 && hcmAlerts.length === 0) {
+        setAlertsPayload(hn || hcm);
+        return;
+      }
+      setAlertsPayload({
+        v: 1,
+        ts: Math.max(Number(hn?.ts) || 0, Number(hcm?.ts) || 0),
+        alerts: [...hnAlerts, ...hcmAlerts],
+      });
+    };
     const onStorage = (e) => {
-      if (e.key === MKT_ALERTS_STORAGE_KEY) {
-        setAlertsPayload(readJsonSafe(MKT_ALERTS_STORAGE_KEY, null));
+      if (e.key === MKT_ALERTS_STORAGE_KEY || e.key === MKT_HCM_ALERTS_STORAGE_KEY) {
+        reloadAlerts();
       }
       if (e.key === MKT_ALERTS_READ_KEY) {
         const o = readJsonSafe(MKT_ALERTS_READ_KEY, { v: 1, ids: [] });
