@@ -331,16 +331,11 @@ const DANH_SACH_DON_EXTENDED_COLUMNS = [
   'Nhật ký',
 ];
 
-const PINNED_END_COLUMNS = [
-  ...DELIVERY_STATUS_COLUMN_NAMES,
-  'Trạng thái thu tiền',
-  'Tổng tiền VNĐ',
-];
-
 const DANH_SACH_DON_FULL_DISPLAY_ORDER = [
-  ...DANH_SACH_DON_DEFAULT_COLUMNS.filter((col) => !PINNED_END_COLUMNS.includes(col)),
-  ...DANH_SACH_DON_EXTENDED_COLUMNS.filter((col) => !PINNED_END_COLUMNS.includes(col)),
-  ...PINNED_END_COLUMNS,
+  ...DANH_SACH_DON_DEFAULT_COLUMNS,
+  ...DANH_SACH_DON_EXTENDED_COLUMNS.filter(
+    (col) => !DANH_SACH_DON_DEFAULT_COLUMNS.includes(col)
+  ),
 ];
 
 /** Sắp cột theo mẫu cố định; cột lạ (không trong mẫu) xếp cuối theo extended rồi A→Z. */
@@ -785,10 +780,14 @@ function DanhSachDon({ dataSource = 'default' }) {
     return initial;
   });
 
-  // Update displayColumns based on visibleColumns
+  // Update displayColumns based on visibleColumns (HCM: khớp thứ tự mẫu 22 cột / Excel)
   const displayColumns = useMemo(() => {
-    return allAvailableColumns.filter(col => visibleColumns[col] === true);
-  }, [allAvailableColumns, visibleColumns]);
+    const visible = allAvailableColumns.filter((col) => visibleColumns[col] === true);
+    if (isHcmView) {
+      return orderColumnsByDanhSachDonTemplate(visible);
+    }
+    return orderColumnsWithThuTienAfterGiaoHang(visible);
+  }, [allAvailableColumns, visibleColumns, isHcmView]);
 
   // Clean up hidden columns from visibleColumns and ensure default columns exist
   useEffect(() => {
@@ -3337,10 +3336,13 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
-    // HCM: luôn xuất đủ 22 cột mẫu theo thứ tự cố định (khớp file Excel ngoài), rồi cột phụ.
+    // HCM: luôn xuất đủ 22 cột mẫu theo thứ tự cố định (khớp lưới), rồi cột phụ.
     cols = orderColumnsByDanhSachDonTemplate(cols, {
       includeAllDefaultTemplate: isHcmView,
     });
+    if (!isHcmView) {
+      cols = orderColumnsWithThuTienAfterGiaoHang(cols);
+    }
     const exportRows = rows.map((row) => {
       const obj = {};
       for (const col of cols) {
