@@ -3303,7 +3303,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
-    // HCM: luôn xuất đúng thứ tự mẫu đầy đủ (không phụ thuộc thứ tự lưới).
+    // HCM: xuất đúng thứ tự mẫu đầy đủ; view khác: theo cột đang hiển thị trên lưới.
     if (isHcmView) {
       const extraVisible = (displayColumns || []).filter(
         (c) => !DANH_SACH_DON_FULL_DISPLAY_ORDER.includes(c)
@@ -3312,23 +3312,22 @@ function DanhSachDon({ dataSource = 'default' }) {
     } else {
       cols = orderColumnsByDanhSachDonTemplate(cols);
     }
-    const exportRows = rows.map((row) => {
-      const obj = {};
-      for (const col of cols) {
-        // null value: pass as null so Excel shows it as empty
+    // aoa_to_sheet: giữ đúng thứ tự cột mẫu (json_to_sheet có thể lệch ở các cột cuối).
+    const headerRow = cols;
+    const dataRows = rows.map((row) =>
+      cols.map((col) => {
         const val = getCellDisplayValueForRow(row, col, true);
-        obj[col] = val;
-      }
-      return obj;
-    });
-    const ws = XLSX.utils.json_to_sheet(exportRows);
+        return val === null || val === undefined ? '' : val;
+      })
+    );
+    const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'TheoBoLoc');
     const stamp = new Date().toISOString().slice(0, 10);
     const suffix = dataSource === 'hcm' ? '_HCM' : '';
     XLSX.writeFile(wb, `DanhSachDon_theo_luoi_hien_thi${suffix}_${stamp}.xlsx`);
     toast.success(
-      `Đã tải Excel: ${exportRows.length} dòng, ${cols.length} cột (theo bộ lọc và cột đang hiển thị).`,
+      `Đã tải Excel: ${rows.length} dòng, ${cols.length} cột (theo bộ lọc và cột đang hiển thị).`,
       {
         autoClose: 2200,
         hideProgressBar: true,
