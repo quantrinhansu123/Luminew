@@ -316,6 +316,7 @@ const DANH_SACH_DON_EXTENDED_COLUMNS = [
   'Tiền Việt đã đối soát',
   'Trạng thái Bill',
   'Trạng thái giao hàng NB',
+  'Trạng thái thu tiền',
   'Tên Page',
   'Tên mặt hàng 1',
   'Tên mặt hàng 2',
@@ -323,7 +324,6 @@ const DANH_SACH_DON_EXTENDED_COLUMNS = [
   'check_result',
   'Đơn vị vận chuyển',
   'Ảnh thanh toán',
-  'Trạng thái thu tiền',
 ];
 
 /** Cuối mẫu Excel HCM: Trạng thái giao hàng ngay trước Tổng tiền VNĐ (không chèn Nhật ký). */
@@ -3303,16 +3303,8 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
-    // HCM: xuất đúng thứ tự mẫu đầy đủ; view khác: theo cột đang hiển thị trên lưới.
-    if (isHcmView) {
-      const extraVisible = (displayColumns || []).filter(
-        (c) => !DANH_SACH_DON_FULL_DISPLAY_ORDER.includes(c)
-      );
-      cols = [...DANH_SACH_DON_FULL_DISPLAY_ORDER, ...extraVisible];
-    } else {
-      cols = orderColumnsByDanhSachDonTemplate(cols);
-    }
-    // aoa_to_sheet: giữ đúng thứ tự cột mẫu (json_to_sheet có thể lệch ở các cột cuối).
+    // Sắp cột theo mẫu; HCM xuất đúng cột đang hiển thị trên lưới (nút «theo lưới»).
+    cols = orderColumnsByDanhSachDonTemplate(cols);
     const headerRow = cols;
     const dataRows = rows.map((row) =>
       cols.map((col) => {
