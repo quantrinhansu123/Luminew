@@ -8,6 +8,7 @@ import { toast } from 'react-toastify';
 import { dispatchPermissionsInvalidate } from '../../hooks/usePermissions';
 import * as rbacService from '../../services/rbacService';
 import MultiSelect from '../MultiSelect';
+import AdminTableViewport from './AdminTableViewport';
 import PermissionTree from './PermissionTree';
 
 const PERSONNEL_FILTER_PLACEHOLDERS = new Set([
@@ -1728,9 +1729,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
                             </div>
                         )}
 
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left border rounded-lg">
-                                <thead className="bg-gray-100 font-semibold text-gray-600">
+                        <AdminTableViewport>
+                            <table className="w-full text-sm text-left border rounded-lg min-w-[480px]">
+                                <thead className="bg-gray-100 font-semibold text-gray-600 sticky top-0 z-10">
                                     <tr>
                                         <th className="p-3">Mã Role</th>
                                         <th className="p-3">Tên Role</th>
@@ -1760,7 +1761,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     )}
                                 </tbody>
                             </table>
-                        </div>
+                        </AdminTableViewport>
                     </div>
                 )}
 
@@ -1961,9 +1962,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
                             </button>
                         </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-base text-left border rounded-lg">
-                                <thead className="bg-gray-100 font-semibold text-gray-700">
+                        <AdminTableViewport>
+                            <table className="w-full text-base text-left border rounded-lg min-w-[1200px]">
+                                <thead className="bg-gray-100 font-semibold text-gray-700 sticky top-0 z-10">
                                     <tr>
                                         <th className="px-3 py-4 text-sm text-center">
                                             <input
@@ -2156,7 +2157,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     )}
                                 </tbody>
                             </table>
-                        </div>
+                        </AdminTableViewport>
 
                         {/* Edit User Info Modal */}
                         {editingUser && (

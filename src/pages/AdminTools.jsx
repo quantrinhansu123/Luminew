@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
+import AdminTableViewport from '../components/admin/AdminTableViewport';
 import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
@@ -3178,8 +3179,8 @@ const AdminTools = () => {
                                 </p>
 
                                 <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-                                    <div className="max-h-[500px] overflow-y-auto">
-                                        <table className="w-full text-sm text-left">
+                                    <AdminTableViewport className="max-h-[500px]">
+                                        <table className="w-full text-sm text-left min-w-[640px]">
                                             <thead className="bg-gray-50 text-gray-700 font-semibold sticky top-0 z-10">
                                                 <tr>
                                                     <th className="px-4 py-3 border-b w-16 text-center">STT</th>
@@ -3254,7 +3255,7 @@ const AdminTools = () => {
                                                 )}
                                             </tbody>
                                         </table>
-                                    </div>
+                                    </AdminTableViewport>
 
                                     {/* Add Product Footer */}
                                     <div className="bg-gray-50 p-3 border-t flex gap-2">
@@ -3346,8 +3347,9 @@ const AdminTools = () => {
                                 <p className="text-sm text-gray-500">Các thị trường (Khu vực) chính cần theo dõi trong báo cáo.</p>
 
                                 <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="bg-gray-50 text-gray-700 font-semibold sticky top-0">
+                                    <AdminTableViewport>
+                                    <table className="w-full text-sm text-left min-w-[480px]">
+                                        <thead className="bg-gray-50 text-gray-700 font-semibold sticky top-0 z-10">
                                             <tr>
                                                 <th className="px-4 py-3 border-b w-16 text-center">STT</th>
                                                 <th className="px-4 py-3 border-b">Tên Thị trường</th>
@@ -3380,6 +3382,7 @@ const AdminTools = () => {
                                                 ))}
                                         </tbody>
                                     </table>
+                                    </AdminTableViewport>
 
                                     {/* Add Market Footer */}
                                     <div className="bg-gray-50 p-3 border-t flex gap-2">
@@ -3500,9 +3503,9 @@ const AdminTools = () => {
                                         </div>
                                     </div>
 
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full">
-                                            <thead className="bg-gray-100">
+                                    <AdminTableViewport>
+                                        <table className="w-full min-w-[720px]">
+                                            <thead className="bg-gray-100 sticky top-0 z-10">
                                                 <tr>
                                                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">
                                                         Loại tiền tệ
@@ -3653,7 +3656,7 @@ const AdminTools = () => {
                                                 )}
                                             </tbody>
                                         </table>
-                                    </div>
+                                    </AdminTableViewport>
 
                                     {/* Info Box */}
                                     <div className="p-4 bg-blue-50 border-t border-gray-200">
@@ -4175,7 +4178,7 @@ const AdminTools = () => {
                             }
 
                             return (
-                                <div className="overflow-x-auto">
+                                <div>
                                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                                         <div className="text-sm text-gray-600">
                                             Hiển thị {filteredAccounts.length} / {authAccounts.length} tài khoản
@@ -4222,9 +4225,10 @@ const AdminTools = () => {
                                             </button>
                                         </div>
                                     </div>
+                                    <AdminTableViewport>
                                     <table className="min-w-full border-collapse border border-gray-300">
                                         <thead>
-                                            <tr className="bg-gray-100">
+                                            <tr className="bg-gray-100 sticky top-0 z-10">
                                                 <th className="border border-gray-300 px-4 py-3 text-center font-semibold">
                                                     <input
                                                         type="checkbox"
@@ -4449,7 +4453,8 @@ const AdminTools = () => {
                                         ))}
                                     </tbody>
                                 </table>
-                            </div>
+                                    </AdminTableViewport>
+                                </div>
                             );
                         })()}
 
@@ -4596,8 +4601,8 @@ const AdminTools = () => {
                         {/* Login History Modal */}
                         {showLoginHistory && (
                             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-                                    <div className="flex justify-between items-center mb-4">
+                                <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col">
+                                    <div className="flex justify-between items-center mb-4 shrink-0">
                                         <h3 className="text-xl font-bold text-gray-800">Lịch sử đăng nhập</h3>
                                         <button
                                             onClick={() => setShowLoginHistory(false)}
@@ -4610,10 +4615,10 @@ const AdminTools = () => {
                                     {loginHistory.length === 0 ? (
                                         <p className="text-gray-500 text-center py-8">Chưa có lịch sử đăng nhập</p>
                                     ) : (
-                                        <div className="overflow-x-auto">
+                                        <AdminTableViewport className="max-h-[min(55vh,520px)]">
                                             <table className="min-w-full border-collapse border border-gray-300">
                                                 <thead>
-                                                    <tr className="bg-gray-100">
+                                                    <tr className="bg-gray-100 sticky top-0 z-10">
                                                         <th className="border border-gray-300 px-4 py-2 text-left font-semibold">Thời gian</th>
                                                         <th className="border border-gray-300 px-4 py-2 text-left font-semibold">Trạng thái</th>
                                                         <th className="border border-gray-300 px-4 py-2 text-left font-semibold">IP</th>
@@ -4644,7 +4649,7 @@ const AdminTools = () => {
                                                     ))}
                                                 </tbody>
                                             </table>
-                                        </div>
+                                        </AdminTableViewport>
                                     )}
                                 </div>
                             </div>
