@@ -269,10 +269,10 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     const [filterShippingUnit, setFilterShippingUnit] = useState([]);
     const [showShippingUnitFilter, setShowShippingUnitFilter] = useState(false);
     const [shippingUnitFilterSearchText, setShippingUnitFilterSearchText] = useState('');
-    // User thường: mặc định 30 ngày (trước 3 ngày — dễ không thấy đơn cũ). Admin/Manager: để trống = xem full.
+    // User thường: mặc định 3 ngày. Admin/Manager: để trống = xem full.
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
-        d.setDate(d.getDate() - 30);
+        d.setDate(d.getDate() - 3);
         return d.toISOString().split('T')[0];
     });
     const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
