@@ -93,18 +93,14 @@ function chunkStringArray(arr, size) {
   return out;
 }
 
+/** Phạm vi nhân sự: chỉ khớp cột Sale (`sale_staff`). */
 function buildCSKHStaffOrFilter(variants) {
   const orParts = [];
   for (const n of variants) {
     const name = String(n ?? '').trim();
     if (!name) continue;
     const pattern = quotePostgrestOrIlikePattern(`%${name}%`);
-    orParts.push(
-      `sale_staff.ilike.${pattern}`,
-      `marketing_staff.ilike.${pattern}`,
-      `delivery_staff.ilike.${pattern}`,
-      `cskh.ilike.${pattern}`
-    );
+    orParts.push(`sale_staff.ilike.${pattern}`);
   }
   return orParts.length ? orParts.join(',') : null;
 }
@@ -179,28 +175,19 @@ async function fetchCSKHOrdersForDateMode({
 
 function rowMatchesCSKHStaffScope(row, variants) {
   if (!variants?.length) return false;
-  const fields = [
-    row?.sale_staff,
-    row?.marketing_staff,
-    row?.delivery_staff,
-    row?.cskh,
-    row?.['Nhân viên Sale'],
-    row?.['Nhân viên Marketing'],
-    row?.CSKH,
-  ];
-  const haystack = fields
-    .map((v) => String(v ?? '').trim().toLowerCase())
-    .filter(Boolean);
-  if (!haystack.length) return false;
+  const sale = String(row?.sale_staff ?? row?.['Nhân viên Sale'] ?? '')
+    .trim()
+    .toLowerCase();
+  if (!sale) return false;
   return variants.some((name) => {
     const needle = String(name ?? '').trim().toLowerCase();
     if (!needle) return false;
-    return haystack.some((h) => h.includes(needle));
+    return sale.includes(needle);
   });
 }
 
 /**
- * Gộp mọi biến thể tên để khớp cột sale_staff / marketing_staff / delivery_staff / cskh.
+ * Gộp biến thể tên để khớp cột Sale (`sale_staff`) thôi.
  * localStorage "username" có thể là username ngắn hoặc tên cũ; bảng users (theo email) có name đầy đủ.
  */
 async function resolveNameVariantsForOrderFilter(userEmail) {
@@ -874,11 +861,11 @@ function QuanLyCSKH({
             variants = personnelNames;
             if (!variants.length) {
               console.warn(
-                '⚠️ [CSKH HCM] selected_personnel / phạm vi nhân sự trống — không có tên để lọc (sale/mkt/vận đơn/CSKH).'
+                '⚠️ [CSKH HCM] selected_personnel / phạm vi nhân sự trống — không có tên để lọc theo Sale.'
               );
             } else {
               console.log(
-                '🔐 [CSKH HCM] Lọc đơn theo phạm vi nhân sự (selected_personnel + leader_teams + tên tài khoản):',
+                '🔐 [CSKH HCM] Lọc đơn theo Sale (selected_personnel + leader_teams + tên tài khoản):',
                 variants.length,
                 'tên'
               );
@@ -896,10 +883,10 @@ function QuanLyCSKH({
           variants = personnelNames;
           if (!variants.length) {
             console.warn(
-              '⚠️ [CSKH] Không có danh sách nhân sự (selected_personnel / leader_teams) và không có tên tài khoản để lọc. Trả về rỗng.'
+              '⚠️ [CSKH] Không có danh sách nhân sự (selected_personnel / leader_teams) và không có tên tài khoản để lọc theo Sale. Trả về rỗng.'
             );
           } else {
-            console.log('🔍 [CSKH] Lọc đơn theo phạm vi nhân sự user (giống cấu hình Admin):', variants.length, 'tên');
+            console.log('🔍 [CSKH] Lọc đơn theo cột Sale (phạm vi nhân sự user):', variants.length, 'tên');
           }
         } else {
           console.log('✅ [CSKH] Admin/Manager: viewing all orders (filters applied client-side)');
