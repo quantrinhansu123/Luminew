@@ -79,7 +79,13 @@ const HIDDEN_COLUMNS = [
  * Cột chỉ đọc trên lưới Vận đơn.
  * "Mã Tracking" bị khóa để tránh sửa trực tiếp/paste nhầm ngay trên bảng.
  */
-const VAN_DON_GRID_READ_ONLY_COLS = ['Mã Tracking', 'Mã tracking', 'tracking_code'];
+const VAN_DON_GRID_READ_ONLY_COLS = [
+  'Mã Tracking',
+  'Mã tracking',
+  'tracking_code',
+  'Ngày đẩy đơn',
+  'Ngày có mã tracking',
+];
 
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
@@ -1703,10 +1709,16 @@ function VanDon({ dataSource = 'default' }) {
       const orderId = getVanDonRowOrderId(row);
       let rowCopy = { ...row };
 
-      // Computed columns (giữ giá trị map từ DB nếu không có cột “lần 1”)
-      rowCopy["Ngày đẩy đơn"] = extractDateFromDateTime(row["Ngày Kế toán đối soát với FFM lần 2"]);
+      // Computed columns: Ngày đẩy đơn = accounting_check_date; Ngày có mã tracking = tracking_check_date
+      rowCopy["Ngày đẩy đơn"] = extractDateFromDateTime(
+        row["Ngày đẩy đơn"] ??
+          row["Ngày Kế toán đối soát với FFM lần 2"] ??
+          row.accounting_check_date
+      );
       rowCopy["Ngày có mã tracking"] = extractDateFromDateTime(
-        row["Ngày Kế toán đối soát với FFM lần 1"] ?? row["Ngày có mã tracking"]
+        row["Ngày có mã tracking"] ??
+          row["Ngày Kế toán đối soát với FFM lần 1"] ??
+          row.tracking_check_date
       );
 
       const pending = orderId ? pendingChanges.get(orderId) : undefined;

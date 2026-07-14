@@ -39,7 +39,7 @@ export const BILL_LADING_COLUMNS = [
     "City", "State", "Khu vực", "Zipcode", "Mặt hàng", "Tên mặt hàng 1", "Số lượng mặt hàng 1",
     "Tên mặt hàng 2", "Số lượng mặt hàng 2", "Quà tặng", "Số lượng quà kèm", "Giá bán",
     "Loại tiền thanh toán", "Tổng tiền VNĐ", "Hình thức thanh toán", "Ghi chú", "Phản hồi tích cực", "Phản hồi tiêu cực",
-    "Mã Tracking", "Ngày đóng hàng", "Trạng thái giao hàng", "Thời gian giao dự kiến",
+    "Mã Tracking", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Trạng thái giao hàng", "Thời gian giao dự kiến",
     "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
     "Nhân viên Sale", "Nhân viên MKT", "Page", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
@@ -51,7 +51,7 @@ export const BILL_LADING_COLUMNS = [
 export const DEFAULT_BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add", "City", "State",
     "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
-    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Ngày đối soát bill", "Ngày đối soát cước", "Phản hồi tích cực", "Phản hồi tiêu cực", "Nhân viên MKT", "Page", "Nhật ký", "Lịch sử thay đổi"
+    "Mã Tracking", "Ngày đẩy đơn", "Ngày có mã tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Ngày đối soát bill", "Ngày đối soát cước", "Phản hồi tích cực", "Phản hồi tiêu cực", "Nhân viên MKT", "Page", "Nhật ký", "Lịch sử thay đổi"
 ];
 
 /**
@@ -152,7 +152,9 @@ export const COLUMN_MAPPING = {
     "Trạng thái giao hàng NB": "delivery_status_nb",
     "Trạng thái thanh toán": "payment_status",
     "Ngày chia đơn": "ngay_chia_van_don",
-    "Ngày chia vận đơn": "ngay_chia_van_don"
+    "Ngày chia vận đơn": "ngay_chia_van_don",
+    /** Alias hiển thị; nguồn DB `accounting_check_date`. */
+    "Ngày đẩy đơn": "Ngày Kế toán đối soát với FFM lần 2"
 };
 
 // Columns used by Quick Add modal in FFM (single source of truth).
