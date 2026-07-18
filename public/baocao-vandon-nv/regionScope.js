@@ -212,20 +212,95 @@
   }
 
   /**
-   * Tỷ lệ tiền có bill + bill 1 phần / tổng tiền giao thành công.
+   * Mã tracking thật (loại placeholder: "-", "null", "n/a", "0", …).
+   * Tránh cộng thừa 1 đơn vào «đơn có mã» / mẫu số tỷ lệ tiền bill.
+   */
+  function isRealTrackingCode(raw) {
+    if (raw == null) return false;
+    var s = String(raw)
+      .replace(/[\u00a0\u200b\ufeff]/g, '')
+      .trim();
+    if (!s) return false;
+    var l = s.toLowerCase();
+    var compact = l.replace(/\s+/g, '');
+    if (!compact) return false;
+    if (/^[\-–—_.\s,;/#*]+$/u.test(s)) return false;
+    var emptySet = {
+      null: 1,
+      undefined: 1,
+      none: 1,
+      'n/a': 1,
+      na: 1,
+      '#n/a': 1,
+      '#na': 1,
+      trống: 1,
+      '(trống)': 1,
+      empty: 1,
+      blank: 1,
+      nil: 1,
+      '-': 1,
+      '--': 1,
+      '—': 1,
+      '0': 1,
+      '00': 1,
+      '000': 1,
+      chua: 1,
+      'chưa': 1,
+      'chua co': 1,
+      'chưa có': 1,
+      'chua ma': 1,
+      'chưa mã': 1,
+    };
+    if (emptySet[l] || emptySet[compact]) return false;
+    return true;
+  }
+
+  /**
+   * Tỷ lệ tiền (có bill + bill 1 phần) / tiền giao thành công.
    * @param {Record<string, {count?:number, amount?:number}>} stats
    */
   function calcBillAmountOnSuccessRate(stats) {
-    if (!stats) return { billAmount: 0, successAmount: 0, rate: 0 };
-    var paid = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].amount || 0 : 0;
-    var partial = stats['Bill 1 phần'] ? stats['Bill 1 phần'].amount || 0 : 0;
-    var success = stats['Giao Thành Công'] ? stats['Giao Thành Công'].amount || 0 : 0;
-    var billAmount = paid + partial;
+    if (!stats) return { billCount: 0, successCount: 0, billAmount: 0, successAmount: 0, rate: 0 };
+    var paidCount = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].count || 0 : 0;
+    var partialCount = stats['Bill 1 phần'] ? stats['Bill 1 phần'].count || 0 : 0;
+    var successCount = stats['Giao Thành Công'] ? stats['Giao Thành Công'].count || 0 : 0;
+    var paidAmount = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].amount || 0 : 0;
+    var partialAmount = stats['Bill 1 phần'] ? stats['Bill 1 phần'].amount || 0 : 0;
+    var successAmount = stats['Giao Thành Công'] ? stats['Giao Thành Công'].amount || 0 : 0;
+    var billAmount = paidAmount + partialAmount;
     return {
+      billCount: paidCount + partialCount,
+      successCount: successCount,
       billAmount: billAmount,
-      successAmount: success,
-      rate: success > 0 ? (billAmount / success * 100) : 0,
+      successAmount: successAmount,
+      rate: successAmount > 0 ? (billAmount / successAmount * 100) : 0,
     };
+  }
+
+  /**
+   * Tiền đơn khớp header «Tổng tiền» /van-don:
+   * van_don_line_total_vnd (≠0) → tong_tien_vnd (≠0) → Tổng tiền VNĐ → total_amount_vnd.
+   */
+  function resolveVanDonReportMoney(row) {
+    if (!row || typeof row !== 'object') return 0;
+    var parseMoney = function (raw) {
+      if (raw === undefined || raw === null || raw === '') return null;
+      if (typeof raw === 'number' && isFinite(raw)) return raw;
+      var n = parseFloat(String(raw).replace(/[^\d.-]/g, ''));
+      return isFinite(n) ? n : null;
+    };
+    var line = parseMoney(row.van_don_line_total_vnd);
+    if (line != null && line !== 0) return line;
+    var tong = parseMoney(row.tong_tien_vnd != null ? row.tong_tien_vnd : row.tong_tien_VND);
+    if (tong != null && tong !== 0) return tong;
+    var display = parseMoney(row['Tổng tiền VNĐ'] != null ? row['Tổng tiền VNĐ'] : row['Tổng_tiền_VNĐ']);
+    if (display != null) return display;
+    var total = parseMoney(row.total_amount_vnd);
+    if (total != null) return total;
+    var sale = parseMoney(row.sale_price);
+    if (sale != null) return sale;
+    var goods = parseMoney(row.goods_amount);
+    return goods != null ? goods : 0;
   }
 
   function formatVndAmount(n) {
@@ -241,20 +316,41 @@
   }
 
   /**
-   * Tỷ lệ tiền có bill + bill 1 phần / doanh số đơn có mã tracking.
+   * Tỷ lệ tiền (có bill + bill 1 phần) / tiền đơn có mã tracking thật.
    * @param {Record<string, {count?:number, amount?:number}>} stats
    */
   function calcBillAmountOnTrackingCodeRate(stats) {
-    if (!stats) return { billAmount: 0, trackingAmount: 0, rate: 0 };
+    if (!stats) return { billCount: 0, trackingCount: 0, billAmount: 0, trackingAmount: 0, rate: 0 };
+    var paidCount = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].count || 0 : 0;
+    var partialCount = stats['Bill 1 phần'] ? stats['Bill 1 phần'].count || 0 : 0;
+    var trackingCount = stats['Tổng đơn có mã tracking'] ? stats['Tổng đơn có mã tracking'].count || 0 : 0;
     var paid = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].amount || 0 : 0;
     var partial = stats['Bill 1 phần'] ? stats['Bill 1 phần'].amount || 0 : 0;
-    var tracking = stats['Tổng đơn có mã tracking'] ? stats['Tổng đơn có mã tracking'].amount || 0 : 0;
+    var trackingAmount = stats['Tổng đơn có mã tracking'] ? stats['Tổng đơn có mã tracking'].amount || 0 : 0;
     var billAmount = paid + partial;
     return {
+      billCount: paidCount + partialCount,
+      trackingCount: trackingCount,
       billAmount: billAmount,
-      trackingAmount: tracking,
-      rate: tracking > 0 ? (billAmount / tracking * 100) : 0,
+      trackingAmount: trackingAmount,
+      rate: trackingAmount > 0 ? (billAmount / trackingAmount * 100) : 0,
     };
+  }
+
+  /**
+   * Dòng ghi Giao Thành Công nhưng trạng thái vẫn «Không PH dưới 3N» và chưa có phí ship
+   * là dữ liệu chưa hoàn tất; /van-don không đưa dòng này vào tổng Giao TC đã chốt.
+   */
+  function isUnfinalizedDeliverySuccess(row, deliveryNb) {
+    if (classifyTrangThaiGiaoHangNb(deliveryNb) !== 'Giao Thành Công') return false;
+    var payment = String(resolveTrangThaiThanhToan(row)).trim();
+    if (payment.indexOf('Không PH dưới 3N') === -1) return false;
+    var rawShip = row.shipping_cost;
+    if (rawShip == null || rawShip === '') {
+      rawShip = row['Phí ship'] != null ? row['Phí ship'] : row.shipping_fee;
+    }
+    var ship = Number(String(rawShip == null ? '' : rawShip).replace(/[^\d.-]/g, ''));
+    return !isFinite(ship) || ship <= 0;
   }
 
   function getRowField(row, keys) {
@@ -280,6 +376,7 @@
 
   /**
    * Gom chỉ số 1 dòng đơn vào bucket tổng kết (HCM: check/ĐVVC; orders: bill + trạng thái giao).
+   * Tiền luôn resolve giống header «Tổng tiền» /van-don (line → tong_tien → total).
    */
   function accumulateVanDonSummaryStats(stats, row, amount) {
     if (!stats || !row) return;
@@ -287,9 +384,12 @@
     var payment = String(resolveTrangThaiThanhToan(row));
     var deliveryNb = String(resolveTrangThaiGiaoHangNb(row));
     var ketQuaCheckOk = ketQuaCheckIsOk(row);
-    var maTracking = getRowField(row, ['Mã Tracking', 'Mã_Tracking', 'tracking_code']);
+    var maTrackingRaw = getRowField(row, ['Mã Tracking', 'Mã_Tracking', 'tracking_code']);
+    var maTracking = isRealTrackingCode(maTrackingRaw) ? String(maTrackingRaw).trim() : '';
     var dvvc = getRowField(row, ['Đơn vị vận chuyển', 'Đơn_vị_vận_chuyển', 'shipping_unit']);
-    var amt = Number(amount) || 0;
+    var resolved = resolveVanDonReportMoney(row);
+    var passed = Number(amount);
+    var amt = resolved > 0 ? resolved : (Number.isFinite(passed) ? passed : 0);
 
     stats['Tổng đơn lên nội bộ'].count++;
 
@@ -345,8 +445,10 @@
       stats['Đã Thanh Toán (có bill)'].amount += amt;
     }
 
-    incrementDeliveryStatusCount(stats, deliveryNb);
-    addDeliverySuccessAmount(stats, deliveryNb, amt);
+    if (!isUnfinalizedDeliverySuccess(row, deliveryNb)) {
+      incrementDeliveryStatusCount(stats, deliveryNb);
+      addDeliverySuccessAmount(stats, deliveryNb, amt);
+    }
   }
 
   /**
@@ -479,8 +581,10 @@
     calcBillAmountOnSuccessRate: calcBillAmountOnSuccessRate,
     addTrackingCodeOrderAmount: addTrackingCodeOrderAmount,
     calcBillAmountOnTrackingCodeRate: calcBillAmountOnTrackingCodeRate,
+    isRealTrackingCode: isRealTrackingCode,
     accumulateVanDonSummaryStats: accumulateVanDonSummaryStats,
     formatVndAmount: formatVndAmount,
+    resolveVanDonReportMoney: resolveVanDonReportMoney,
     applyProductAreaDeliveryBuckets: applyProductAreaDeliveryBuckets,
     ketQuaCheckIsOk: ketQuaCheckIsOk,
     labelVi: function () {

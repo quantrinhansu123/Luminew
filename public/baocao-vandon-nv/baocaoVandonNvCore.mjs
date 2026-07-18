@@ -132,6 +132,36 @@ export function mapOrderDbRowToLegacyF3(sOrder) {
     }
   });
 
+  // Khớp header «Tổng tiền» trang /van-don: line (≠0) → tong_tien (≠0) → total_amount_vnd.
+  {
+    let money = null;
+    if (sOrder.van_don_line_total_vnd != null && sOrder.van_don_line_total_vnd !== '') {
+      const v = Number(sOrder.van_don_line_total_vnd);
+      if (!Number.isNaN(v) && v !== 0) money = v;
+    }
+    if (money == null) {
+      const rawTong = sOrder.tong_tien_vnd ?? sOrder.tong_tien_VND;
+      if (rawTong != null && rawTong !== '' && !Number.isNaN(Number(rawTong))) {
+        const tn = Number(rawTong);
+        if (tn !== 0) money = tn;
+      }
+    }
+    if (money == null) {
+      const candidates = [sOrder.total_amount_vnd, sOrder.sale_price, sOrder.goods_amount];
+      for (let i = 0; i < candidates.length; i++) {
+        const raw = candidates[i];
+        if (raw === undefined || raw === null) continue;
+        if (typeof raw === 'string' && String(raw).trim() === '') continue;
+        const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[^\d.-]/g, ''));
+        if (Number.isFinite(n)) {
+          money = n;
+          break;
+        }
+      }
+    }
+    if (money != null) appOrder['Tổng tiền VNĐ'] = money;
+  }
+
   {
     const ly = appOrder['Lý do'];
     const lyEmpty = ly === undefined || ly === null || String(ly).trim() === '';
@@ -253,11 +283,26 @@ export function mapOrderDbRowToLegacyF3(sOrder) {
 /** Bản gọn cho iframe báo cáo — bỏ log/ffm_log và key DB trùng bản map (city/City) để JSON hợp lệ. */
 export function mapOrderDbRowToLegacyF3Baocao(sOrder) {
   const appOrder = mapOrderDbRowToLegacyF3(sOrder);
+  // Giữ cột tiền nguồn để báo cáo luôn resolve giống /van-don (không chỉ total_amount_vnd).
+  const moneyKeep = {
+    van_don_line_total_vnd: sOrder?.van_don_line_total_vnd,
+    tong_tien_vnd: sOrder?.tong_tien_vnd ?? sOrder?.tong_tien_VND,
+    total_amount_vnd: sOrder?.total_amount_vnd,
+  };
   for (const dbKey of Object.keys(DB_TO_APP_MAPPING)) {
     delete appOrder[dbKey];
   }
   for (const k of BAOCAO_OMIT_AFTER_MAP) {
     delete appOrder[k];
+  }
+  if (moneyKeep.van_don_line_total_vnd != null && moneyKeep.van_don_line_total_vnd !== '') {
+    appOrder.van_don_line_total_vnd = moneyKeep.van_don_line_total_vnd;
+  }
+  if (moneyKeep.tong_tien_vnd != null && moneyKeep.tong_tien_vnd !== '') {
+    appOrder.tong_tien_vnd = moneyKeep.tong_tien_vnd;
+  }
+  if (moneyKeep.total_amount_vnd != null && moneyKeep.total_amount_vnd !== '') {
+    appOrder.total_amount_vnd = moneyKeep.total_amount_vnd;
   }
   return appOrder;
 }

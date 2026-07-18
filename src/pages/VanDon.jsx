@@ -299,7 +299,7 @@ function pickVanDonRowShippingVnd(row) {
   return n != null && Number.isFinite(n) ? n : 0;
 }
 
-/** Có bill: ngày up bill / ảnh thanh toán / payment_bill (khớp aggregate phía API). */
+/** Có bill: ngày up bill / ảnh / payment_bill / trạng thái thu tiền «Có bill» (khớp aggregate API). */
 function vanDonRowHasBillEvidence(row) {
   if (!row) return false;
   const img = row.payment_image ?? row['Payment Image'] ?? '';
@@ -307,7 +307,14 @@ function vanDonRowHasBillEvidence(row) {
   const up = row.ngayupbill ?? row['Ngày up bill'] ?? '';
   if (up != null && String(up).trim() !== '') return true;
   const pb = row.payment_bill ?? row['Payment Bill'] ?? '';
-  return pb != null && String(pb).trim() !== '';
+  if (pb != null && String(pb).trim() !== '') return true;
+  const pay =
+    row['Trạng thái thu tiền'] ??
+    row.payment_status ??
+    row['Trạng thái thanh toán'] ??
+    row.payment_status_detail ??
+    '';
+  return String(pay).includes('Có bill');
 }
 
 function pickVanDonRowReconciledVnd(row) {
@@ -639,6 +646,21 @@ function rowMatchesBolTabForInject(row, tab, isAdminVanDonTab = false, dataSourc
   return true;
 }
 
+const VAN_DON_CHI_NHANH_PRESETS = ['Hà Nội', 'HCM'];
+
+/** Chi nhánh chọn có gồm HCM không — mảng rỗng = «Tất cả» → coi như gồm cả HCM. */
+function vanDonChiNhanhSelectionIncludesHcm(selected) {
+  const arr = Array.isArray(selected) ? selected : [];
+  if (arr.length === 0) return true;
+  return arr.some((v) => {
+    const ascii = String(v || '')
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .toLowerCase();
+    return ascii.includes('hcm') || ascii.includes('ho chi minh');
+  });
+}
+
 function VanDon({ dataSource = 'default' }) {
   const { canView, role, loading: permissionsLoading } = usePermissions();
   const roleLower = (role || '').toLowerCase();
@@ -769,6 +791,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_mkt: [],
     nv_van_don: [],
     shipping_unit: [],
+    chi_nhanh: [],
     ten_page: [],
     delivery_status: [],
     delivery_status_nb: [],
@@ -791,6 +814,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_mkt: [],
     nv_van_don: [],
     shipping_unit: [],
+    chi_nhanh: [],
     ten_page: [],
     delivery_status: [],
     delivery_status_nb: [],
@@ -1257,6 +1281,7 @@ function VanDon({ dataSource = 'default' }) {
           'nv_mkt',
           'nv_van_don',
           'shipping_unit',
+          'chi_nhanh',
           'ten_page',
           'delivery_status',
           'delivery_status_nb',
@@ -1330,9 +1355,18 @@ function VanDon({ dataSource = 'default' }) {
           ? dataSource === 'hcm'
             ? 'HCM'
             : 'Hà Nội'
-          : omActiveTeam !== 'all'
-            ? omActiveTeam
-            : undefined,
+          : Array.isArray(appliedFilterValues.chi_nhanh) && appliedFilterValues.chi_nhanh.length > 0
+            ? appliedFilterValues.chi_nhanh
+            : omActiveTeam !== 'all'
+              ? omActiveTeam
+              : undefined,
+      /** /van-don: mặc định «Tất cả» hiện cả 2 chi nhánh; chỉ loại HCM khi user chọn đúng Hà Nội (không gồm HCM). */
+      excludeHcmTeam:
+        dataSource !== 'hcm' &&
+        bolActiveTab !== 'hanoi' &&
+        Array.isArray(appliedFilterValues.chi_nhanh) &&
+        appliedFilterValues.chi_nhanh.length > 0 &&
+        !vanDonChiNhanhSelectionIncludesHcm(appliedFilterValues.chi_nhanh),
       market: bolActiveTab === 'japan' ? ['Nhật Bản', 'CĐ Nhật Bản'] : appliedFilterValues.market,
       product: appliedFilterValues.product,
       nv_sale: appliedFilterValues.nv_sale,
@@ -1492,7 +1526,7 @@ function VanDon({ dataSource = 'default' }) {
         page,
         limit,
         team: activeFilters.team,
-        excludeHcmTeam: dataSource !== 'hcm',
+        excludeHcmTeam: activeFilters.excludeHcmTeam === true,
         hanoiTabSqlScope:
           activeFilters.tab === 'hanoi' ? 'ffm_queue_admin' : null,
         market: activeFilters.market,
@@ -2003,6 +2037,18 @@ function VanDon({ dataSource = 'default' }) {
           });
         }
 
+        if (
+          !queueTabSkipMarketAndNvToolbar &&
+          appliedFilterValues.chi_nhanh &&
+          Array.isArray(appliedFilterValues.chi_nhanh) &&
+          appliedFilterValues.chi_nhanh.length > 0
+        ) {
+          activeFilters.push({
+            type: 'chi_nhanh',
+            values: new Set(appliedFilterValues.chi_nhanh)
+          });
+        }
+
         if (appliedFilterValues.shipping_unit && Array.isArray(appliedFilterValues.shipping_unit) && appliedFilterValues.shipping_unit.length > 0) {
           activeFilters.push({
             type: 'shipping_unit',
@@ -2119,6 +2165,26 @@ function VanDon({ dataSource = 'default' }) {
                     }
                   }
 
+                  return false;
+                }
+                case 'chi_nhanh': {
+                  const o = getPendingOriginal(orderId, 'Team', 'Chi nhánh', 'team', 'chi_nhanh');
+                  const rawValue =
+                    o !== undefined
+                      ? o
+                      : (row[TEAM_COLUMN_NAME] ?? row['Chi nhánh'] ?? row.team ?? row.chi_nhanh ?? '');
+                  const v = strNorm(rawValue);
+                  if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+                  if (isVanDonSemanticEmpty(v)) return false;
+                  if (filter.values.has(v)) return true;
+                  const vLower = v.toLowerCase();
+                  for (const filterVal of filter.values) {
+                    if (filterVal === 'Trống' || filterVal === '__EMPTY__') continue;
+                    const filterLower = String(filterVal).toLowerCase();
+                    if (vLower === filterLower || vLower.includes(filterLower) || filterLower.includes(vLower)) {
+                      return true;
+                    }
+                  }
                   return false;
                 }
                 case 'shipping_unit': {
@@ -2701,7 +2767,7 @@ function VanDon({ dataSource = 'default' }) {
     // Reset filters
     const defaultFilters = {
       market: [], product: [], nv_sale: [], nv_mkt: [], nv_van_don: [],
-      shipping_unit: [], ten_page: [], delivery_status: [], payment_status: [], tracking_include: '', tracking_exclude: '',
+      shipping_unit: [], chi_nhanh: [], ten_page: [], delivery_status: [], delivery_status_nb: [], payment_status: [], tracking_include: '', tracking_exclude: '',
       tracking_bulk_codes: '',
       tracking_status: 'Tình trạng mã',
       canh_bao_filter: '',
@@ -3514,7 +3580,7 @@ function VanDon({ dataSource = 'default' }) {
           page,
           limit,
           team: tempFilters.team,
-          excludeHcmTeam: dataSource !== 'hcm',
+          excludeHcmTeam: tempFilters.excludeHcmTeam === true,
           hanoiTabSqlScope: tempFilters.tab === 'hanoi' ? 'ffm_queue_admin' : null,
           market: tempFilters.market,
           product: tempFilters.product,
@@ -3951,6 +4017,36 @@ function VanDon({ dataSource = 'default' }) {
       let merged = Array.from(byLower.values()).sort((a, b) =>
         String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
       );
+
+      // Cột Team / Chi nhánh: luôn hiện đủ Hà Nội + HCM trên dropdown
+      const isTeamCol =
+        normalizeColHeader(col) === normalizeColHeader('Team') ||
+        normalizeColHeader(col) === normalizeColHeader('Chi nhánh');
+      if (isTeamCol) {
+        const presetLower = new Set(VAN_DON_CHI_NHANH_PRESETS.map((p) => p.toLowerCase()));
+        for (const p of VAN_DON_CHI_NHANH_PRESETS) {
+          if (!merged.some((v) => String(v).trim().toLowerCase() === p.toLowerCase())) {
+            merged.push(p);
+          }
+        }
+        merged = merged.filter((v) => {
+          const l = String(v).trim().toLowerCase();
+          if (presetLower.has(l)) return true;
+          // giữ giá trị lạ có trong data (vd. «CSKH-HCM») nhưng ưu tiên 2 nhánh chuẩn
+          return l !== '';
+        });
+        merged.sort((a, b) => {
+          const ai = VAN_DON_CHI_NHANH_PRESETS.findIndex((p) => p.toLowerCase() === String(a).toLowerCase());
+          const bi = VAN_DON_CHI_NHANH_PRESETS.findIndex((p) => p.toLowerCase() === String(b).toLowerCase());
+          if (ai !== -1 || bi !== -1) {
+            if (ai === -1) return 1;
+            if (bi === -1) return -1;
+            return ai - bi;
+          }
+          return String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true });
+        });
+        return ['Trống', ...merged];
+      }
 
       // Cột "Trạng thái giao hàng NB": chỉ hiển thị giá trị có trong data, không hiển thị preset không có data
       const isDeliveryStatusNbCol =
@@ -5291,6 +5387,8 @@ function VanDon({ dataSource = 'default' }) {
       'Nhân viên MKT': 'nv_mkt',
       'NV Vận đơn': 'nv_van_don',
       'Đơn vị vận chuyển': 'shipping_unit',
+      Team: 'chi_nhanh',
+      'Chi nhánh': 'chi_nhanh',
       'Page': 'ten_page',
       'Trạng thái giao hàng NB': 'delivery_status_nb',
       'Trạng thái giao hàng': 'delivery_status',
@@ -5413,7 +5511,9 @@ function VanDon({ dataSource = 'default' }) {
           'Page',
           'NV Vận đơn',
           'Mặt hàng',
-          'Khu vực'
+          'Khu vực',
+          'Team',
+          'Chi nhánh',
         ].includes(col) ? (
           <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
             <MultiSelect
@@ -5886,9 +5986,24 @@ function VanDon({ dataSource = 'default' }) {
                   />
                 </div>
               </div>
+              <div className="flex items-center gap-1 bg-orange-50 px-1.5 py-0.5 rounded-md border border-orange-200 shrink-0" title="Chi nhánh (Team)">
+                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🏢</span>
+                <div className="relative" style={{ minWidth: '140px', zIndex: 998 }}>
+                  <MultiSelect
+                    compact
+                    menuMinWidth={220}
+                    label="Chi nhánh..."
+                    options={getFilterMultiSelectOptions('Chi nhánh')}
+                    selected={filterValues.chi_nhanh || []}
+                    onChange={(vals) => {
+                      setFilterValues((prev) => ({ ...prev, chi_nhanh: vals }));
+                    }}
+                  />
+                </div>
+              </div>
               <div className="flex items-center gap-1 bg-cyan-50 px-1.5 py-0.5 rounded-md border border-cyan-200 shrink-0" title="Đơn vị vận chuyển">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚛</span>
-                <div className="relative" style={{ minWidth: '148px', zIndex: 998 }}>
+                <div className="relative" style={{ minWidth: '148px', zIndex: 997 }}>
                   <MultiSelect
                     compact
                     menuMinWidth={300}
@@ -5923,7 +6038,7 @@ function VanDon({ dataSource = 'default' }) {
                 )}
                 <div className="flex items-center gap-1 shrink-0" title="Page (page_name)">
                   <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📄</span>
-                  <div className="relative" style={{ minWidth: '152px', zIndex: 997 }}>
+                  <div className="relative" style={{ minWidth: '152px', zIndex: 996 }}>
                     <MultiSelect
                       compact
                       menuMinWidth={280}

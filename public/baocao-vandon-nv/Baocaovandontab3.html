@@ -934,7 +934,9 @@ z-index: 50;
                     "Trạng thái giao hàng NB": VandonNvRegion.resolveTrangThaiGiaoHangNb(row),
                     "Trạng thái thu tiền": getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"),
                     "Trạng thái thanh toán": getRowValue(row, "Trạng thái thanh toán", "Trạng_thái_thanh_toán", "payment_status_detail"),
-                    "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ"),
+                    "Tổng tiền VNĐ": (window.VandonNvRegion && VandonNvRegion.resolveVanDonReportMoney)
+                        ? VandonNvRegion.resolveVanDonReportMoney(row)
+                        : getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ", "tong_tien_vnd", "van_don_line_total_vnd", "total_amount_vnd"),
                     "Team": getRowValue(row, "Team", "Chi nhánh", "Chi_nhánh"),
                 };
             }
@@ -1199,7 +1201,9 @@ function handleData(response) {
                             totalAmount: 0
                         };
                         productStats[product].totalOrders++;
-                        productStats[product].totalAmount += (parseFloat(String(row["Tổng tiền VNĐ"]).replace(/[^\d.-]/g, '')) || 0);
+                        productStats[product].totalAmount += (window.VandonNvRegion && VandonNvRegion.resolveVanDonReportMoney)
+                            ? VandonNvRegion.resolveVanDonReportMoney(row)
+                            : (parseFloat(String(row["Tổng tiền VNĐ"]).replace(/[^\d.-]/g, '')) || 0);
                     });
                     const productEntries = Object.entries(productStats)
                         .sort((a, b) => b[1].totalOrders - a[1].totalOrders);
@@ -1329,7 +1333,9 @@ function handleData(response) {
                         const dvvc = String(
                             getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển", "shipping_unit") || ""
                         ).trim();
-                        const numericAmount = parseFloat(String(row["Tổng tiền VNĐ"] || '0').replace(/[^\d.-]/g, '')) || 0;
+                        const numericAmount = (window.VandonNvRegion && VandonNvRegion.resolveVanDonReportMoney)
+                            ? VandonNvRegion.resolveVanDonReportMoney(row)
+                            : (parseFloat(String(row["Tổng tiền VNĐ"] || '0').replace(/[^\d.-]/g, '')) || 0);
 
                         if (!productAreaStats[product]) productAreaStats[product] = {
                             _total: this.createEmptyStats()
