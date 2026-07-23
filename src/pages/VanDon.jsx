@@ -4003,7 +4003,18 @@ function VanDon({ dataSource = 'default' }) {
       } else if (col === 'Khu vực') {
         adminCatalogArr = keyMarketsCatalog;
       }
-      const base = [...adminCatalogArr, ...dbArr, ...pageArr];
+
+      /**
+       * /van-don (HN): NV Vận đơn = users (bộ phận Vận đơn + Hà Nội) + danh_sach_van_don HN,
+       * loại nhân sự đã nghỉ (department/team «Đã nghỉ»/«Nghỉ», trang_thai_chia Nghỉ).
+       */
+      const isHnNvVanDonFilter =
+        dataSource !== 'hcm' &&
+        (normalizeColHeader(col) === normalizeColHeader('NV Vận đơn') ||
+          normalizeColHeader(col) === normalizeColHeader('Nhân viên Vận đơn'));
+      const base = isHnNvVanDonFilter
+        ? [...dbArr]
+        : [...adminCatalogArr, ...dbArr, ...pageArr];
 
       const byLower = new Map();
       for (const raw of base) {
@@ -4090,7 +4101,7 @@ function VanDon({ dataSource = 'default' }) {
       // Một mục "Trống" cho ô trống; không thêm __EMPTY__ (vẫn tương thích khi selected còn __EMPTY__ từ bản cũ)
       return ['Trống', ...merged];
     },
-    [getUniqueValues, vanDonDistinctFilterOptions, vanDonAdminCatalogProductNames, keyMarketsCatalog]
+    [getUniqueValues, vanDonDistinctFilterOptions, vanDonAdminCatalogProductNames, keyMarketsCatalog, dataSource]
   );
 
   /** Ô chỉnh sửa: cột NB / «Trạng thái giao hàng» gộp preset + distinct toàn DB (giống bộ lọc) + unique trang hiện tại. */

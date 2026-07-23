@@ -6,11 +6,11 @@
   <title>Báo cáo chi phí tổng hợp</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet">
   <style>
     /* --- CÀI ĐẶT CHUNG & TABS --- */
     body {
-      font-family: 'Roboto', Arial, sans-serif;
+      font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
       padding: 20px;
       background-color: #f4f4f4;
       color: #333;
@@ -169,6 +169,303 @@
     .bg-lightblue {
       background-color: #2196F3 !important;
       color: white;
+    }
+
+    /* --- STYLES CHO TAB CẢNH BÁO --- */
+    .alert-tab-wrap {
+      padding: 16px 18px 24px;
+    }
+
+    .alert-tab-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .alert-tab-filters {
+      display: flex;
+      align-items: flex-end;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .alert-tab-filters select,
+    .alert-tab-filters input[type="date"] {
+      padding: 4px 8px;
+      border: 1px solid #cfd8dc;
+      border-radius: 6px;
+      font: inherit;
+    }
+
+    .alert-filter-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 13px;
+      color: #37474f;
+    }
+
+    .alert-filter-field > span {
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .alert-check-panel {
+      position: relative;
+      min-width: 180px;
+    }
+
+    .alert-check-panel summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 5px 10px;
+      border: 1px solid #cfd8dc;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 13px;
+      user-select: none;
+    }
+
+    .alert-check-panel summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .alert-check-panel[open] summary {
+      border-color: #2d7c2d;
+    }
+
+    .alert-check-dropdown {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 240px;
+      max-height: 260px;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #cfd8dc;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      padding: 8px 10px;
+    }
+
+    .alert-check-dropdown label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 2px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .alert-check-dropdown .alert-check-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 6px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .alert-check-dropdown .alert-check-actions button {
+      border: none;
+      background: #e8f5e9;
+      color: #1b5e20;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .alert-metric-counts {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .alert-metric-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      background: #eef7ee;
+      color: #1b4b1b;
+      border: 1px solid #c8e6c9;
+    }
+
+    .alert-metric-pill strong {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .alert-summary-counts {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .alert-count-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .alert-count-pill.critical {
+      background: #fdecea;
+      color: #c62828;
+    }
+
+    .alert-count-pill.warning {
+      background: #fff8e1;
+      color: #a06a00;
+    }
+
+    .alert-count-pill.info {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+
+    .alert-tab-hint {
+      color: #607d8b;
+      font-size: 13px;
+      margin: 8px 0 14px;
+    }
+
+    #alert-table td,
+    #alert-table th {
+      vertical-align: middle;
+    }
+
+    .alert-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .alert-badge.critical {
+      background: #F44336;
+      color: #fff;
+    }
+
+    .alert-badge.warning {
+      background: #FFEB3B;
+      color: #5d4200;
+    }
+
+    .alert-badge.info {
+      background: #2196F3;
+      color: #fff;
+    }
+
+    #alert-table tr.row-critical td {
+      background: #fef5f4;
+    }
+
+    #alert-table tr.row-warning td {
+      background: #fffdf3;
+    }
+
+    .alert-empty {
+      text-align: center;
+      color: #90a4ae;
+      padding: 22px 8px !important;
+    }
+
+    /* --- Cột Giải trình --- */
+    .alert-note-cell {
+      min-width: 200px;
+      vertical-align: top;
+    }
+
+    .alert-note-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom: 6px;
+      color: #37474f;
+      font-size: 13px;
+    }
+
+    .alert-note-input {
+      width: 100%;
+      min-width: 180px;
+      box-sizing: border-box;
+      border: 1px solid #cfd8dc;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 13px;
+      resize: vertical;
+    }
+
+    .alert-note-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .alert-note-btn {
+      border: none;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .alert-note-btn.add,
+    .alert-note-btn.edit {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+
+    .alert-note-btn.add:hover,
+    .alert-note-btn.edit:hover {
+      background: #bbdefb;
+    }
+
+    .alert-note-btn.save {
+      background: #2d7c2d;
+      color: #fff;
+    }
+
+    .alert-note-btn.save:hover {
+      background: #256725;
+    }
+
+    .alert-note-btn.cancel {
+      background: #eceff1;
+      color: #546e7a;
+    }
+
+    .alert-note-btn.cancel:hover {
+      background: #cfd8dc;
+    }
+
+    .alert-tab-badge {
+      display: inline-block;
+      min-width: 18px;
+      padding: 0 6px;
+      margin-left: 4px;
+      border-radius: 999px;
+      background: #F44336;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 18px;
+      text-align: center;
+      vertical-align: middle;
     }
 
     /* --- STYLES CHO TABS & LAYOUT CHUNG --- */
@@ -479,11 +776,144 @@
       margin-bottom: 8px;
       font-size: 14px;
     }
+
+    .mkt-staff-link {
+      color: #1565c0;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      text-align: left;
+    }
+
+    .mkt-staff-link:hover {
+      color: #0d47a1;
+    }
+
+    #mkt-staff-detail-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10050;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    #mkt-staff-detail-modal.open {
+      display: flex;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-panel {
+      position: relative;
+      z-index: 1;
+      width: min(1920px, 98vw);
+      max-height: min(92vh, 1800px);
+      overflow: auto;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+      padding: 20px 22px 22px;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-head h3 {
+      margin: 0;
+      font-size: 1.35rem;
+      color: #1b4b1b;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-sub {
+      margin: 4px 0 0;
+      font-size: 14px;
+      color: #555;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-close {
+      flex-shrink: 0;
+      border: none;
+      background: #eee;
+      color: #333;
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-close:hover {
+      background: #ddd;
+    }
+
+    #mkt-staff-detail-modal table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    #mkt-staff-detail-modal th,
+    #mkt-staff-detail-modal td {
+      border: 1px solid #ddd;
+      padding: 8px 10px;
+    }
+
+    #mkt-staff-detail-modal thead th {
+      background: #2d7c2d;
+      color: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    #mkt-staff-detail-modal td.mkt-staff-product-merged {
+      vertical-align: middle;
+      font-weight: 600;
+      background: #f3faf3;
+    }
+
+    /* Gộp ô Sản phẩm (tab Hiệu suất MKT) */
+    #MarketReport td.mkt-staff-product-merged {
+      vertical-align: middle;
+      font-weight: 600;
+      background: #f3faf3;
+    }
   </style>
 </head>
 
 <body>
   <div id="loading-overlay">Đang tải dữ liệu...</div>
+  <div id="mkt-staff-detail-modal" role="dialog" aria-modal="true" aria-labelledby="mkt-staff-detail-title" hidden>
+    <div class="mkt-staff-detail-backdrop" data-mkt-staff-detail-close="1"></div>
+    <div class="mkt-staff-detail-panel">
+      <div class="mkt-staff-detail-head">
+        <div>
+          <h3 id="mkt-staff-detail-title">Chi tiết nhân viên</h3>
+          <p id="mkt-staff-detail-sub" class="mkt-staff-detail-sub"></p>
+        </div>
+        <button type="button" class="mkt-staff-detail-close" data-mkt-staff-detail-close="1" aria-label="Đóng">×</button>
+      </div>
+      <div id="mkt-staff-detail-body"></div>
+    </div>
+  </div>
   <div class="tab-container">
     <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
@@ -494,6 +924,10 @@
     <!-- TAB MỚI: Tình trạng vận đơn, ẩn mặc định -->
     <button class="tablinks" onclick="openTab(event, 'VanDonReport')" id="vandon-report-tab-btn"
       style="display: none;">Tình trạng vận đơn</button>
+    <!-- TAB MỚI: Cảnh báo KPI -->
+    <button class="tablinks" onclick="openTab(event, 'AlertReport')" id="alert-report-tab-btn">
+      Cảnh báo <span id="alert-tab-badge" class="alert-tab-badge" style="display:none;">0</span>
+    </button>
   </div>
 
   <!-- TAB 1: BÁO CÁO CHI TIẾT -->
@@ -817,6 +1251,80 @@
   <!-- TAB MỚI: Tình trạng vận đơn -->
   <div id="VanDonReport" class="tab-content">
     <iframe id="vandon-report-iframe" style="width: 100%; height: 85vh; border: none;" src=""></iframe>
+  </div>
+
+  <!-- TAB MỚI: Cảnh báo KPI -->
+  <div id="AlertReport" class="tab-content">
+    <div class="alert-tab-wrap">
+      <div class="alert-tab-head">
+        <h2 style="margin:0;">⚠️ Cảnh báo KPI</h2>
+        <div class="alert-tab-filters">
+          <label class="alert-filter-field"><span>Từ ngày</span>
+            <input type="date" id="alert-date-from" />
+          </label>
+          <label class="alert-filter-field"><span>Đến ngày</span>
+            <input type="date" id="alert-date-to" />
+          </label>
+          <label class="alert-filter-field"><span>Mức độ</span>
+            <select id="alert-severity-filter">
+              <option value="all">Tất cả</option>
+              <option value="critical">Nghiêm trọng</option>
+              <option value="warning">Cảnh báo</option>
+              <option value="info">Thông tin</option>
+            </select>
+          </label>
+          <div class="alert-filter-field">
+            <span>Nội dung cảnh báo</span>
+            <details class="alert-check-panel" id="alert-content-panel">
+              <summary id="alert-content-summary">Tất cả nội dung</summary>
+              <div class="alert-check-dropdown">
+                <div class="alert-check-actions">
+                  <button type="button" data-alert-content-all="1">Chọn tất cả</button>
+                  <button type="button" data-alert-content-none="1">Bỏ chọn</button>
+                </div>
+                <div id="alert-content-options"></div>
+              </div>
+            </details>
+          </div>
+          <div class="alert-filter-field">
+            <span>Nhân sự</span>
+            <details class="alert-check-panel" id="alert-staff-panel">
+              <summary id="alert-staff-summary">Tất cả nhân sự</summary>
+              <div class="alert-check-dropdown">
+                <div class="alert-check-actions">
+                  <button type="button" data-alert-staff-all="1">Chọn tất cả</button>
+                  <button type="button" data-alert-staff-none="1">Bỏ chọn</button>
+                </div>
+                <div id="alert-staff-options"></div>
+              </div>
+            </details>
+          </div>
+          <span id="alert-summary-counts" class="alert-summary-counts"></span>
+        </div>
+      </div>
+      <div id="alert-metric-counts" class="alert-metric-counts"></div>
+      <p class="alert-tab-hint">Danh sách cảnh báo được tổng hợp từ dữ liệu đang hiển thị ở tab «Báo cáo chi tiết» (theo bộ lọc hiện tại). Bộ đếm Doanh số / CPQC tính theo từng nhân sự (không cộng trùng khi 1 người có nhiều cảnh báo).</p>
+      <div class="table-responsive-container">
+        <table id="alert-table" class="sortable-table">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Nhân sự</th>
+              <th>Nhóm</th>
+              <th>Mức độ</th>
+              <th>Nội dung cảnh báo</th>
+              <th>Nguyên nhân / Ngưỡng</th>
+              <th>Doanh số</th>
+              <th>CPQC</th>
+              <th>Giải trình</th>
+            </tr>
+          </thead>
+          <tbody id="alert-table-body">
+            <tr><td colspan="9" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo chi tiết» để tải dữ liệu.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -1708,6 +2216,61 @@
       setupEventListeners();
       setDefaultDates();
       showDefaultMktTab();
+      const alertFilter = document.getElementById('alert-severity-filter');
+      if (alertFilter) alertFilter.addEventListener('change', renderAlertTable);
+      const alertTable = document.getElementById('alert-table');
+      if (alertTable) alertTable.addEventListener('click', onAlertTableClick);
+      const alertDateFrom = document.getElementById('alert-date-from');
+      const alertDateTo = document.getElementById('alert-date-to');
+      if (alertDateFrom) {
+        alertDateFrom.addEventListener('change', () => {
+          alertDateFrom.dataset.userTouched = '1';
+          renderAlertTable();
+        });
+      }
+      if (alertDateTo) {
+        alertDateTo.addEventListener('change', () => {
+          alertDateTo.dataset.userTouched = '1';
+          renderAlertTable();
+        });
+      }
+      const alertContentOpts = document.getElementById('alert-content-options');
+      if (alertContentOpts) {
+        alertContentOpts.addEventListener('change', () => {
+          updateAlertContentSummaryLabel();
+          renderAlertTable();
+        });
+      }
+      const alertStaffOpts = document.getElementById('alert-staff-options');
+      if (alertStaffOpts) {
+        alertStaffOpts.addEventListener('change', () => {
+          updateAlertStaffSummaryLabel();
+          renderAlertTable();
+        });
+      }
+      document.body.addEventListener('click', (e) => {
+        if (e.target.closest('[data-alert-content-all]')) {
+          e.preventDefault();
+          setAllAlertContentChecks(true);
+          updateAlertContentSummaryLabel();
+          renderAlertTable();
+        } else if (e.target.closest('[data-alert-content-none]')) {
+          e.preventDefault();
+          setAllAlertContentChecks(false);
+          updateAlertContentSummaryLabel();
+          renderAlertTable();
+        } else if (e.target.closest('[data-alert-staff-all]')) {
+          e.preventDefault();
+          setAllAlertStaffChecks(true);
+          updateAlertStaffSummaryLabel();
+          renderAlertTable();
+        } else if (e.target.closest('[data-alert-staff-none]')) {
+          e.preventDefault();
+          setAllAlertStaffChecks(false);
+          updateAlertStaffSummaryLabel();
+          renderAlertTable();
+        }
+      });
       fetchAndProcessData();
     });
 
@@ -1799,9 +2362,36 @@
       document.getElementById('summary-table').querySelector('thead').addEventListener('click', (e) => sortTable(e, 'summary'));
       document.getElementById('kpi-summary-table').querySelector('thead').addEventListener('click', (e) => sortTable(e, 'kpi'));
       document.getElementById('daily-breakdown').addEventListener('click', (e) => {
+        const staffBtn = e.target.closest('[data-mkt-staff-name]');
+        if (staffBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          openStaffProductMarketModal(staffBtn.getAttribute('data-mkt-staff-name'));
+          return;
+        }
         if (e.target.closest('th')) {
           sortTable(e, 'daily');
         }
+      });
+      const summaryBody = document.getElementById('summary-body');
+      if (summaryBody) {
+        summaryBody.addEventListener('click', (e) => {
+          const staffBtn = e.target.closest('[data-mkt-staff-name]');
+          if (!staffBtn) return;
+          e.preventDefault();
+          openStaffProductMarketModal(staffBtn.getAttribute('data-mkt-staff-name'));
+        });
+      }
+      const staffModal = document.getElementById('mkt-staff-detail-modal');
+      if (staffModal) {
+        staffModal.addEventListener('click', (e) => {
+          if (e.target.closest('[data-mkt-staff-detail-close]')) {
+            closeStaffProductMarketModal();
+          }
+        });
+      }
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeStaffProductMarketModal();
       });
     }
 
@@ -2483,6 +3073,204 @@
         .replace(/</g, '&lt;');
     }
 
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /** Gom dòng chi tiết của 1 NV theo Sản phẩm × Thị trường (cùng metric bảng tổng). */
+    function buildStaffProductMarketBreakdown(staffName, filteredRows) {
+      const nameKey = normalizeNameForKey(staffName);
+      const rows = (filteredRows || []).filter(
+        (r) => normalizeNameForKey(r.ten) === nameKey
+      );
+      const groups = {};
+      const seenTtByGroup = {};
+      rows.forEach((r) => {
+        const product = String(r.sanPham || '').trim() || 'Chưa xác định';
+        const market = String(r.thiTruong || '').trim() || 'Không xác định';
+        const gKey = `${normalizeNameForKey(product)}||${normalizeNameForKey(market)}`;
+        if (!groups[gKey]) {
+          groups[gKey] = {
+            product,
+            market,
+            mess: 0,
+            don: 0,
+            chot: 0,
+            cpqc: 0,
+            donThucTe: 0,
+            chotThucTe: 0,
+          };
+          seenTtByGroup[gKey] = new Set();
+        }
+        const G = groups[gKey];
+        G.mess += Number(r.soMessCmt) || 0;
+        G.cpqc += Number(r.cpqc) || 0;
+        G.don += Number(r.soDon) || 0;
+        G.chot += Number(r.dsChot) || 0;
+        const detailKey = mktDetailRowKeyForTotals(r);
+        if (!seenTtByGroup[gKey].has(detailKey)) {
+          seenTtByGroup[gKey].add(detailKey);
+          G.donThucTe += Number(r.soDonThucTe) || 0;
+          G.chotThucTe += Number(r.dsChotThucTe) || 0;
+        }
+      });
+      const list = Object.values(groups).sort((a, b) => {
+        const p = String(a.product).localeCompare(String(b.product), 'vi');
+        if (p !== 0) return p;
+        return String(a.market).localeCompare(String(b.market), 'vi');
+      });
+      return { rows: list, sourceRowCount: rows.length };
+    }
+
+    function closeStaffProductMarketModal() {
+      const modal = document.getElementById('mkt-staff-detail-modal');
+      if (!modal) return;
+      modal.classList.remove('open');
+      modal.hidden = true;
+    }
+
+    function openStaffProductMarketModal(staffName) {
+      const name = String(staffName || '').trim();
+      if (!name) return;
+      const modal = document.getElementById('mkt-staff-detail-modal');
+      const bodyEl = document.getElementById('mkt-staff-detail-body');
+      const titleEl = document.getElementById('mkt-staff-detail-title');
+      const subEl = document.getElementById('mkt-staff-detail-sub');
+      if (!modal || !bodyEl) return;
+
+      const filteredData = getFilteredData('tab1');
+      const { rows, sourceRowCount } = buildStaffProductMarketBreakdown(name, filteredData);
+      const hideTtColumns = shouldHideSummaryTtColumns();
+      const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map((cb) => cb.value);
+      const d0 = document.getElementById('start-date-tab1')?.value || '';
+      const d1 = document.getElementById('end-date-tab1')?.value || '';
+      const startD = d0 ? parseYmdInputForMkt(d0) : null;
+      const endD = d1 ? parseYmdInputForMkt(d1) : null;
+      const dateLabel =
+        startD && endD
+          ? `${formatDate(startD)} → ${formatDate(endD)}`
+          : d0 && d1
+            ? `${d0} → ${d1}`
+            : '';
+
+      if (titleEl) titleEl.textContent = `Chi tiết: ${name}`;
+      if (subEl) {
+        const uniqueProducts = new Set(rows.map((r) => normalizeNameForKey(r.product))).size;
+        subEl.textContent = [
+          dateLabel ? `Khoảng ngày: ${dateLabel}` : '',
+          `Theo bộ lọc hiện tại · ${formatNumber(sourceRowCount)} dòng gốc · ${formatNumber(uniqueProducts)} SP · ${formatNumber(rows.length)} dòng thị trường`,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+      }
+
+      if (!rows.length) {
+        bodyEl.innerHTML =
+          '<p style="text-align:center;padding:18px 8px;color:#666;">Không có dữ liệu SP / thị trường cho nhân viên này trong bộ lọc hiện tại.</p>';
+      } else {
+        const totals = rows.reduce(
+          (acc, r) => {
+            acc.mess += r.mess;
+            acc.cpqc += r.cpqc;
+            acc.don += r.don;
+            acc.chot += r.chot;
+            acc.donThucTe += r.donThucTe;
+            acc.chotThucTe += r.chotThucTe;
+            return acc;
+          },
+          { mess: 0, cpqc: 0, don: 0, chot: 0, donThucTe: 0, chotThucTe: 0 }
+        );
+
+        /** rowspan: SP trùng liền nhau chỉ hiện 1 ô */
+        const productRowSpans = new Array(rows.length).fill(0);
+        for (let i = 0; i < rows.length; ) {
+          let j = i + 1;
+          const pk = normalizeNameForKey(rows[i].product);
+          while (j < rows.length && normalizeNameForKey(rows[j].product) === pk) j += 1;
+          productRowSpans[i] = j - i;
+          i = j;
+        }
+
+        const renderMetricCells = (s) => {
+          const rate = s.mess ? s.don / s.mess : 0;
+          const rateThucTe = s.mess ? s.donThucTe / s.mess : 0;
+          const pm = s.mess ? s.cpqc / s.mess : 0;
+          const pd = s.don ? s.cpqc / s.don : 0;
+          const pc = s.chot ? s.cpqc / s.chot : 0;
+          const pdt = s.don ? s.chot / s.don : 0;
+          const rateClass = rate > 0.1 ? 'bg-green' : rate > 0.05 ? 'bg-yellow' : '';
+          const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : rateThucTe > 0.05 ? 'bg-yellow' : '';
+          const cpsClass = getCpsCellStyle(pd, selectedMarkets);
+          const cpdsClass = pc > 0.33 ? 'bg-yellow' : '';
+          return `
+            <td>${formatNumber(s.mess)}</td>
+            <td>${formatCurrency(s.cpqc)}</td>
+            <td>${formatNumber(s.don)}</td>
+            ${hideTtColumns ? '' : `<td>${formatNumber(s.donThucTe)}</td>`}
+            <td>${formatCurrency(s.chot)}</td>
+            ${hideTtColumns ? '' : `<td>${formatCurrency(s.chotThucTe)}</td>`}
+            <td class="${rateClass}">${formatPercent(rate)}</td>
+            ${hideTtColumns ? '' : `<td class="${rateThucTeClass}">${formatPercent(rateThucTe)}</td>`}
+            <td>${formatCurrency(pm)}</td>
+            <td class="${cpsClass}">${formatCurrency(pd)}</td>
+            <td class="${cpdsClass}">${formatPercent(pc)}</td>
+            <td>${formatCurrency(pdt)}</td>`;
+        };
+
+        const bodyRows = rows
+          .map((r, i) => {
+            const span = productRowSpans[i];
+            const productCell =
+              span > 0
+                ? `<td class="text-left mkt-staff-product-merged" rowspan="${span}">${escapeHtml(r.product)}</td>`
+                : '';
+            return `<tr>
+              <td class="text-center">${i + 1}</td>
+              ${productCell}
+              <td class="text-left">${escapeHtml(r.market)}</td>
+              ${renderMetricCells(r)}
+            </tr>`;
+          })
+          .join('');
+        const totalRow = `<tr class="total-row">
+            <td class="total-label" colspan="3">TỔNG CỘNG</td>
+            ${renderMetricCells(totals)}
+          </tr>`;
+        bodyEl.innerHTML = `
+          <div class="table-responsive-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>STT</th>
+                  <th>Sản phẩm</th>
+                  <th>Thị trường</th>
+                  <th>Số Mess</th>
+                  <th>CPQC</th>
+                  <th>Số Đơn</th>
+                  ${hideTtColumns ? '' : '<th>Số Đơn (TT)</th>'}
+                  <th>DS Chốt</th>
+                  ${hideTtColumns ? '' : '<th>DS Chốt (TT)</th>'}
+                  <th>Tỉ lệ chốt</th>
+                  ${hideTtColumns ? '' : '<th>Tỉ lệ chốt (TT)</th>'}
+                  <th>Giá Mess</th>
+                  <th>CPS</th>
+                  <th>%CP/DS</th>
+                  <th>Giá TB Đơn</th>
+                </tr>
+              </thead>
+              <tbody>${totalRow}${bodyRows}</tbody>
+            </table>
+          </div>`;
+      }
+
+      modal.hidden = false;
+      modal.classList.add('open');
+    }
+
     function isFilterValueChecked(typeState, value) {
       if (!typeState) return true;
       if (typeState.all || typeState.selected == null) return true;
@@ -3117,7 +3905,8 @@
       const selM = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
       const detailTotals = sumGroupedSummaryTotals(dataList);
       const hideTtColumns = shouldHideSummaryTtColumns();
-      window.__LUMI_MKT_ALERT_DATE_LABEL = 'Tổng hợp';
+      window.__LUMI_MKT_ALERT_DATE_LABEL = getTab1AlertDateLabel();
+      window.__LUMI_MKT_ALERT_RANGE = getTab1AlertDateRangeIso();
       const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, detailTotals, { hideTtColumns });
       document.getElementById('summary-body').innerHTML = (footHtml || '') + bodyHtml;
       document.getElementById('summary-foot').innerHTML = '';
@@ -3191,21 +3980,34 @@
       let tableHtml = '';
       Object.keys(productGroups).sort().forEach(product => {
         const markets = productGroups[product];
+        const marketKeys = Object.keys(markets).sort();
         const productTotal = { cpqc: 0, soDon: 0, soDonThucTe: 0, soMessCmt: 0, dsChot: 0, dsChotThucTe: 0, dsHoanHuyThucTe: 0 };
-        Object.keys(markets).sort().forEach(market => {
-          const marketData = markets[market];
-          tableHtml += createMktRow(product, market, marketData, showMarket);
-          Object.keys(productTotal).forEach(key => productTotal[key] += marketData[key]);
+        marketKeys.forEach((market) => {
+          Object.keys(productTotal).forEach((key) => {
+            productTotal[key] += markets[market][key];
+          });
         });
-        if (showMarket && Object.keys(markets).length > 1) {
-          tableHtml += createMktRow(product, 'Tổng', productTotal, showMarket, 'highlight');
+        const includeProductTotal = showMarket && marketKeys.length > 1;
+        // Gộp ô Sản phẩm: 1 ô rowspan cho mọi dòng thị trường (+ dòng Tổng nếu có)
+        const productRowSpan = showMarket
+          ? marketKeys.length + (includeProductTotal ? 1 : 0)
+          : 1;
+        marketKeys.forEach((market, idx) => {
+          tableHtml += createMktRow(product, market, markets[market], showMarket, '', {
+            productRowSpan: idx === 0 ? productRowSpan : 0,
+          });
+        });
+        if (includeProductTotal) {
+          tableHtml += createMktRow(product, 'Tổng', productTotal, showMarket, 'highlight', {
+            productRowSpan: 0,
+          });
         }
         Object.keys(grandTotal).forEach(key => grandTotal[key] += productTotal[key]);
       });
       tableBody.innerHTML = createMktRow('TỔNG CỘNG', '', grandTotal, showMarket, 'total-row') + tableHtml;
     }
 
-    function createMktRow(productName, marketName, data, showMarket, className = '') {
+    function createMktRow(productName, marketName, data, showMarket, className = '', opts = {}) {
       /* Doanh số TT của MKT đã là net sau hủy từ recalc orders; không trừ hoàn/hủy thêm lần nữa. */
       const dsSauHoanHuyThucTe = data.dsChotThucTe;
       const costPercent = dsSauHoanHuyThucTe > 0 ? data.cpqc / dsSauHoanHuyThucTe : 0;
@@ -3215,8 +4017,23 @@
 
       const rateThucTeClass = closingRateThucTe > 0.1 ? 'bg-green' : (closingRateThucTe > 0.05 ? 'bg-yellow' : '');
       const isTotalRow = className.includes('total-row');
-      const productCell = isTotalRow ? `<td class="total-label" colspan="2">${productName}</td>` : `<td class="text-left">${productName}</td>`;
-      const marketCell = showMarket && !isTotalRow ? `<td class="text-left">${marketName}</td>` : (isTotalRow ? '' : '<td></td>');
+      const productRowSpan = opts.productRowSpan;
+      let productCell;
+      if (isTotalRow) {
+        productCell = `<td class="total-label" colspan="2">${escapeHtml(productName)}</td>`;
+      } else if (productRowSpan === 0) {
+        productCell = '';
+      } else if (productRowSpan != null && productRowSpan > 1) {
+        productCell = `<td class="text-left mkt-staff-product-merged" rowspan="${productRowSpan}">${escapeHtml(productName)}</td>`;
+      } else {
+        productCell = `<td class="text-left">${escapeHtml(productName)}</td>`;
+      }
+      const marketCell =
+        showMarket && !isTotalRow
+          ? `<td class="text-left">${escapeHtml(marketName)}</td>`
+          : isTotalRow
+            ? ''
+            : '<td></td>';
 
       return `<tr class="${className}">
             ${productCell} ${marketCell}
@@ -3332,8 +4149,8 @@
         const cpdsClass = pc > 0.33 ? 'bg-yellow' : '';
         return `<tr>
                 <td class="text-center">${index + 1}</td>
-                <td class="text-left">${s.team}</td>
-                <td class="text-left">${s.name}</td>
+                <td class="text-left">${escapeHtml(s.team)}</td>
+                <td class="text-left"><button type="button" class="mkt-staff-link" data-mkt-staff-name="${escapeHtml(s.name)}" title="Xem chi tiết SP &amp; thị trường">${escapeHtml(s.name)}</button></td>
                 <td>${formatNumber(s.mess)}</td>
                 <td>${formatCurrency(s.cpqc)}</td>
                 <td>${formatNumber(s.don)}</td>
@@ -3375,6 +4192,7 @@
           const dateLabel = String(window.__LUMI_MKT_ALERT_DATE_LABEL || '').trim() || 'Tổng hợp';
           const alerts = buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets);
           safePostMktAlerts(alerts);
+          setLocalMktAlerts(alerts);
         } catch {
           // ignore
         }
@@ -3540,6 +4358,11 @@
             await ensureMarketReportCharts();
             applyTab4Filters();
           }
+          if (tabName === 'AlertReport') {
+            populateAlertFilterOptions();
+            syncAlertDateInputsFromTab1();
+            renderAlertTable();
+          }
         } catch (error) {
           console.error('Lỗi khi chuyển tab:', tabName, error);
         } finally {
@@ -3686,6 +4509,416 @@
     // --- XI. CẢNH BÁO KPI (postMessage → host React) ---
     // =================================================================================
     const LUMI_MKT_ALERTS_MSG_TYPE = 'LUMINEW_MKT_ALERTS';
+
+    // --- Cảnh báo hiển thị tại tab «Cảnh báo» (bảng) ---
+    window.__LUMI_MKT_LOCAL_ALERTS = window.__LUMI_MKT_LOCAL_ALERTS || [];
+    window.__LUMI_MKT_ALERT_RANGE = window.__LUMI_MKT_ALERT_RANGE || { from: '', to: '' };
+    const ALERT_SEVERITY_META = {
+      critical: { label: 'Nghiêm trọng', order: 0 },
+      warning: { label: 'Cảnh báo', order: 1 },
+      info: { label: 'Thông tin', order: 2 },
+    };
+    const ALERT_CONTENT_META = {
+      ti_le_chot: { label: 'Tỉ lệ chốt' },
+      cps: { label: 'CPS' },
+      cpds: { label: '%CP/DS' },
+      gia_mess: { label: 'Giá Mess' },
+    };
+
+    function ymdFromDateObj(d) {
+      if (!(d instanceof Date) || isNaN(d)) return '';
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function getTab1AlertDateRangeIso() {
+      const from = String(document.getElementById('start-date-tab1')?.value || '').trim();
+      const to = String(document.getElementById('end-date-tab1')?.value || '').trim();
+      return { from, to };
+    }
+
+    function getTab1AlertDateLabel() {
+      const { from, to } = getTab1AlertDateRangeIso();
+      const d0 = from ? parseYmdInputForMkt(from) : null;
+      const d1 = to ? parseYmdInputForMkt(to) : null;
+      if (d0 && d1) {
+        const a = formatDate(d0);
+        const b = formatDate(d1);
+        return a === b ? a : `${a} → ${b}`;
+      }
+      return 'Tổng hợp';
+    }
+
+    function syncAlertDateInputsFromTab1() {
+      const { from, to } = getTab1AlertDateRangeIso();
+      const fromEl = document.getElementById('alert-date-from');
+      const toEl = document.getElementById('alert-date-to');
+      if (fromEl && !fromEl.dataset.userTouched && from) fromEl.value = from;
+      if (toEl && !toEl.dataset.userTouched && to) toEl.value = to;
+    }
+
+    function setLocalMktAlerts(alerts) {
+      window.__LUMI_MKT_LOCAL_ALERTS = Array.isArray(alerts) ? alerts.slice() : [];
+      updateAlertTabBadge();
+      populateAlertFilterOptions();
+      syncAlertDateInputsFromTab1();
+      const tab = document.getElementById('AlertReport');
+      if (tab && tab.style.display !== 'none') renderAlertTable();
+    }
+
+    function updateAlertTabBadge() {
+      const badge = document.getElementById('alert-tab-badge');
+      if (!badge) return;
+      const n = (window.__LUMI_MKT_LOCAL_ALERTS || []).filter(
+        (a) => a && (a.severity === 'critical' || a.severity === 'warning')
+      ).length;
+      if (n > 0) {
+        badge.textContent = String(n);
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    function escapeAlertHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function getCheckedAlertValues(containerId, checkboxClass) {
+      const root = document.getElementById(containerId);
+      if (!root) return [];
+      return [...root.querySelectorAll(`input.${checkboxClass}:checked`)].map((cb) => cb.value);
+    }
+
+    function setAllAlertContentChecks(on) {
+      document.querySelectorAll('#alert-content-options input.alert-content-cb').forEach((cb) => {
+        cb.checked = !!on;
+      });
+    }
+
+    function setAllAlertStaffChecks(on) {
+      document.querySelectorAll('#alert-staff-options input.alert-staff-cb').forEach((cb) => {
+        cb.checked = !!on;
+      });
+    }
+
+    function updateAlertContentSummaryLabel() {
+      const el = document.getElementById('alert-content-summary');
+      if (!el) return;
+      const all = [...document.querySelectorAll('#alert-content-options input.alert-content-cb')];
+      const checked = all.filter((cb) => cb.checked);
+      if (!all.length || checked.length === 0 || checked.length === all.length) {
+        el.textContent = 'Tất cả nội dung';
+        return;
+      }
+      if (checked.length === 1) {
+        el.textContent = checked[0].dataset.label || checked[0].value;
+        return;
+      }
+      el.textContent = `${checked.length} nội dung`;
+    }
+
+    function updateAlertStaffSummaryLabel() {
+      const el = document.getElementById('alert-staff-summary');
+      if (!el) return;
+      const all = [...document.querySelectorAll('#alert-staff-options input.alert-staff-cb')];
+      const checked = all.filter((cb) => cb.checked);
+      if (!all.length || checked.length === 0 || checked.length === all.length) {
+        el.textContent = 'Tất cả nhân sự';
+        return;
+      }
+      if (checked.length === 1) {
+        el.textContent = checked[0].value;
+        return;
+      }
+      el.textContent = `${checked.length} nhân sự`;
+    }
+
+    function populateAlertFilterOptions() {
+      const all = Array.isArray(window.__LUMI_MKT_LOCAL_ALERTS) ? window.__LUMI_MKT_LOCAL_ALERTS : [];
+      const contentRoot = document.getElementById('alert-content-options');
+      const staffRoot = document.getElementById('alert-staff-options');
+
+      const prevContent = new Set(getCheckedAlertValues('alert-content-options', 'alert-content-cb'));
+      const prevStaff = new Set(getCheckedAlertValues('alert-staff-options', 'alert-staff-cb'));
+      const hadContentOpts = !!document.querySelector('#alert-content-options input.alert-content-cb');
+      const hadStaffOpts = !!document.querySelector('#alert-staff-options input.alert-staff-cb');
+
+      const metricKeys = [...new Set(all.map((a) => a?.metricKey).filter(Boolean))];
+      Object.keys(ALERT_CONTENT_META).forEach((k) => {
+        if (!metricKeys.includes(k) && all.some((a) => String(a?.content || '').includes(ALERT_CONTENT_META[k].label))) {
+          metricKeys.push(k);
+        }
+      });
+      // Luôn hiện đủ 4 loại nội dung để tick lọc
+      Object.keys(ALERT_CONTENT_META).forEach((k) => {
+        if (!metricKeys.includes(k)) metricKeys.push(k);
+      });
+
+      if (contentRoot) {
+        contentRoot.innerHTML = metricKeys
+          .map((key) => {
+            const label = (ALERT_CONTENT_META[key] && ALERT_CONTENT_META[key].label) || key;
+            const checked = !hadContentOpts || prevContent.size === 0 || prevContent.has(key);
+            return `<label><input type="checkbox" class="alert-content-cb" value="${escapeAlertHtml(key)}" data-label="${escapeAlertHtml(label)}"${checked ? ' checked' : ''}> ${escapeAlertHtml(label)}</label>`;
+          })
+          .join('');
+        updateAlertContentSummaryLabel();
+      }
+
+      const staffNames = [...new Set(all.map((a) => String(a?.employeeName || '').trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'vi'));
+      if (staffRoot) {
+        staffRoot.innerHTML = staffNames
+          .map((name) => {
+            const checked = !hadStaffOpts || prevStaff.size === 0 || prevStaff.has(name);
+            return `<label><input type="checkbox" class="alert-staff-cb" value="${escapeAlertHtml(name)}"${checked ? ' checked' : ''}> ${escapeAlertHtml(name)}</label>`;
+          })
+          .join('');
+        updateAlertStaffSummaryLabel();
+      }
+    }
+
+    function alertPassesDateFilter(a, fromYmd, toYmd) {
+      if (!fromYmd && !toYmd) return true;
+      const fromMs = fromYmd ? parseYmdInputForMkt(fromYmd)?.setHours(0, 0, 0, 0) : null;
+      const toMs = toYmd ? parseYmdInputForMkt(toYmd)?.setHours(23, 59, 59, 999) : null;
+      // Prefer single-day reportDateMs
+      const reportMs = Number(a?.reportDateMs);
+      if (Number.isFinite(reportMs) && reportMs > 0) {
+        if (fromMs != null && reportMs < fromMs) return false;
+        if (toMs != null && reportMs > toMs) return false;
+        return true;
+      }
+      // Range stored on alert (summary tổng hợp nhiều ngày)
+      const aFrom = String(a?.rangeFrom || '').trim();
+      const aTo = String(a?.rangeTo || '').trim();
+      if (aFrom || aTo) {
+        const aFromMs = aFrom ? parseYmdInputForMkt(aFrom)?.setHours(0, 0, 0, 0) : null;
+        const aToMs = aTo ? parseYmdInputForMkt(aTo)?.setHours(23, 59, 59, 999) : null;
+        if (fromMs != null && aToMs != null && aToMs < fromMs) return false;
+        if (toMs != null && aFromMs != null && aFromMs > toMs) return false;
+        return true;
+      }
+      // Parse dd/mm/yyyy label
+      const labelMs = parseDdMmYyyyToMs(a?.dateLabel);
+      if (labelMs != null) {
+        if (fromMs != null && labelMs < fromMs) return false;
+        if (toMs != null && labelMs > toMs) return false;
+        return true;
+      }
+      return true;
+    }
+
+    function getFilteredMktAlerts() {
+      const all = Array.isArray(window.__LUMI_MKT_LOCAL_ALERTS) ? window.__LUMI_MKT_LOCAL_ALERTS : [];
+      const severity = document.getElementById('alert-severity-filter')?.value || 'all';
+      const fromYmd = document.getElementById('alert-date-from')?.value || '';
+      const toYmd = document.getElementById('alert-date-to')?.value || '';
+
+      const contentCbs = [...document.querySelectorAll('#alert-content-options input.alert-content-cb')];
+      const contentChecked = contentCbs.filter((cb) => cb.checked).map((cb) => cb.value);
+      const contentFilterActive = contentCbs.length > 0 && contentChecked.length > 0 && contentChecked.length < contentCbs.length;
+
+      const staffCbs = [...document.querySelectorAll('#alert-staff-options input.alert-staff-cb')];
+      const staffChecked = new Set(staffCbs.filter((cb) => cb.checked).map((cb) => cb.value));
+      const staffFilterActive = staffCbs.length > 0 && staffChecked.size > 0 && staffChecked.size < staffCbs.length;
+
+      return all
+        .filter((a) => a && (severity === 'all' || a.severity === severity))
+        .filter((a) => alertPassesDateFilter(a, fromYmd, toYmd))
+        .filter((a) => {
+          if (!contentFilterActive) return true;
+          const key = String(a.metricKey || '').trim();
+          if (key) return contentChecked.includes(key);
+          // fallback: match label in content
+          return contentChecked.some((k) => {
+            const lab = ALERT_CONTENT_META[k]?.label || k;
+            return String(a.content || '').includes(lab);
+          });
+        })
+        .filter((a) => {
+          if (!staffFilterActive) return true;
+          return staffChecked.has(String(a.employeeName || '').trim());
+        })
+        .sort((a, b) => {
+          const oa = (ALERT_SEVERITY_META[a.severity] || {}).order ?? 9;
+          const ob = (ALERT_SEVERITY_META[b.severity] || {}).order ?? 9;
+          if (oa !== ob) return oa - ob;
+          return String(a.employeeName || '').localeCompare(String(b.employeeName || ''), 'vi');
+        });
+    }
+
+    function renderAlertTable() {
+      const tbody = document.getElementById('alert-table-body');
+      const countsEl = document.getElementById('alert-summary-counts');
+      const metricEl = document.getElementById('alert-metric-counts');
+      if (!tbody) return;
+
+      const all = Array.isArray(window.__LUMI_MKT_LOCAL_ALERTS) ? window.__LUMI_MKT_LOCAL_ALERTS : [];
+      const counts = { critical: 0, warning: 0, info: 0 };
+      all.forEach((a) => {
+        if (a && counts[a.severity] != null) counts[a.severity] += 1;
+      });
+      if (countsEl) {
+        countsEl.innerHTML =
+          `<span class="alert-count-pill critical">● Nghiêm trọng: ${counts.critical}</span>` +
+          `<span class="alert-count-pill warning">● Cảnh báo: ${counts.warning}</span>` +
+          `<span class="alert-count-pill info">● Thông tin: ${counts.info}</span>`;
+      }
+
+      const rows = getFilteredMktAlerts();
+
+      // Bộ đếm DS / CPQC: 1 lần / nhân sự trong kết quả lọc
+      const byStaff = new Map();
+      rows.forEach((a) => {
+        const name = String(a.employeeName || '').trim();
+        if (!name) return;
+        if (!byStaff.has(name)) {
+          byStaff.set(name, {
+            chot: Number(a.chot) || 0,
+            cpqc: Number(a.cpqc) || 0,
+          });
+        }
+      });
+      let sumChot = 0;
+      let sumCpqc = 0;
+      byStaff.forEach((v) => {
+        sumChot += v.chot;
+        sumCpqc += v.cpqc;
+      });
+      if (metricEl) {
+        metricEl.innerHTML =
+          `<span class="alert-metric-pill">Số cảnh báo: <strong>${formatNumber(rows.length)}</strong></span>` +
+          `<span class="alert-metric-pill">Nhân sự: <strong>${formatNumber(byStaff.size)}</strong></span>` +
+          `<span class="alert-metric-pill">Doanh số: <strong>${formatCurrency(sumChot)}</strong></span>` +
+          `<span class="alert-metric-pill">CPQC: <strong>${formatCurrency(sumCpqc)}</strong></span>`;
+      }
+
+      if (rows.length === 0) {
+        tbody.innerHTML =
+          '<tr><td colspan="9" class="alert-empty">Không có cảnh báo phù hợp bộ lọc.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rows
+        .map((a) => {
+          const sev = a.severity || 'info';
+          const meta = ALERT_SEVERITY_META[sev] || { label: sev };
+          const rowCls = sev === 'critical' ? 'row-critical' : sev === 'warning' ? 'row-warning' : '';
+          return `<tr class="${rowCls}">
+            <td>${escapeAlertHtml(a.dateLabel || '')}</td>
+            <td>${escapeAlertHtml(a.employeeName || '')}</td>
+            <td>${escapeAlertHtml(a.team || '')}</td>
+            <td><span class="alert-badge ${sev}">${escapeAlertHtml(meta.label)}</span></td>
+            <td>${escapeAlertHtml(a.content || '')}</td>
+            <td>${escapeAlertHtml(a.cause || '')}</td>
+            <td>${formatCurrency(a.chot)}</td>
+            <td>${formatCurrency(a.cpqc)}</td>
+            ${renderAlertNoteCell(a)}
+          </tr>`;
+        })
+        .join('');
+    }
+
+    // --- Giải trình cho từng cảnh báo (lưu localStorage theo id cảnh báo) ---
+    const MKT_ALERT_NOTES_KEY = 'luminew.mktAlertNotes.v1';
+    let __alertEditingNoteId = null;
+
+    function loadAlertNotes() {
+      try {
+        return JSON.parse(localStorage.getItem(MKT_ALERT_NOTES_KEY) || '{}') || {};
+      } catch {
+        return {};
+      }
+    }
+    function saveAlertNotesMap(map) {
+      try {
+        localStorage.setItem(MKT_ALERT_NOTES_KEY, JSON.stringify(map || {}));
+      } catch (e) {
+        console.error('[mktAlertNotes] save:', e);
+      }
+    }
+    function getAlertNoteText(id) {
+      if (!id) return '';
+      const entry = loadAlertNotes()[id];
+      if (!entry) return '';
+      if (typeof entry === 'string') return entry;
+      return String(entry.text || '');
+    }
+    function setAlertNoteText(id, text) {
+      if (!id) return;
+      const map = loadAlertNotes();
+      const t = String(text || '').trim();
+      if (t) map[id] = { text: t, updatedAt: Date.now() };
+      else delete map[id];
+      saveAlertNotesMap(map);
+    }
+    function renderAlertNoteCell(a) {
+      const id = String(a && a.id ? a.id : '');
+      const idAttr = escapeAlertHtml(id);
+      const text = getAlertNoteText(id);
+      if (__alertEditingNoteId && __alertEditingNoteId === id) {
+        return `<td class="alert-note-cell editing">
+            <textarea id="alert-note-input" class="alert-note-input" rows="3"
+              placeholder="Nhập nội dung giải trình...">${escapeAlertHtml(text)}</textarea>
+            <div class="alert-note-actions">
+              <button type="button" class="alert-note-btn save" data-alert-note-save="${idAttr}">Lưu</button>
+              <button type="button" class="alert-note-btn cancel" data-alert-note-cancel="1">Huỷ</button>
+            </div>
+          </td>`;
+      }
+      if (text) {
+        return `<td class="alert-note-cell has-note">
+            <div class="alert-note-text">${escapeAlertHtml(text).replace(/\n/g, '<br>')}</div>
+            <button type="button" class="alert-note-btn edit" data-alert-note-edit="${idAttr}">Sửa</button>
+          </td>`;
+      }
+      return `<td class="alert-note-cell">
+          <button type="button" class="alert-note-btn add" data-alert-note-edit="${idAttr}">＋ Thêm giải trình</button>
+        </td>`;
+    }
+    function startEditAlertNote(id) {
+      __alertEditingNoteId = String(id || '');
+      renderAlertTable();
+      setTimeout(() => {
+        const ta = document.getElementById('alert-note-input');
+        if (ta) {
+          ta.focus();
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
+      }, 0);
+    }
+    function cancelEditAlertNote() {
+      __alertEditingNoteId = null;
+      renderAlertTable();
+    }
+    function saveEditAlertNote(id) {
+      const ta = document.getElementById('alert-note-input');
+      if (ta) setAlertNoteText(id, ta.value);
+      __alertEditingNoteId = null;
+      renderAlertTable();
+    }
+    function onAlertTableClick(e) {
+      const editBtn = e.target.closest('[data-alert-note-edit]');
+      if (editBtn) {
+        startEditAlertNote(editBtn.getAttribute('data-alert-note-edit'));
+        return;
+      }
+      const saveBtn = e.target.closest('[data-alert-note-save]');
+      if (saveBtn) {
+        saveEditAlertNote(saveBtn.getAttribute('data-alert-note-save'));
+        return;
+      }
+      const cancelBtn = e.target.closest('[data-alert-note-cancel]');
+      if (cancelBtn) {
+        cancelEditAlertNote();
+      }
+    }
+
     function safePostMktAlerts(alerts) {
       try {
         const payload = {
@@ -3715,7 +4948,15 @@
     function buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets) {
       const alerts = [];
       const now = Date.now();
-      const reportDateMs = parseDdMmYyyyToMs(dateLabel);
+      const range = window.__LUMI_MKT_ALERT_RANGE || getTab1AlertDateRangeIso();
+      const rangeFrom = String(range.from || '').trim();
+      const rangeTo = String(range.to || '').trim();
+      // Nếu khoảng 1 ngày → gắn reportDateMs để lọc ngày chính xác
+      let reportDateMs = parseDdMmYyyyToMs(dateLabel);
+      if (reportDateMs == null && rangeFrom && rangeFrom === rangeTo) {
+        const d = parseYmdInputForMkt(rangeFrom);
+        reportDateMs = d ? d.getTime() : null;
+      }
       (dataList || []).forEach((s) => {
         const employeeName = String(s?.name || '').trim();
         const team = String(s?.team || '').trim();
@@ -3735,42 +4976,44 @@
         const cps = donForRate ? cpqc / donForRate : 0;
         const cpds = chot ? cpqc / chot : 0;
 
+        const baseMetrics = {
+          dateLabel,
+          reportDateMs,
+          rangeFrom,
+          rangeTo,
+          employeeName,
+          team,
+          cpqc,
+          chot,
+          ts: now,
+        };
+
         if (tiLeChotVal <= 0.05) {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'ti_le_chot_tt', 'critical']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'ti_le_chot',
             content: `${tiLeChotLabel} thấp: ${formatPercent(tiLeChotVal)}`,
             cause: 'Ngưỡng cảnh báo: <= 5%',
             severity: 'critical',
           });
         } else if (tiLeChotVal <= 0.1) {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'ti_le_chot_tt', 'warning']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'ti_le_chot',
             content: `${tiLeChotLabel} chạm ngưỡng: ${formatPercent(tiLeChotVal)}`,
             cause: 'Ngưỡng theo bảng: 5%–10%',
             severity: 'warning',
           });
         }
 
-        // CPS: theo logic đỏ/vàng (phụ thuộc nhóm thị trường)
         const cpsClass = getCpsCellStyle(cps, selectedMarkets || []);
         if (cpsClass === 'bg-lightred') {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'cps', 'critical']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'cps',
             content: `CPS vượt ngưỡng đỏ: ${formatCurrency(cps)}`,
             cause:
               'Ngưỡng CPS đỏ theo nhóm thị trường (Châu Á > 1,000,000 hoặc Ngoài Châu Á > 1,500,000)',
@@ -3778,12 +5021,9 @@
           });
         } else if (cpsClass === 'bg-yellow') {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'cps', 'warning']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'cps',
             content: `CPS chạm ngưỡng: ${formatCurrency(cps)}`,
             cause:
               'Ngưỡng CPS vàng theo nhóm thị trường (Châu Á > 700,000 hoặc Ngoài Châu Á > 1,000,000)',
@@ -3791,31 +5031,22 @@
           });
         }
 
-        // %CP/DS: theo logic tô vàng (> 33%)
         if (cpds > 0.33) {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'cpds', 'warning']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'cpds',
             content: `%CP/DS cao: ${formatPercent(cpds)}`,
             cause: 'Ngưỡng theo bảng: > 33%',
             severity: 'warning',
           });
         }
 
-        // Giá Mess: hiện bảng chưa có màu ngưỡng rõ ràng → vẫn gửi cảnh báo dạng thông tin nếu quá cao
-        // (Tránh bịa ngưỡng; chỉ gửi nếu dữ liệu dị thường để hỗ trợ kiểm tra)
         if (giaMess > 0 && giaMess >= 2e6) {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'gia_mess', 'info']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'gia_mess',
             content: `Giá Mess cao bất thường: ${formatCurrency(giaMess)}`,
             cause: 'Kiểm tra lại Mess/Cmt hoặc CPQC (ngưỡng kỹ thuật >= 2,000,000)',
             severity: 'info',

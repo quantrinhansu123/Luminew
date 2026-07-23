@@ -2478,9 +2478,9 @@ async function fetchVanDonHcmNvVanDonFromDirectory() {
     return fetchVanDonStaffNameList(supabase, { vanDonBranch: 'hcm' });
 }
 
-/** Danh sách NV vận đơn cả 2 chi nhánh (Hà Nội + HCM) — dùng bộ lọc `/van-don`. */
-async function fetchVanDonAllNvVanDonFromDirectory() {
-    return fetchVanDonStaffNameList(supabase, { vanDonBranch: 'all' });
+/** Danh sách NV vận đơn Hà Nội (bộ phận Vận đơn, loại đã nghỉ) — bộ lọc `/van-don`. */
+async function fetchVanDonHanoiNvVanDonFromDirectory() {
+    return fetchVanDonStaffNameList(supabase, { vanDonBranch: 'hanoi' });
 }
 
 /** Một cột DB → các tiêu đề cột UI Van Đơn dùng chung danh sách distinct (một RPC / cột DB). */
@@ -2529,14 +2529,13 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
                         .filter(Boolean)
                         .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
 
-                    // /van-don: gộp NV Vận đơn từ cả 2 chi nhánh (users + danh_sach_van_don)
+                    // /van-don: dropdown NV Vận đơn = HN + bộ phận Vận đơn, loại đã nghỉ
                     if (dbCol === 'delivery_staff') {
                         try {
-                            const fromDirectory = await fetchVanDonAllNvVanDonFromDirectory();
-                            vals = [...new Set([...(vals || []), ...fromDirectory])];
+                            vals = await fetchVanDonHanoiNvVanDonFromDirectory();
                         } catch (mergeErr) {
                             console.warn(
-                                '[fetchVanDonDistinctFilterOptions] merge NV Vận đơn (all branches):',
+                                '[fetchVanDonDistinctFilterOptions] NV Vận đơn Hà Nội from directory:',
                                 mergeErr
                             );
                         }
