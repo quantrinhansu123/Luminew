@@ -4005,8 +4005,7 @@ function VanDon({ dataSource = 'default' }) {
       }
 
       /**
-       * /van-don (HN): NV Vận đơn = users (bộ phận Vận đơn + Hà Nội) + danh_sach_van_don HN,
-       * loại nhân sự đã nghỉ (department/team «Đã nghỉ»/«Nghỉ», trang_thai_chia Nghỉ).
+       * /van-don (HN): NV Vận đơn = users (bộ phận Vận đơn + Hà Nội) + danh_sach_van_don HN.
        */
       const isHnNvVanDonFilter =
         dataSource !== 'hcm' &&

@@ -2478,7 +2478,7 @@ async function fetchVanDonHcmNvVanDonFromDirectory() {
     return fetchVanDonStaffNameList(supabase, { vanDonBranch: 'hcm' });
 }
 
-/** Danh sách NV vận đơn Hà Nội (bộ phận Vận đơn, loại đã nghỉ) — bộ lọc `/van-don`. */
+/** Danh sách NV vận đơn Hà Nội (bộ phận Vận đơn) — bộ lọc `/van-don`. */
 async function fetchVanDonHanoiNvVanDonFromDirectory() {
     return fetchVanDonStaffNameList(supabase, { vanDonBranch: 'hanoi' });
 }
@@ -2529,7 +2529,7 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
                         .filter(Boolean)
                         .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
 
-                    // /van-don: dropdown NV Vận đơn = HN + bộ phận Vận đơn, loại đã nghỉ
+                    // /van-don: dropdown NV Vận đơn = HN + bộ phận Vận đơn
                     if (dbCol === 'delivery_staff') {
                         try {
                             vals = await fetchVanDonHanoiNvVanDonFromDirectory();
