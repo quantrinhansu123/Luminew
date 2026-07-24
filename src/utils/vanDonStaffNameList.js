@@ -73,6 +73,31 @@ function asciiLabel(raw) {
     .trim();
 }
 
+function normalizePersonNameKey(name) {
+  return String(name ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[.\-_/]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Trạng thái nghỉ việc trên bảng `users`
+ * (department / position / team / employment_status = Nghỉ, Đã nghỉ, Nghỉ việc…).
+ */
+function isUserNghiViecStatus(...fields) {
+  for (const raw of fields) {
+    const a = asciiLabel(raw);
+    if (!a) continue;
+    if (a.includes('nghi viec')) return true;
+    if (a === 'nghi' || a === 'da nghi' || a.startsWith('da nghi')) return true;
+    if (a === 'inactive' || a === 'terminated') return true;
+  }
+  return false;
+}
+
 function vanDonStaffMatchesBranch(vanDonBranch, branchPieces) {
   if (vanDonBranch === 'all') return true;
   const parts = (branchPieces || []).map((x) => String(x ?? '').trim()).filter(Boolean);
@@ -103,40 +128,67 @@ function vanDonStaffMatchesBranch(vanDonBranch, branchPieces) {
 /**
  * Danh sách tên NV vận đơn (users bộ phận Vận đơn + danh_sach_van_don).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabaseClient
- * @param {{ vanDonBranch?: 'hanoi' | 'hcm' | 'all' }} [options]
+ * @param {{
+ *   vanDonBranch?: 'hanoi' | 'hcm' | 'all',
+ *   excludeNghiViec?: boolean
+ * }} [options]
+ * - `excludeNghiViec`: bỏ nhân sự nghỉ việc theo bảng `users` (bộ lọc tab Đơn nhắc hộ /van-don).
  */
 export async function fetchVanDonStaffNameList(supabaseClient, options = {}) {
   const vanDonBranch = options.vanDonBranch || 'all';
+  const excludeNghiViec = options.excludeNghiViec === true;
   const names = new Set();
+  const nghiViecNameKeys = new Set();
 
   let usersRes = await supabaseClient
     .from('users')
-    .select('name, department, team, branch')
+    .select('name, department, team, branch, position, employment_status')
     .not('name', 'is', null)
     .order('name', { ascending: true });
   if (usersRes.error) {
     const msg = String(usersRes.error.message || '').toLowerCase();
-    const missingBr =
-      msg.includes('branch') && (msg.includes('does not exist') || msg.includes('could not find'));
-    if (missingBr) {
+    const missingExtra =
+      (msg.includes('does not exist') || msg.includes('could not find')) &&
+      (msg.includes('employment_status') || msg.includes('position') || msg.includes('branch'));
+    if (missingExtra) {
       usersRes = await supabaseClient
         .from('users')
-        .select('name, department, team')
+        .select('name, department, team, branch')
         .not('name', 'is', null)
         .order('name', { ascending: true });
-    } else {
-      usersRes = await supabaseClient
-        .from('users')
-        .select('name, department')
-        .not('name', 'is', null)
-        .order('name', { ascending: true });
+    }
+    if (usersRes.error) {
+      const msg2 = String(usersRes.error.message || '').toLowerCase();
+      const missingBr =
+        msg2.includes('branch') && (msg2.includes('does not exist') || msg2.includes('could not find'));
+      if (missingBr) {
+        usersRes = await supabaseClient
+          .from('users')
+          .select('name, department, team')
+          .not('name', 'is', null)
+          .order('name', { ascending: true });
+      } else {
+        usersRes = await supabaseClient
+          .from('users')
+          .select('name, department')
+          .not('name', 'is', null)
+          .order('name', { ascending: true });
+      }
     }
   }
   if (usersRes.error) throw usersRes.error;
   (usersRes.data || []).forEach((u) => {
-    if (!isBoPhanVanDon(u.department)) return;
     const n = String(u.name || '').trim();
     if (!n) return;
+    // Chỉ lấy trạng thái nghỉ việc từ bảng users
+    if (
+      excludeNghiViec &&
+      isUserNghiViecStatus(u.employment_status, u.department, u.position, u.team)
+    ) {
+      nghiViecNameKeys.add(normalizePersonNameKey(n));
+      return;
+    }
+    if (!isBoPhanVanDon(u.department)) return;
     if (!vanDonStaffMatchesBranch(vanDonBranch, [u.branch, u.team])) return;
     names.add(n);
   });
@@ -159,10 +211,17 @@ export async function fetchVanDonStaffNameList(supabaseClient, options = {}) {
     (dsvdRes.data || []).forEach((r) => {
       const n = String(r.ho_va_ten || '').trim();
       if (!n) return;
+      if (excludeNghiViec && nghiViecNameKeys.has(normalizePersonNameKey(n))) return;
       if (vanDonBranch !== 'all' && !dsvdHasChiNhanh) return;
       if (!vanDonStaffMatchesBranch(vanDonBranch, [r.chi_nhanh])) return;
       names.add(n);
     });
+  }
+
+  if (excludeNghiViec) {
+    for (const n of [...names]) {
+      if (nghiViecNameKeys.has(normalizePersonNameKey(n))) names.delete(n);
+    }
   }
 
   return [...names].sort((a, b) => a.localeCompare(b, 'vi'));
