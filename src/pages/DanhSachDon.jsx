@@ -136,8 +136,43 @@ function normalizeSearchTextForDb(raw) {
     .slice(0, 120);
 }
 
+/** Tách nhiều mã (xuống dòng / dấu phẩy / chấm phẩy / tab / khoảng trắng). */
+function parseDanhSachDonSearchTokens(raw) {
+  return String(raw ?? '')
+    .split(/[\s,;|]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function sanitizeSearchTokenForDb(raw) {
+  return String(raw ?? '')
+    .trim()
+    .replace(/[(),%*]/g, '')
+    .slice(0, 80);
+}
+
+/**
+ * 1 từ khóa (≥2 ký tự): tìm rộng (mã, KH, NV, …).
+ * ≥2 token: tìm theo nhiều mã đơn / tracking (OR).
+ */
 function applyDanhSachDonSearchFilter(query, rawSearchText) {
-  const search = normalizeSearchTextForDb(rawSearchText);
+  const tokens = parseDanhSachDonSearchTokens(rawSearchText)
+    .map(sanitizeSearchTokenForDb)
+    .filter((t) => t.length >= 2);
+
+  if (tokens.length === 0) return query;
+
+  if (tokens.length >= 2) {
+    const orParts = tokens.flatMap((t) => [
+      `order_code.ilike.%${t}%`,
+      `tracking_code.ilike.%${t}%`,
+    ]);
+    // PostgREST giới hạn độ dài URL — cắt bớt nếu dán quá nhiều mã
+    const capped = orParts.slice(0, 200);
+    return query.or(capped.join(','));
+  }
+
+  const search = normalizeSearchTextForDb(tokens[0]);
   if (search.length < 2) return query;
 
   const pattern = `%${search}%`;
@@ -658,6 +693,11 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [showBulkClearDeliveryStaffModal, setShowBulkClearDeliveryStaffModal] = useState(false);
   const [bulkClearDeliveryStaffRows, setBulkClearDeliveryStaffRows] = useState([]);
   const [isBulkClearingDeliveryStaff, setIsBulkClearingDeliveryStaff] = useState(false);
+  /** Đổi NV vận đơn hàng loạt cho mọi đơn trong bộ lọc */
+  const [showBulkAssignDeliveryStaffModal, setShowBulkAssignDeliveryStaffModal] = useState(false);
+  const [bulkAssignDeliveryStaffRows, setBulkAssignDeliveryStaffRows] = useState([]);
+  const [bulkAssignDeliveryStaffValue, setBulkAssignDeliveryStaffValue] = useState('');
+  const [isBulkAssigningDeliveryStaff, setIsBulkAssigningDeliveryStaff] = useState(false);
   /** Tên NV vận đơn chuẩn từ master (users/danh_sach_van_don) — luôn có trong dropdown lọc chia vận đơn */
   const [vanDonStaffMasterNames, setVanDonStaffMasterNames] = useState([]);
 
@@ -2571,6 +2611,169 @@ function DanhSachDon({ dataSource = 'default' }) {
     setBulkClearDeliveryStaffRows([]);
   };
 
+  const openBulkAssignDeliveryStaffModal = async () => {
+    if (!canEditOnThisOrderList) {
+      toast.error('Bạn không có quyền sửa dữ liệu vận đơn trên trang này.');
+      return;
+    }
+    const rows = (filteredData || [])
+      .map((r) => {
+        const orderCode = String(r?.['Mã đơn hàng'] || '').trim();
+        const rowId = r?._id ?? null;
+        if ((!orderCode || orderCode.startsWith('UNK-') || orderCode.startsWith('NO_CODE_')) && rowId == null) {
+          return null;
+        }
+        return {
+          orderCode,
+          rowId,
+          customerName: String(r?.['Name*'] || '').trim(),
+          customerPhone: String(r?.['Phone*'] || '').trim(),
+          currentDeliveryStaff: String(r?.['NV Vận đơn'] ?? r?.delivery_staff ?? '').trim(),
+        };
+      })
+      .filter(Boolean);
+
+    if (rows.length === 0) {
+      toast.info('Không có đơn nào trong bộ lọc để đổi NV vận đơn.', {
+        autoClose: 2200,
+        hideProgressBar: true,
+      });
+      return;
+    }
+
+    setBulkAssignDeliveryStaffRows(rows);
+    setBulkAssignDeliveryStaffValue('');
+    setNvVanDonOptionsSearch('');
+    setShowBulkAssignDeliveryStaffModal(true);
+    setLoadingNvVanDonOptions(true);
+    setNvVanDonOptions([]);
+    try {
+      const sorted = await fetchVanDonStaffNameList(supabase, { vanDonBranch: nvVanDonListBranch });
+      setNvVanDonOptions(sorted);
+      if (sorted.length === 0) {
+        toast.warning(
+          'Chưa có nhân sự bộ phận Vận đơn (kiểm tra users.department / danh_sach_van_don).',
+          { autoClose: 5000 }
+        );
+      }
+    } catch (e) {
+      console.error('load NV vận đơn cho đổi hàng loạt:', e);
+      toast.warning('Không tải được danh sách nhân sự — thử lại sau.', { autoClose: 4000 });
+      setNvVanDonOptions([]);
+    } finally {
+      setLoadingNvVanDonOptions(false);
+    }
+  };
+
+  const closeBulkAssignDeliveryStaffModal = () => {
+    if (isBulkAssigningDeliveryStaff) return;
+    setShowBulkAssignDeliveryStaffModal(false);
+    setBulkAssignDeliveryStaffRows([]);
+    setBulkAssignDeliveryStaffValue('');
+    setNvVanDonOptionsSearch('');
+  };
+
+  const handleConfirmBulkAssignDeliveryStaff = async () => {
+    if (isBulkAssigningDeliveryStaff) return;
+    const rows = bulkAssignDeliveryStaffRows || [];
+    const trimmed = String(bulkAssignDeliveryStaffValue || '').trim();
+    if (!trimmed) {
+      toast.error('Chọn nhân viên vận đơn cần gán.');
+      return;
+    }
+    if (rows.length === 0) {
+      closeBulkAssignDeliveryStaffModal();
+      return;
+    }
+
+    setIsBulkAssigningDeliveryStaff(true);
+    try {
+      let success = 0;
+      const failed = [];
+      const chunkSize = 10;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        const results = await Promise.all(
+          chunk.map(async (u) => {
+            try {
+              let query = supabase.from(ordersTableName).update({ delivery_staff: trimmed });
+              if (u.orderCode && !u.orderCode.startsWith('UNK-') && !u.orderCode.startsWith('NO_CODE_')) {
+                query = query.eq('order_code', u.orderCode);
+              } else if (u.rowId != null) {
+                query = query.eq('id', u.rowId);
+              } else {
+                throw new Error('Thiếu order_code/id');
+              }
+              const { error } = await query;
+              if (error) throw error;
+              return { ok: true, item: u };
+            } catch (err) {
+              return { ok: false, item: u, error: err };
+            }
+          })
+        );
+
+        results.forEach((r) => {
+          if (r.ok) success += 1;
+          else failed.push(r);
+        });
+      }
+
+      const byCode = new Set(rows.map((u) => String(u.orderCode || '').trim()).filter(Boolean));
+      const byId = new Set(rows.map((u) => u.rowId).filter((v) => v != null));
+      setAllData((prev) =>
+        (prev || []).map((r) => {
+          const code = String(r?.['Mã đơn hàng'] || '').trim();
+          const id = r?._id ?? null;
+          if (byCode.has(code) || (id != null && byId.has(id))) {
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: trimmed };
+          }
+          return r;
+        })
+      );
+
+      Promise.all(
+        rows.map((u) =>
+          logDataChange({
+            action: 'UPDATE',
+            table_name: ordersTableName,
+            record_id: u.orderCode || String(u.rowId),
+            field: 'delivery_staff',
+            old_value: u.currentDeliveryStaff || '',
+            new_value: trimmed,
+            details: {
+              note: 'Đổi NV vận đơn hàng loạt theo bộ lọc (Danh sách đơn)',
+              orderCode: u.orderCode || null,
+            },
+          })
+        )
+      ).catch((err) => console.error('bulk assign delivery_staff logging error:', err));
+
+      setShowBulkAssignDeliveryStaffModal(false);
+      setBulkAssignDeliveryStaffRows([]);
+      setBulkAssignDeliveryStaffValue('');
+      setNvVanDonOptionsSearch('');
+
+      if (failed.length > 0) {
+        toast.warning(
+          `Đã đổi NV vận đơn: ${success}/${rows.length} đơn. Có ${failed.length} đơn lỗi, kiểm tra Console.`,
+          { autoClose: 6000 }
+        );
+        console.error('Bulk assign delivery_staff failed rows:', failed);
+      } else {
+        toast.success(`Đã gán «${trimmed}» cho ${success} đơn theo bộ lọc.`, {
+          autoClose: 3200,
+          hideProgressBar: true,
+        });
+      }
+    } catch (err) {
+      console.error('bulk assign delivery_staff error:', err);
+      toast.error(`Lỗi đổi NV vận đơn hàng loạt: ${err?.message || String(err)}`);
+    } finally {
+      setIsBulkAssigningDeliveryStaff(false);
+    }
+  };
+
   const handleConfirmBulkClearDeliveryStaff = async () => {
     if (isBulkClearingDeliveryStaff) return;
     const rows = bulkClearDeliveryStaffRows || [];
@@ -2852,11 +3055,13 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   /** Dropdown modal NV vận đơn: danh sách bộ phận Vận đơn + giá trị hiện tại nếu lệch. */
   const nvVanDonSelectOptions = useMemo(() => {
-    const cur = String(editNvVanDonValue || '').trim();
     const set = new Set((nvVanDonOptions || []).filter(Boolean));
+    const cur = String(editNvVanDonValue || '').trim();
     if (cur) set.add(cur);
+    const bulk = String(bulkAssignDeliveryStaffValue || '').trim();
+    if (bulk) set.add(bulk);
     return [...set].sort((a, b) => a.localeCompare(b, 'vi'));
-  }, [nvVanDonOptions, editNvVanDonValue]);
+  }, [nvVanDonOptions, editNvVanDonValue, bulkAssignDeliveryStaffValue]);
 
   const nvVanDonSelectOptionsFiltered = useMemo(() => {
     const kw = String(nvVanDonOptionsSearch || '').trim().toLowerCase();
@@ -2922,34 +3127,60 @@ function DanhSachDon({ dataSource = 'default' }) {
       console.log('ℹ️ Không có selectedPersonnel, hiển thị tất cả đơn hàng');
     }
 
-    // Search filter (using debounced value) - Tìm kiếm toàn diện thông tin khách hàng và nhân viên
+    // Search filter — 1 từ khóa: tìm rộng; ≥2 token: nhiều mã đơn / tracking
     if (debouncedSearchText) {
-      const searchLower = debouncedSearchText.toLowerCase();
-      data = data.filter(row => {
-        return (
-          // Thông tin đơn hàng
-          String(row["Mã đơn hàng"] || '').toLowerCase().includes(searchLower) ||
-          String(row["Mã Tracking"] || '').toLowerCase().includes(searchLower) ||
-          // Thông tin khách hàng - Tên
-          String(row["Name*"] || '').toLowerCase().includes(searchLower) ||
-          // Thông tin khách hàng - Số điện thoại
-          String(row["Phone*"] || '').toLowerCase().includes(searchLower) ||
-          // Thông tin khách hàng - Địa chỉ
-          String(row["Địa chỉ"] || row["Add"] || '').toLowerCase().includes(searchLower) ||
-          String(row["Thành phố"] || row["City"] || '').toLowerCase().includes(searchLower) ||
-          String(row["Tỉnh/Bang"] || row["State"] || '').toLowerCase().includes(searchLower) ||
-          String(row["Mã bưu điện"] || row["Zipcode"] || '').toLowerCase().includes(searchLower) ||
-          // Khu vực
-          String(row["Khu vực"] || '').toLowerCase().includes(searchLower) ||
-          // Tên nhân viên - Marketing, Sale, CSKH, Vận đơn
-          rowDisplayMktStaff(row).toLowerCase().includes(searchLower) ||
-          rowDisplaySaleStaff(row).toLowerCase().includes(searchLower) ||
-          String(row["CSKH"] || '').toLowerCase().includes(searchLower) ||
-          String(row["NV Vận đơn"] || '').toLowerCase().includes(searchLower) ||
-          // Team
-          String(row["Team"] || '').toLowerCase().includes(searchLower)
-        );
-      });
+      const tokens = parseDanhSachDonSearchTokens(debouncedSearchText).map((t) => t.toLowerCase());
+      if (tokens.length >= 2) {
+        data = data.filter((row) => {
+          const orderCode = String(row['Mã đơn hàng'] || '').toLowerCase();
+          const tracking = String(row['Mã Tracking'] || '').toLowerCase();
+          return tokens.some((t) => orderCode.includes(t) || tracking.includes(t));
+        });
+      } else if (tokens.length === 1) {
+        const searchLower = tokens[0];
+        data = data.filter((row) => {
+          return (
+            String(row['Mã đơn hàng'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Mã Tracking'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Name*'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Phone*'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Địa chỉ'] || row['Add'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Thành phố'] || row['City'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Tỉnh/Bang'] || row['State'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Mã bưu điện'] || row['Zipcode'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Khu vực'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            rowDisplayMktStaff(row).toLowerCase().includes(searchLower) ||
+            rowDisplaySaleStaff(row).toLowerCase().includes(searchLower) ||
+            String(row['CSKH'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['NV Vận đơn'] || '')
+              .toLowerCase()
+              .includes(searchLower) ||
+            String(row['Team'] || '')
+              .toLowerCase()
+              .includes(searchLower)
+          );
+        });
+      }
     }
 
     // Date Range Filter (áp dụng cho cả view thường và HCM)
@@ -3651,17 +3882,18 @@ function DanhSachDon({ dataSource = 'default' }) {
         {/* Filters */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <div className="flex flex-wrap items-end gap-4">
-            {/* Search */}
+            {/* Search — hỗ trợ dán nhiều mã đơn */}
             <div className="flex-1 min-w-[200px]">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tìm kiếm</label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm: mã đơn, tên KH, tên NV, SĐT, địa chỉ, tracking..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                <textarea
+                  rows={2}
+                  placeholder="1 từ khóa: mã/tên/SĐT… — hoặc dán nhiều mã đơn (xuống dòng / dấu phẩy)"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] resize-y min-h-[42px]"
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
+                  title="Dán nhiều mã đơn: mỗi dòng một mã, hoặc cách nhau bằng dấu phẩy / khoảng trắng"
                 />
               </div>
             </div>
@@ -3696,6 +3928,32 @@ function DanhSachDon({ dataSource = 'default' }) {
                 Tải Excel (theo lưới)
               </button>
             </div>
+
+            {canEditOnThisOrderList && (
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">NV vận đơn</label>
+                <button
+                  type="button"
+                  onClick={openBulkAssignDeliveryStaffModal}
+                  disabled={
+                    loading ||
+                    isBulkAssigningDeliveryStaff ||
+                    isBulkClearingDeliveryStaff ||
+                    (filteredData || []).length === 0
+                  }
+                  className="px-3 py-2 rounded-lg text-sm font-semibold border border-indigo-600 text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 whitespace-nowrap"
+                  title={`Gán cùng một NV vận đơn cho mọi đơn đang hiển thị theo bộ lọc (${(filteredData || []).length} đơn)`}
+                >
+                  <Truck className="w-4 h-4 shrink-0" />
+                  Đổi nhiều vận đơn
+                  {(filteredData || []).length > 0 && (
+                    <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded-full">
+                      {(filteredData || []).length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
 
             {canRecalculateTotalVnd && (
               <div>
@@ -5156,6 +5414,136 @@ function DanhSachDon({ dataSource = 'default' }) {
                   <>
                     <Trash2 className="w-4 h-4" />
                     Xác nhận xóa NV vận đơn
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkAssignDeliveryStaffModal && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bulk-assign-delivery-staff-title"
+          onClick={closeBulkAssignDeliveryStaffModal}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[88vh] flex flex-col border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-indigo-50 rounded-t-xl">
+              <div>
+                <h2 id="bulk-assign-delivery-staff-title" className="text-lg font-bold text-indigo-900 flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-indigo-700" />
+                  Đổi nhiều NV vận đơn
+                </h2>
+                <p className="text-xs text-indigo-800 mt-0.5">
+                  Gán cùng một NV vận đơn cho <strong>tất cả đơn</strong> đang hiển thị theo bộ lọc hiện tại
+                  ({ordersTableName}).
+                </p>
+              </div>
+              <button
+                type="button"
+                className="p-2 rounded-lg hover:bg-indigo-100 text-indigo-800 disabled:opacity-50"
+                aria-label="Đóng"
+                disabled={isBulkAssigningDeliveryStaff}
+                onClick={closeBulkAssignDeliveryStaffModal}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-4 py-3 border-b border-gray-200 space-y-3">
+              <div className="text-sm text-gray-700">
+                Số đơn sẽ đổi: <strong>{bulkAssignDeliveryStaffRows.length}</strong>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">Tìm tên nhanh</label>
+                <input
+                  type="search"
+                  value={nvVanDonOptionsSearch}
+                  onChange={(e) => setNvVanDonOptionsSearch(e.target.value)}
+                  placeholder="Gõ để lọc danh sách tên…"
+                  disabled={isBulkAssigningDeliveryStaff || loadingNvVanDonOptions}
+                  className="w-full px-3 py-2 mb-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100"
+                  autoComplete="off"
+                />
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">NV vận đơn mới</label>
+                <select
+                  value={bulkAssignDeliveryStaffValue}
+                  onChange={(e) => setBulkAssignDeliveryStaffValue(e.target.value)}
+                  disabled={isBulkAssigningDeliveryStaff || loadingNvVanDonOptions}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 bg-white"
+                >
+                  <option value="">— Chọn NV vận đơn —</option>
+                  {nvVanDonSelectOptionsFiltered.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                {loadingNvVanDonOptions && (
+                  <p className="text-xs text-gray-500 mt-1.5">Đang tải danh sách nhân sự…</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4">
+              <table className="min-w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 text-left text-xs uppercase text-gray-600">
+                    <th className="p-2 border border-gray-200">#</th>
+                    <th className="p-2 border border-gray-200">Mã đơn</th>
+                    <th className="p-2 border border-gray-200">Tên KH</th>
+                    <th className="p-2 border border-gray-200">SĐT</th>
+                    <th className="p-2 border border-gray-200">NV vận đơn hiện tại</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkAssignDeliveryStaffRows.map((r, i) => (
+                    <tr key={`${r.orderCode || 'NO_CODE'}-${r.rowId ?? i}`} className="hover:bg-indigo-50/40">
+                      <td className="p-2 border border-gray-200 text-gray-500">{i + 1}</td>
+                      <td className="p-2 border border-gray-200 font-mono text-xs">{r.orderCode || '—'}</td>
+                      <td className="p-2 border border-gray-200">{r.customerName || '—'}</td>
+                      <td className="p-2 border border-gray-200 font-mono text-xs">{r.customerPhone || '—'}</td>
+                      <td className="p-2 border border-gray-200">{r.currentDeliveryStaff || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeBulkAssignDeliveryStaffModal}
+                disabled={isBulkAssigningDeliveryStaff}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300 text-gray-700 disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBulkAssignDeliveryStaff}
+                disabled={
+                  isBulkAssigningDeliveryStaff ||
+                  loadingNvVanDonOptions ||
+                  !String(bulkAssignDeliveryStaffValue || '').trim()
+                }
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-gray-400 disabled:opacity-60 flex items-center gap-2"
+              >
+                {isBulkAssigningDeliveryStaff ? (
+                  <>
+                    <span className="inline-block h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Đang cập nhật...
+                  </>
+                ) : (
+                  <>
+                    <Truck className="w-4 h-4" />
+                    Xác nhận đổi {bulkAssignDeliveryStaffRows.length} đơn
                   </>
                 )}
               </button>
