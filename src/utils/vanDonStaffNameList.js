@@ -84,14 +84,17 @@ function normalizePersonNameKey(name) {
 }
 
 /**
- * Trạng thái nghỉ việc trên bảng `users`
- * (department / position / team / employment_status = Nghỉ, Đã nghỉ, Nghỉ việc…).
+ * Trạng thái nghỉ việc trên bảng `users.employment_status` (và các field liên quan).
+ * Ưu tiên khớp «Nghỉ việc»; đồng thời nhận «Nghỉ» / «Đã nghỉ».
  */
-function isUserNghiViecStatus(...fields) {
+export function isUserNghiViecStatus(...fields) {
   for (const raw of fields) {
+    const plain = String(raw ?? '').trim().toLowerCase();
     const a = asciiLabel(raw);
-    if (!a) continue;
-    if (a.includes('nghi viec')) return true;
+    if (!plain && !a) continue;
+    // employment_status chuẩn: «Nghỉ việc»
+    if (plain === 'nghỉ việc' || plain.includes('nghỉ việc')) return true;
+    if (a === 'nghi viec' || a.includes('nghi viec')) return true;
     if (a === 'nghi' || a === 'da nghi' || a.startsWith('da nghi')) return true;
     if (a === 'inactive' || a === 'terminated') return true;
   }

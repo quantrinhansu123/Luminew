@@ -13,6 +13,7 @@ import {
 } from '../services/danhSachVanDonU1History';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
+import { isUserNghiViecStatus } from '../utils/vanDonStaffNameList';
 
 const VAN_DON_LIST_FULL_ACCESS_ROLES = ['admin', 'super_admin', 'director', 'manager', 'administrator'];
 const normalizeBranch = (value) =>
@@ -165,6 +166,15 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
             const staffNamesSet = new Set();
             const staffBranchMap = {};
+            const nghiViecNameKeys = new Set();
+
+            const nameKey = (n) =>
+                String(n || '')
+                    .normalize('NFD')
+                    .replace(/\p{M}/gu, '')
+                    .toLowerCase()
+                    .replace(/\s+/g, ' ')
+                    .trim();
 
             // 1) Nguồn chính: human_resources
             const { data: hrRows, error: hrError } = await supabase
@@ -185,36 +195,31 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                 });
             }
 
-            // 2) Bổ sung/fallback: users (department)
+            // 2) Bổ sung/fallback: users (department) — loại trạng thái đã nghỉ
             let usersRows = [];
             try {
                 const { data: uData, error: uError } = await supabase
                     .from('users')
-                    .select('name, department, branch, chi_nhanh')
+                    .select('name, department, branch, position, employment_status, team')
                     .not('name', 'is', null)
                     .order('name', { ascending: true });
 
                 if (uError) throw uError;
                 usersRows = uData || [];
             } catch (e) {
-                // Một số DB cũ có thể không có branch/chi_nhanh.
                 const message = String(e?.message || '').toLowerCase();
-                const missingChiNhanhColumn = message.includes('chi_nhanh') && message.includes('does not exist');
-                const missingBranchColumn = message.includes('branch') && message.includes('does not exist');
+                const missingExtra =
+                    (message.includes('does not exist') || message.includes('could not find')) &&
+                    (message.includes('employment_status') ||
+                        message.includes('position') ||
+                        message.includes('team') ||
+                        message.includes('branch'));
 
                 try {
-                    if (!missingBranchColumn) {
+                    if (missingExtra) {
                         const { data: uData, error: uError } = await supabase
                             .from('users')
                             .select('name, department, branch')
-                            .not('name', 'is', null)
-                            .order('name', { ascending: true });
-                        if (uError) throw uError;
-                        usersRows = uData || [];
-                    } else if (!missingChiNhanhColumn) {
-                        const { data: uData, error: uError } = await supabase
-                            .from('users')
-                            .select('name, department, chi_nhanh')
                             .not('name', 'is', null)
                             .order('name', { ascending: true });
                         if (uError) throw uError;
@@ -235,16 +240,38 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             }
 
             (usersRows || []).forEach((member) => {
-                if (!isBoPhanVanDon(member?.department)) return;
-
                 const name = String(member?.name || '').trim();
                 if (!name) return;
+                // Ưu tiên employment_status = «Nghỉ việc»
+                if (
+                    isUserNghiViecStatus(
+                        member?.employment_status,
+                        member?.department,
+                        member?.position,
+                        member?.team
+                    )
+                ) {
+                    nghiViecNameKeys.add(nameKey(name));
+                    nghiViecNameKeys.add(normalizeForSearch(name));
+                    return;
+                }
+                if (!isBoPhanVanDon(member?.department)) return;
 
                 staffNamesSet.add(name);
 
                 const branch = String(member?.branch || member?.chi_nhanh || '').trim();
                 if (branch && !staffBranchMap[name]) staffBranchMap[name] = branch;
             });
+
+            // Bỏ tên đã nghỉ / Nghỉ việc (kể cả khi còn trên human_resources)
+            for (const n of [...staffNamesSet]) {
+                const k1 = nameKey(n);
+                const k2 = normalizeForSearch(n);
+                if (nghiViecNameKeys.has(k1) || nghiViecNameKeys.has(k2)) {
+                    staffNamesSet.delete(n);
+                    delete staffBranchMap[n];
+                }
+            }
 
             const staffNames = [...staffNamesSet].filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
 
@@ -323,13 +350,37 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             try {
                 const { data: uRows, error: uErr } = await supabase
                     .from('users')
-                    .select('id, name, can_day_ffm')
+                    .select('id, name, can_day_ffm, department, position, team, employment_status')
                     .not('name', 'is', null);
                 if (uErr) throw uErr;
                 usersForFfmLookup = uRows || [];
             } catch (e) {
-                console.warn('[DanhSachVanDon] Không load được users cho Đẩy FFM:', e);
-                usersForFfmLookup = [];
+                // Fallback nếu thiếu cột trạng thái
+                try {
+                    const { data: uRows, error: uErr } = await supabase
+                        .from('users')
+                        .select('id, name, can_day_ffm, department, position, team')
+                        .not('name', 'is', null);
+                    if (uErr) throw uErr;
+                    usersForFfmLookup = uRows || [];
+                } catch (e2) {
+                    console.warn('[DanhSachVanDon] Không load được users cho Đẩy FFM:', e2);
+                    usersForFfmLookup = [];
+                }
+            }
+
+            // Ẩn nhân sự có trạng thái «Nghỉ việc» (users.employment_status) — khớp tên linh hoạt
+            if (usersForFfmLookup.length > 0) {
+                filteredRecords = filteredRecords.filter((record) => {
+                    const matchedUser = resolveUserForHoVaTen(record?.ho_va_ten, usersForFfmLookup);
+                    if (!matchedUser) return true;
+                    return !isUserNghiViecStatus(
+                        matchedUser.employment_status,
+                        matchedUser.department,
+                        matchedUser.position,
+                        matchedUser.team
+                    );
+                });
             }
 
             // Auto-count orders for each staff member and parse nguoi_sua_ho, nguoi_day_ffm

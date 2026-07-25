@@ -136,43 +136,8 @@ function normalizeSearchTextForDb(raw) {
     .slice(0, 120);
 }
 
-/** Tách nhiều mã (xuống dòng / dấu phẩy / chấm phẩy / tab / khoảng trắng). */
-function parseDanhSachDonSearchTokens(raw) {
-  return String(raw ?? '')
-    .split(/[\s,;|]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function sanitizeSearchTokenForDb(raw) {
-  return String(raw ?? '')
-    .trim()
-    .replace(/[(),%*]/g, '')
-    .slice(0, 80);
-}
-
-/**
- * 1 từ khóa (≥2 ký tự): tìm rộng (mã, KH, NV, …).
- * ≥2 token: tìm theo nhiều mã đơn / tracking (OR).
- */
 function applyDanhSachDonSearchFilter(query, rawSearchText) {
-  const tokens = parseDanhSachDonSearchTokens(rawSearchText)
-    .map(sanitizeSearchTokenForDb)
-    .filter((t) => t.length >= 2);
-
-  if (tokens.length === 0) return query;
-
-  if (tokens.length >= 2) {
-    const orParts = tokens.flatMap((t) => [
-      `order_code.ilike.%${t}%`,
-      `tracking_code.ilike.%${t}%`,
-    ]);
-    // PostgREST giới hạn độ dài URL — cắt bớt nếu dán quá nhiều mã
-    const capped = orParts.slice(0, 200);
-    return query.or(capped.join(','));
-  }
-
-  const search = normalizeSearchTextForDb(tokens[0]);
+  const search = normalizeSearchTextForDb(rawSearchText);
   if (search.length < 2) return query;
 
   const pattern = `%${search}%`;
@@ -3127,60 +3092,27 @@ function DanhSachDon({ dataSource = 'default' }) {
       console.log('ℹ️ Không có selectedPersonnel, hiển thị tất cả đơn hàng');
     }
 
-    // Search filter — 1 từ khóa: tìm rộng; ≥2 token: nhiều mã đơn / tracking
+    // Search filter (using debounced value) - Tìm kiếm toàn diện thông tin khách hàng và nhân viên
     if (debouncedSearchText) {
-      const tokens = parseDanhSachDonSearchTokens(debouncedSearchText).map((t) => t.toLowerCase());
-      if (tokens.length >= 2) {
-        data = data.filter((row) => {
-          const orderCode = String(row['Mã đơn hàng'] || '').toLowerCase();
-          const tracking = String(row['Mã Tracking'] || '').toLowerCase();
-          return tokens.some((t) => orderCode.includes(t) || tracking.includes(t));
-        });
-      } else if (tokens.length === 1) {
-        const searchLower = tokens[0];
-        data = data.filter((row) => {
-          return (
-            String(row['Mã đơn hàng'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Mã Tracking'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Name*'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Phone*'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Địa chỉ'] || row['Add'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Thành phố'] || row['City'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Tỉnh/Bang'] || row['State'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Mã bưu điện'] || row['Zipcode'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Khu vực'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            rowDisplayMktStaff(row).toLowerCase().includes(searchLower) ||
-            rowDisplaySaleStaff(row).toLowerCase().includes(searchLower) ||
-            String(row['CSKH'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['NV Vận đơn'] || '')
-              .toLowerCase()
-              .includes(searchLower) ||
-            String(row['Team'] || '')
-              .toLowerCase()
-              .includes(searchLower)
-          );
-        });
-      }
+      const searchLower = debouncedSearchText.toLowerCase();
+      data = data.filter((row) => {
+        return (
+          String(row['Mã đơn hàng'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Mã Tracking'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Name*'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Phone*'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Địa chỉ'] || row['Add'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Thành phố'] || row['City'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Tỉnh/Bang'] || row['State'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Mã bưu điện'] || row['Zipcode'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Khu vực'] || '').toLowerCase().includes(searchLower) ||
+          rowDisplayMktStaff(row).toLowerCase().includes(searchLower) ||
+          rowDisplaySaleStaff(row).toLowerCase().includes(searchLower) ||
+          String(row['CSKH'] || '').toLowerCase().includes(searchLower) ||
+          String(row['NV Vận đơn'] || '').toLowerCase().includes(searchLower) ||
+          String(row['Team'] || '').toLowerCase().includes(searchLower)
+        );
+      });
     }
 
     // Date Range Filter (áp dụng cho cả view thường và HCM)
@@ -3882,18 +3814,17 @@ function DanhSachDon({ dataSource = 'default' }) {
         {/* Filters */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <div className="flex flex-wrap items-end gap-4">
-            {/* Search — hỗ trợ dán nhiều mã đơn */}
+            {/* Search */}
             <div className="flex-1 min-w-[200px]">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tìm kiếm</label>
               <div className="relative">
-                <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
-                <textarea
-                  rows={2}
-                  placeholder="1 từ khóa: mã/tên/SĐT… — hoặc dán nhiều mã đơn (xuống dòng / dấu phẩy)"
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] resize-y min-h-[42px]"
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm kiếm: mã đơn, tên KH, tên NV, SĐT, địa chỉ, tracking..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
-                  title="Dán nhiều mã đơn: mỗi dòng một mã, hoặc cách nhau bằng dấu phẩy / khoảng trắng"
                 />
               </div>
             </div>
