@@ -4,17 +4,24 @@
 <head>
   <meta charset="UTF-8">
   <title>Báo cáo chi phí tổng hợp</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet">
   <style>
     /* --- CÀI ĐẶT CHUNG & TABS --- */
+    *,
+    *::before,
+    *::after,
+    button,
+    input,
+    select,
+    textarea {
+      font-family: "Times New Roman", Times, serif;
+    }
+
     body {
-      font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+      font-family: "Times New Roman", Times, serif;
       padding: 20px;
       background-color: #f4f4f4;
       color: #333;
-      font-size: 16px;
+      font-size: 17px;
     }
 
     .tab-container {
@@ -31,7 +38,7 @@
       cursor: pointer;
       padding: 14px 20px;
       transition: 0.3s;
-      font-size: 17px;
+      font-size: 18px;
       font-weight: 500;
       border-radius: 8px 8px 0 0;
       margin-right: 5px;
@@ -86,12 +93,12 @@
       white-space: nowrap;
       vertical-align: middle;
       transition: background-color 0.2s;
-      font-size: 15px;
+      font-size: 16px;
     }
 
     th {
       text-align: center !important;
-      font-size: 16px;
+      font-size: 17px;
     }
 
     td {
@@ -203,13 +210,13 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
-      font-size: 13px;
+      font-size: 14px;
       color: #37474f;
     }
 
     .alert-filter-field > span {
       font-weight: 600;
-      font-size: 12px;
+      font-size: 13px;
     }
 
     .alert-check-panel {
@@ -224,7 +231,7 @@
       border: 1px solid #cfd8dc;
       border-radius: 6px;
       background: #fff;
-      font-size: 13px;
+      font-size: 14px;
       user-select: none;
     }
 
@@ -256,7 +263,7 @@
       align-items: center;
       gap: 8px;
       padding: 4px 2px;
-      font-size: 13px;
+      font-size: 14px;
       cursor: pointer;
     }
 
@@ -274,7 +281,7 @@
       color: #1b5e20;
       border-radius: 4px;
       padding: 3px 8px;
-      font-size: 12px;
+      font-size: 13px;
       cursor: pointer;
     }
 
@@ -291,7 +298,7 @@
       gap: 6px;
       padding: 6px 12px;
       border-radius: 8px;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
       background: #eef7ee;
       color: #1b4b1b;
@@ -314,7 +321,7 @@
       gap: 5px;
       padding: 3px 10px;
       border-radius: 999px;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
     }
 
@@ -335,7 +342,7 @@
 
     .alert-tab-hint {
       color: #607d8b;
-      font-size: 13px;
+      font-size: 14px;
       margin: 8px 0 14px;
     }
 
@@ -348,7 +355,7 @@
       display: inline-block;
       padding: 2px 10px;
       border-radius: 999px;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 700;
       white-space: nowrap;
     }
@@ -365,6 +372,11 @@
 
     .alert-badge.info {
       background: #2196F3;
+      color: #fff;
+    }
+
+    .alert-badge.normal {
+      background: #4CAF50;
       color: #fff;
     }
 
@@ -393,7 +405,7 @@
       word-break: break-word;
       margin-bottom: 6px;
       color: #37474f;
-      font-size: 13px;
+      font-size: 14px;
     }
 
     .alert-note-input {
@@ -404,7 +416,7 @@
       border-radius: 6px;
       padding: 6px 8px;
       font: inherit;
-      font-size: 13px;
+      font-size: 14px;
       resize: vertical;
     }
 
@@ -418,7 +430,7 @@
       border: none;
       border-radius: 6px;
       padding: 4px 10px;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
@@ -461,11 +473,49 @@
       border-radius: 999px;
       background: #F44336;
       color: #fff;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       line-height: 18px;
       text-align: center;
       vertical-align: middle;
+    }
+
+    /* Chữ tab Cảnh báo lớn, dễ đọc hơn. */
+    #AlertReport .alert-tab-head h2 {
+      font-size: 27px;
+    }
+
+    #AlertReport .alert-filter-field,
+    #AlertReport .alert-filter-field > span,
+    #AlertReport .alert-tab-filters select,
+    #AlertReport .alert-tab-filters input[type="date"],
+    #AlertReport .alert-check-panel summary,
+    #AlertReport .alert-check-dropdown label,
+    #AlertReport .alert-check-dropdown .alert-check-actions button {
+      font-size: 17px;
+    }
+
+    #AlertReport .alert-tab-hint,
+    #AlertReport .alert-metric-pill,
+    #AlertReport .alert-count-pill {
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    #AlertReport #alert-table th {
+      font-size: 19px;
+      line-height: 1.3;
+    }
+
+    #AlertReport #alert-table td {
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    #AlertReport .alert-badge,
+    #AlertReport .alert-note-btn,
+    #AlertReport .alert-note-input {
+      font-size: 17px;
     }
 
     /* --- STYLES CHO TABS & LAYOUT CHUNG --- */
@@ -488,7 +538,7 @@
       color: #fff;
       padding: 10px;
       margin-top: 10px;
-      font-size: 18px;
+      font-size: 19px;
       border-radius: 4px;
       font-weight: 700;
     }
@@ -496,7 +546,7 @@
     .sidebar label {
       display: block;
       margin: 8px 0;
-      font-size: 15px;
+      font-size: 16px;
       cursor: pointer;
     }
 
@@ -512,7 +562,7 @@
       margin: 4px 0 10px;
       border: 1px solid #ccc;
       border-radius: 4px;
-      font-size: 15px;
+      font-size: 16px;
     }
 
     .mkt-giua-ca-manual-hint {
@@ -521,7 +571,7 @@
       background: #fff8e6;
       border: 1px solid #f0d78c;
       border-radius: 6px;
-      font-size: 13px;
+      font-size: 14px;
       color: #6b4e00;
     }
 
@@ -546,7 +596,7 @@
       margin: 0;
       color: #2d7c2d;
       font-weight: 700;
-      font-size: 28px;
+      font-size: 29px;
     }
 
     /* --- CHỈ BÁO ĐANG TẢI --- */
@@ -612,7 +662,7 @@
       padding: 12px;
       border: 1px solid #ccc;
       border-radius: 4px;
-      font-size: 18px;
+      font-size: 19px;
       font-weight: 700;
     }
 
@@ -627,7 +677,7 @@
     }
 
     #MarketReport .report-title {
-      font-size: 22px;
+      font-size: 23px;
       font-weight: 700;
       color: #333;
       margin-bottom: 5px;
@@ -635,7 +685,7 @@
 
     #MarketReport .report-date {
       color: #555;
-      font-size: 16px;
+      font-size: 17px;
     }
 
     #MarketReport .filter-container {
@@ -659,7 +709,7 @@
     #MarketReport label {
       font-weight: 500;
       color: #333;
-      font-size: 14px;
+      font-size: 15px;
     }
 
     #MarketReport input[type="date"],
@@ -669,13 +719,93 @@
       border-radius: 4px;
       font-family: inherit;
       background-color: #fff;
-      font-size: 14px;
+      font-size: 15px;
     }
 
     #MarketReport select[multiple] {
       min-width: 120px;
       height: 100px;
       padding: 5px;
+    }
+
+    #MarketReport select.mkt-filter-native {
+      display: none;
+    }
+
+    .mkt-check-filter {
+      position: relative;
+      min-width: 170px;
+    }
+
+    .mkt-check-filter > summary {
+      list-style: none;
+      min-height: 38px;
+      box-sizing: border-box;
+      padding: 8px 32px 8px 11px;
+      border: 1px solid #cfd8dc;
+      border-radius: 5px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 16px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      position: relative;
+    }
+
+    .mkt-check-filter > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .mkt-check-filter > summary::after {
+      content: "▾";
+      position: absolute;
+      right: 11px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .mkt-check-filter[open] > summary {
+      border-color: #2d7c2d;
+      box-shadow: 0 0 0 2px rgba(45, 124, 45, 0.12);
+    }
+
+    .mkt-check-dropdown {
+      position: absolute;
+      z-index: 80;
+      top: calc(100% + 5px);
+      left: 0;
+      min-width: 240px;
+      max-height: 320px;
+      overflow: auto;
+      padding: 8px;
+      background: #fff;
+      border: 1px solid #cfd8dc;
+      border-radius: 7px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+    }
+
+    .mkt-check-dropdown label {
+      display: flex !important;
+      align-items: center;
+      gap: 8px;
+      margin: 0 !important;
+      padding: 6px 5px;
+      cursor: pointer;
+      font-size: 16px !important;
+    }
+
+    .mkt-check-dropdown label:first-child {
+      font-weight: 700 !important;
+      border-bottom: 1px solid #e5e7eb;
+      margin-bottom: 4px !important;
+    }
+
+    .mkt-check-dropdown input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      accent-color: #2d7c2d;
+      flex: 0 0 auto;
     }
 
     #MarketReport button#apply-filter-mkt {
@@ -696,6 +826,20 @@
     #MarketReport th {
       background-color: #4CAF50;
       color: white;
+      font-size: 19px;
+      line-height: 1.25;
+    }
+
+    #MarketReport td {
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    #MarketReport .total-row td,
+    #MarketReport .highlight td,
+    #MarketReport td[rowspan] {
+      font-size: 18px;
+      font-weight: 700;
     }
 
     #MarketReport .highlight {
@@ -704,7 +848,7 @@
     }
 
     #MarketReport .section-title {
-      font-size: 20px;
+      font-size: 21px;
       font-weight: 600;
       color: #1b4b1b;
       margin: 25px 0 15px 0;
@@ -762,7 +906,7 @@
       border: none;
       border-radius: 8px;
       padding: 10px 18px;
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 600;
       cursor: pointer;
     }
@@ -774,12 +918,13 @@
     .daily-breakdown-hint {
       color: #666;
       margin-bottom: 8px;
-      font-size: 14px;
+      font-size: 15px;
     }
 
     .mkt-staff-link {
       color: #1565c0;
       font-weight: 600;
+      font-family: "Times New Roman", Times, serif;
       cursor: pointer;
       text-decoration: underline;
       text-underline-offset: 2px;
@@ -843,7 +988,7 @@
 
     #mkt-staff-detail-modal .mkt-staff-detail-sub {
       margin: 4px 0 0;
-      font-size: 14px;
+      font-size: 15px;
       color: #555;
     }
 
@@ -855,7 +1000,7 @@
       width: 36px;
       height: 36px;
       border-radius: 6px;
-      font-size: 20px;
+      font-size: 21px;
       line-height: 1;
       cursor: pointer;
     }
@@ -867,7 +1012,7 @@
     #mkt-staff-detail-modal table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 14px;
+      font-size: 15px;
     }
 
     #mkt-staff-detail-modal th,
@@ -1148,14 +1293,22 @@
       </div>
       <div class="filter-group"> <label for="end-date-mkt">Đến ngày:</label> <input type="date" id="end-date-mkt">
       </div>
-      <div class="filter-group"> <label for="team-filter-mkt">Team:</label> <select id="team-filter-mkt"
-          multiple></select> </div>
-      <div class="filter-group"> <label for="ca-filter-mkt">Ca:</label> <select id="ca-filter-mkt" multiple></select>
+      <div class="filter-group"><label>Team:</label>
+        <select id="team-filter-mkt" class="mkt-filter-native" multiple></select>
+        <details class="mkt-check-filter" data-mkt-select="team-filter-mkt"><summary>Tất cả</summary><div class="mkt-check-dropdown"></div></details>
       </div>
-      <div class="filter-group"> <label for="market-filter-mkt">Thị trường:</label> <select id="market-filter-mkt"
-          multiple></select> </div>
-      <div class="filter-group"> <label for="product-filter-mkt">Sản phẩm:</label> <select id="product-filter-mkt"
-          multiple></select> </div>
+      <div class="filter-group"><label>Ca:</label>
+        <select id="ca-filter-mkt" class="mkt-filter-native" multiple></select>
+        <details class="mkt-check-filter" data-mkt-select="ca-filter-mkt"><summary>Tất cả</summary><div class="mkt-check-dropdown"></div></details>
+      </div>
+      <div class="filter-group"><label>Thị trường:</label>
+        <select id="market-filter-mkt" class="mkt-filter-native" multiple></select>
+        <details class="mkt-check-filter" data-mkt-select="market-filter-mkt"><summary>Tất cả</summary><div class="mkt-check-dropdown"></div></details>
+      </div>
+      <div class="filter-group"><label>Sản phẩm:</label>
+        <select id="product-filter-mkt" class="mkt-filter-native" multiple></select>
+        <details class="mkt-check-filter" data-mkt-select="product-filter-mkt"><summary>Tất cả</summary><div class="mkt-check-dropdown"></div></details>
+      </div>
       <button id="apply-filter-mkt">Áp dụng</button>
     </div>
 
@@ -1270,13 +1423,13 @@
               <option value="all">Tất cả</option>
               <option value="critical">Nghiêm trọng</option>
               <option value="warning">Cảnh báo</option>
-              <option value="info">Thông tin</option>
+              <option value="normal">Không cảnh báo</option>
             </select>
           </label>
           <div class="alert-filter-field">
-            <span>Nội dung cảnh báo</span>
+            <span>Tiêu chí cảnh báo</span>
             <details class="alert-check-panel" id="alert-content-panel">
-              <summary id="alert-content-summary">Tất cả nội dung</summary>
+              <summary id="alert-content-summary">Tất cả tiêu chí</summary>
               <div class="alert-check-dropdown">
                 <div class="alert-check-actions">
                   <button type="button" data-alert-content-all="1">Chọn tất cả</button>
@@ -1303,24 +1456,24 @@
         </div>
       </div>
       <div id="alert-metric-counts" class="alert-metric-counts"></div>
-      <p class="alert-tab-hint">Danh sách cảnh báo được tổng hợp từ dữ liệu đang hiển thị ở tab «Báo cáo chi tiết» (theo bộ lọc hiện tại). Bộ đếm Doanh số / CPQC tính theo từng nhân sự (không cộng trùng khi 1 người có nhiều cảnh báo).</p>
+      <p class="alert-tab-hint">Cảnh báo được tính chi tiết theo từng ngày, nhân sự, sản phẩm và thị trường trong bộ lọc của tab «Báo cáo chi tiết».</p>
       <div class="table-responsive-container">
         <table id="alert-table" class="sortable-table">
           <thead>
             <tr>
               <th>Ngày</th>
               <th>Nhân sự</th>
-              <th>Nhóm</th>
+              <th>Tiêu chí</th>
+              <th>Giá trị</th>
+              <th>STT</th>
+              <th>Sản phẩm</th>
+              <th>Thị trường</th>
               <th>Mức độ</th>
-              <th>Nội dung cảnh báo</th>
-              <th>Nguyên nhân / Ngưỡng</th>
-              <th>Doanh số</th>
-              <th>CPQC</th>
               <th>Giải trình</th>
             </tr>
           </thead>
           <tbody id="alert-table-body">
-            <tr><td colspan="9" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo chi tiết» để tải dữ liệu.</td></tr>
+            <tr><td colspan="9" class="alert-empty">Chưa có dữ liệu. Hãy mở tab «Báo cáo chi tiết» để tải dữ liệu.</td></tr>
           </tbody>
         </table>
       </div>
@@ -2873,6 +3026,10 @@
       const container = target.closest('.tab-content');
       if (!container) return;
 
+      if (target.matches('input.mkt-filter-checkbox')) {
+        syncMktCheckFilterChange(target);
+      }
+
       if (target.matches('select[id^="quick-date"]')) {
         handleQuickDateChange(e);
         return;
@@ -2964,11 +3121,11 @@
 
       let selectedProducts, selectedMarkets, selectedCas, selectedTeams;
       if (isMktTab) {
-        selectedProducts = Array.from(document.getElementById('product-filter-mkt').selectedOptions).map(opt => opt.value);
-        selectedMarkets = Array.from(document.getElementById('market-filter-mkt').selectedOptions).map(opt => opt.value);
+        selectedProducts = getMktSelectedFilterValues('product-filter-mkt');
+        selectedMarkets = getMktSelectedFilterValues('market-filter-mkt');
         // THÊM BỘ LỌC TEAM VÀ CA CHO TAB MKT
-        selectedTeams = Array.from(document.getElementById('team-filter-mkt').selectedOptions).map(opt => opt.value);
-        selectedCas = Array.from(document.getElementById('ca-filter-mkt').selectedOptions).map(opt => opt.value);
+        selectedTeams = getMktSelectedFilterValues('team-filter-mkt');
+        selectedCas = getMktSelectedFilterValues('ca-filter-mkt');
       } else {
         const getSelected = (type) => {
           const allCheckbox = document.getElementById(`${type}-all-${tabPrefix}`);
@@ -3202,10 +3359,10 @@
           const pd = s.don ? s.cpqc / s.don : 0;
           const pc = s.chot ? s.cpqc / s.chot : 0;
           const pdt = s.don ? s.chot / s.don : 0;
-          const rateClass = rate > 0.1 ? 'bg-green' : rate > 0.05 ? 'bg-yellow' : '';
-          const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : rateThucTe > 0.05 ? 'bg-yellow' : '';
+          const rateClass = getClosingRateCellStyle(rate);
+          const rateThucTeClass = getClosingRateCellStyle(rateThucTe);
           const cpsClass = getCpsCellStyle(pd, selectedMarkets);
-          const cpdsClass = pc > 0.33 ? 'bg-yellow' : '';
+          const cpdsClass = getCpdsCellStyle(pc);
           return `
             <td>${formatNumber(s.mess)}</td>
             <td>${formatCurrency(s.cpqc)}</td>
@@ -3299,8 +3456,62 @@
       const el = document.getElementById(id);
       if (!el || !el.options || el.options.length === 0) return { all: true, selected: null };
       const selected = Array.from(el.selectedOptions).map((o) => o.value);
-      const all = selected.length === 0 || selected.length >= el.options.length;
+      const all = selected.length >= el.options.length;
       return { all, selected: all ? null : selected };
+    }
+
+    function updateMktCheckFilterSummary(details) {
+      if (!details) return;
+      const checks = [...details.querySelectorAll('input.mkt-filter-checkbox:not([data-all])')];
+      const checked = checks.filter((cb) => cb.checked);
+      const allCheck = details.querySelector('input.mkt-filter-checkbox[data-all]');
+      if (allCheck) {
+        allCheck.checked = checks.length > 0 && checked.length === checks.length;
+        allCheck.indeterminate = checked.length > 0 && checked.length < checks.length;
+      }
+      const summary = details.querySelector('summary');
+      if (!summary) return;
+      if (!checks.length || checked.length === checks.length) summary.textContent = 'Tất cả';
+      else if (checked.length === 0) summary.textContent = 'Chưa chọn';
+      else if (checked.length === 1) summary.textContent = checked[0].dataset.label || checked[0].value;
+      else summary.textContent = `Đã chọn ${checked.length}`;
+    }
+
+    function renderMktCheckFilter(selectId) {
+      const select = document.getElementById(selectId);
+      const details = document.querySelector(`.mkt-check-filter[data-mkt-select="${selectId}"]`);
+      const dropdown = details?.querySelector('.mkt-check-dropdown');
+      if (!select || !details || !dropdown) return;
+      const options = [...select.options];
+      dropdown.innerHTML =
+        `<label><input type="checkbox" class="mkt-filter-checkbox" data-all="1"> Tất cả</label>` +
+        options.map((option) =>
+          `<label><input type="checkbox" class="mkt-filter-checkbox" value="${escapeFilterAttr(option.value)}" data-label="${escapeFilterAttr(option.textContent)}"${option.selected ? ' checked' : ''}> ${escapeFilterAttr(option.textContent)}</label>`
+        ).join('');
+      updateMktCheckFilterSummary(details);
+    }
+
+    function syncMktCheckFilterChange(target) {
+      const details = target?.closest('.mkt-check-filter');
+      if (!details || !target.matches('input.mkt-filter-checkbox')) return false;
+      const select = document.getElementById(details.dataset.mktSelect || '');
+      if (!select) return false;
+      const itemChecks = [...details.querySelectorAll('input.mkt-filter-checkbox:not([data-all])')];
+      if (target.dataset.all) {
+        itemChecks.forEach((cb) => { cb.checked = target.checked; });
+      }
+      const checkedValues = new Set(itemChecks.filter((cb) => cb.checked).map((cb) => cb.value));
+      [...select.options].forEach((option) => { option.selected = checkedValues.has(option.value); });
+      updateMktCheckFilterSummary(details);
+      return true;
+    }
+
+    function getMktSelectedFilterValues(selectId) {
+      const select = document.getElementById(selectId);
+      if (!select) return [];
+      const selected = [...select.selectedOptions].map((option) => option.value);
+      if (select.options.length > 0 && selected.length === 0) return ['__NONE__'];
+      return selected;
     }
 
     function captureAllMktFilterStates() {
@@ -3362,10 +3573,12 @@
       if (!el || !typeState || !el.options || el.options.length === 0) return;
       if (typeState.all || typeState.selected == null) {
         Array.from(el.options).forEach((o) => { o.selected = true; });
+        renderMktCheckFilter(id);
         return;
       }
       const wanted = new Set(typeState.selected || []);
       Array.from(el.options).forEach((o) => { o.selected = wanted.has(o.value); });
+      renderMktCheckFilter(id);
     }
 
     function restoreAllMktFilterStates(saved) {
@@ -3527,6 +3740,8 @@
         cas,
         mktState ? mktState.ca : null
       );
+      ['team-filter-mkt', 'ca-filter-mkt', 'market-filter-mkt', 'product-filter-mkt']
+        .forEach(renderMktCheckFilter);
     }
 
     // =================================================================================
@@ -3910,13 +4125,16 @@
       const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, detailTotals, { hideTtColumns });
       document.getElementById('summary-body').innerHTML = (footHtml || '') + bodyHtml;
       document.getElementById('summary-foot').innerHTML = '';
+      const detailedAlerts = buildMktDetailedAlerts(getFilteredData('tab1'));
+      safePostMktAlerts(detailedAlerts.filter((a) => a.severity !== 'normal'));
+      setLocalMktAlerts(detailedAlerts);
     }
 
     function renderKpiSummary(dataList) {
       let total = { cpqc: 0, dsChot: 0, soDonHuy: 0, doanhSoHuy: 0, dsSauShip: 0, dsThanhCong: 0, kpis: 0, dsChotThucTe: 0, soDonHuyThucTe: 0, dsHoanHuyThucTe: 0, dsSauHoanHuyThucTe: 0, dsThanhCongThucTe: 0 };
       const bodyRowsHtml = dataList.map((s, i) => {
         Object.keys(total).forEach(key => total[key] += s[key] || 0);
-        const cpds = s.dsSauShip ? s.cpqc / s.dsSauShip : 0, kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0, cpdsClass = cpds > 0.33 ? 'bg-yellow' : '';
+        const cpds = s.dsSauShip ? s.cpqc / s.dsSauShip : 0, kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0, cpdsClass = getCpdsCellStyle(cpds);
         return `<tr>
                 <td class="text-center">${i + 1}</td>
                 <td class="text-left">${s.team}</td>
@@ -3940,7 +4158,7 @@
             <td class="total-value">${formatNumber(total.soDonHuyThucTe)}</td>
             <td class="total-value">${formatCurrency(total.dsHoanHuyThucTe)}</td>
             <td class="total-value">${formatCurrency(total.dsThanhCongThucTe)}</td>
-            <td class="total-value">${formatPercent(totalCpds)}</td>
+            <td class="total-value ${getCpdsCellStyle(totalCpds)}">${formatPercent(totalCpds)}</td>
             <td class="total-value">${formatPercent(totalKpiP)}</td>
         </tr>`;
       document.getElementById('kpi-summary-body').innerHTML = totalRowHtml + bodyRowsHtml;
@@ -4015,7 +4233,9 @@
       const avgOrderValue = data.soDonThucTe ? data.dsChotThucTe / data.soDonThucTe : 0;
       const closingRateThucTe = data.soMessCmt ? data.soDonThucTe / data.soMessCmt : 0;
 
-      const rateThucTeClass = closingRateThucTe > 0.1 ? 'bg-green' : (closingRateThucTe > 0.05 ? 'bg-yellow' : '');
+      const rateThucTeClass = getClosingRateCellStyle(closingRateThucTe);
+      const cpdsClass = getCpdsCellStyle(costPercent);
+      const cpsClass = getCpsCellStyle(cps, showMarket && marketName && marketName !== 'Tổng' ? [marketName] : []);
       const isTotalRow = className.includes('total-row');
       const productRowSpan = opts.productRowSpan;
       let productCell;
@@ -4043,8 +4263,8 @@
             <td>${formatCurrency(data.dsChotThucTe)}</td>
             <td>${formatCurrency(data.dsHoanHuyThucTe)}</td>
             <td>${formatCurrency(dsSauHoanHuyThucTe)}</td>
-            <td class="text-center">${formatPercent(costPercent)}</td>
-            <td>${formatCurrency(cps)}</td>
+            <td class="text-center ${cpdsClass}">${formatPercent(costPercent)}</td>
+            <td class="${cpsClass}">${formatCurrency(cps)}</td>
             <td>${formatCurrency(avgOrderValue)}</td>
             <td class="text-center ${rateThucTeClass}">${formatPercent(closingRateThucTe)}</td>
         </tr>`;
@@ -4143,10 +4363,10 @@
         const pd = s.don ? s.cpqc / s.don : 0;
         const pc = s.chot ? s.cpqc / s.chot : 0;
         const pdt = s.don ? s.chot / s.don : 0;
-        const rateClass = rate > 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : '');
-        const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : '');
-        const cpsClass = getCpsCellStyle(pd, selectedMarkets);
-        const cpdsClass = pc > 0.33 ? 'bg-yellow' : '';
+          const rateClass = getClosingRateCellStyle(rate);
+          const rateThucTeClass = getClosingRateCellStyle(rateThucTe);
+          const cpsClass = getCpsCellStyle(pd, selectedMarkets);
+          const cpdsClass = getCpdsCellStyle(pc);
         return `<tr>
                 <td class="text-center">${index + 1}</td>
                 <td class="text-left">${escapeHtml(s.team)}</td>
@@ -4179,24 +4399,13 @@
             ${hideTtColumns ? '' : `<td class="total-value">${formatNumber(total.donThucTe)}</td>`}
             <td class="total-value">${formatCurrency(total.chot)}</td>
             ${hideTtColumns ? '' : `<td class="total-value">${formatCurrency(total.chotThucTe)}</td>`}
-            <td class="total-value">${formatPercent(tRate)}</td>
-            ${hideTtColumns ? '' : `<td class="total-value">${formatPercent(tRateThucTe)}</td>`}
+            <td class="total-value ${getClosingRateCellStyle(tRate)}">${formatPercent(tRate)}</td>
+            ${hideTtColumns ? '' : `<td class="total-value ${getClosingRateCellStyle(tRateThucTe)}">${formatPercent(tRateThucTe)}</td>`}
             <td class="total-value">${formatCurrency(tPm)}</td>
-            <td class="total-value">${formatCurrency(tPd)}</td>
-            <td class="total-value">${formatPercent(tPc)}</td>
+            <td class="total-value ${getCpsCellStyle(tPd, selectedMarkets)}">${formatCurrency(tPd)}</td>
+            <td class="total-value ${getCpdsCellStyle(tPc)}">${formatPercent(tPc)}</td>
             <td class="total-value">${formatCurrency(tPdt)}</td>
         </tr>`;
-      // Phát cảnh báo KPI theo nhân sự (chỉ bảng tổng — tránh spam khi render theo ngày).
-      if (!options.skipAlerts) {
-        try {
-          const dateLabel = String(window.__LUMI_MKT_ALERT_DATE_LABEL || '').trim() || 'Tổng hợp';
-          const alerts = buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets);
-          safePostMktAlerts(alerts);
-          setLocalMktAlerts(alerts);
-        } catch {
-          // ignore
-        }
-      }
       return { bodyHtml: bodyRowsHtml, footHtml: totalRowHtml };
     }
 
@@ -4516,13 +4725,12 @@
     const ALERT_SEVERITY_META = {
       critical: { label: 'Nghiêm trọng', order: 0 },
       warning: { label: 'Cảnh báo', order: 1 },
-      info: { label: 'Thông tin', order: 2 },
+      normal: { label: 'Không cảnh báo', order: 2 },
     };
     const ALERT_CONTENT_META = {
-      ti_le_chot: { label: 'Tỉ lệ chốt' },
+      cpds: { label: 'CPQC/DS' },
       cps: { label: 'CPS' },
-      cpds: { label: '%CP/DS' },
-      gia_mess: { label: 'Giá Mess' },
+      ti_le_chot: { label: 'Tỷ lệ chốt' },
     };
 
     function ymdFromDateObj(d) {
@@ -4611,14 +4819,14 @@
       const all = [...document.querySelectorAll('#alert-content-options input.alert-content-cb')];
       const checked = all.filter((cb) => cb.checked);
       if (!all.length || checked.length === 0 || checked.length === all.length) {
-        el.textContent = 'Tất cả nội dung';
+        el.textContent = 'Tất cả tiêu chí';
         return;
       }
       if (checked.length === 1) {
         el.textContent = checked[0].dataset.label || checked[0].value;
         return;
       }
-      el.textContent = `${checked.length} nội dung`;
+      el.textContent = `${checked.length} tiêu chí`;
     }
 
     function updateAlertStaffSummaryLabel() {
@@ -4653,7 +4861,7 @@
           metricKeys.push(k);
         }
       });
-      // Luôn hiện đủ 4 loại nội dung để tick lọc
+      // Luôn hiện đủ ba tiêu chí nghiệp vụ để lọc.
       Object.keys(ALERT_CONTENT_META).forEach((k) => {
         if (!metricKeys.includes(k)) metricKeys.push(k);
       });
@@ -4721,11 +4929,11 @@
 
       const contentCbs = [...document.querySelectorAll('#alert-content-options input.alert-content-cb')];
       const contentChecked = contentCbs.filter((cb) => cb.checked).map((cb) => cb.value);
-      const contentFilterActive = contentCbs.length > 0 && contentChecked.length > 0 && contentChecked.length < contentCbs.length;
+      const contentFilterActive = contentCbs.length > 0 && contentChecked.length < contentCbs.length;
 
       const staffCbs = [...document.querySelectorAll('#alert-staff-options input.alert-staff-cb')];
       const staffChecked = new Set(staffCbs.filter((cb) => cb.checked).map((cb) => cb.value));
-      const staffFilterActive = staffCbs.length > 0 && staffChecked.size > 0 && staffChecked.size < staffCbs.length;
+      const staffFilterActive = staffCbs.length > 0 && staffChecked.size < staffCbs.length;
 
       return all
         .filter((a) => a && (severity === 'all' || a.severity === severity))
@@ -4759,7 +4967,7 @@
       if (!tbody) return;
 
       const all = Array.isArray(window.__LUMI_MKT_LOCAL_ALERTS) ? window.__LUMI_MKT_LOCAL_ALERTS : [];
-      const counts = { critical: 0, warning: 0, info: 0 };
+      const counts = { critical: 0, warning: 0, normal: 0 };
       all.forEach((a) => {
         if (a && counts[a.severity] != null) counts[a.severity] += 1;
       });
@@ -4767,18 +4975,21 @@
         countsEl.innerHTML =
           `<span class="alert-count-pill critical">● Nghiêm trọng: ${counts.critical}</span>` +
           `<span class="alert-count-pill warning">● Cảnh báo: ${counts.warning}</span>` +
-          `<span class="alert-count-pill info">● Thông tin: ${counts.info}</span>`;
+          `<span class="alert-count-pill info">● Không cảnh báo: ${counts.normal}</span>`;
       }
 
       const rows = getFilteredMktAlerts();
 
-      // Bộ đếm DS / CPQC: 1 lần / nhân sự trong kết quả lọc
-      const byStaff = new Map();
+      // Không cộng trùng ba tiêu chí của cùng một dòng ngày/SP/thị trường.
+      const byDetailRow = new Map();
+      const staffNames = new Set();
       rows.forEach((a) => {
         const name = String(a.employeeName || '').trim();
         if (!name) return;
-        if (!byStaff.has(name)) {
-          byStaff.set(name, {
+        staffNames.add(name);
+        const detailKey = [a.dateLabel, name, a.product, a.market].join('|');
+        if (!byDetailRow.has(detailKey)) {
+          byDetailRow.set(detailKey, {
             chot: Number(a.chot) || 0,
             cpqc: Number(a.cpqc) || 0,
           });
@@ -4786,21 +4997,21 @@
       });
       let sumChot = 0;
       let sumCpqc = 0;
-      byStaff.forEach((v) => {
+      byDetailRow.forEach((v) => {
         sumChot += v.chot;
         sumCpqc += v.cpqc;
       });
       if (metricEl) {
         metricEl.innerHTML =
-          `<span class="alert-metric-pill">Số cảnh báo: <strong>${formatNumber(rows.length)}</strong></span>` +
-          `<span class="alert-metric-pill">Nhân sự: <strong>${formatNumber(byStaff.size)}</strong></span>` +
+          `<span class="alert-metric-pill">Số dòng tiêu chí: <strong>${formatNumber(rows.length)}</strong></span>` +
+          `<span class="alert-metric-pill">Nhân sự: <strong>${formatNumber(staffNames.size)}</strong></span>` +
           `<span class="alert-metric-pill">Doanh số: <strong>${formatCurrency(sumChot)}</strong></span>` +
           `<span class="alert-metric-pill">CPQC: <strong>${formatCurrency(sumCpqc)}</strong></span>`;
       }
 
       if (rows.length === 0) {
         tbody.innerHTML =
-          '<tr><td colspan="9" class="alert-empty">Không có cảnh báo phù hợp bộ lọc.</td></tr>';
+          '<tr><td colspan="9" class="alert-empty">Không có dữ liệu phù hợp bộ lọc.</td></tr>';
         return;
       }
 
@@ -4812,12 +5023,12 @@
           return `<tr class="${rowCls}">
             <td>${escapeAlertHtml(a.dateLabel || '')}</td>
             <td>${escapeAlertHtml(a.employeeName || '')}</td>
-            <td>${escapeAlertHtml(a.team || '')}</td>
-            <td><span class="alert-badge ${sev}">${escapeAlertHtml(meta.label)}</span></td>
-            <td>${escapeAlertHtml(a.content || '')}</td>
-            <td>${escapeAlertHtml(a.cause || '')}</td>
-            <td>${formatCurrency(a.chot)}</td>
-            <td>${formatCurrency(a.cpqc)}</td>
+            <td>${escapeAlertHtml(ALERT_CONTENT_META[a.metricKey]?.label || a.metricKey || '')}</td>
+            <td>${escapeAlertHtml(a.displayValue || '')}</td>
+            <td class="text-center">${formatNumber(a.stt)}</td>
+            <td>${escapeAlertHtml(a.product || '')}</td>
+            <td>${escapeAlertHtml(a.market || '')}</td>
+            <td><span class="alert-badge ${sev}">${escapeAlertHtml(a.cause || meta.label)}</span></td>
             ${renderAlertNoteCell(a)}
           </tr>`;
         })
@@ -5055,6 +5266,104 @@
       });
       return alerts;
     }
+
+    function buildMktDetailedAlerts(detailRows) {
+      const groups = new Map();
+      (detailRows || []).forEach((r) => {
+        const employeeName = String(r?.ten || '').trim();
+        if (!employeeName) return;
+        const dateLabel = r?.ngay instanceof Date && !isNaN(r.ngay) ? formatDate(r.ngay) : '';
+        const product = String(r?.sanPham || 'N/A').trim() || 'N/A';
+        const market = String(r?.thiTruong || 'N/A').trim() || 'N/A';
+        const key = [dateLabel, normalizeNameForKey(employeeName), normalizeNameForKey(product), normalizeNameForKey(market)].join('|');
+        if (!groups.has(key)) {
+          groups.set(key, {
+            dateLabel,
+            reportDateMs: r?.ngay instanceof Date && !isNaN(r.ngay) ? r.ngay.getTime() : null,
+            employeeName,
+            team: String(r?.team || '').trim(),
+            product,
+            market,
+            cpqc: 0, mess: 0, don: 0, donThucTe: 0, chot: 0,
+          });
+        }
+        const g = groups.get(key);
+        g.cpqc += Number(r?.cpqc) || 0;
+        g.mess += Number(r?.soMessCmt) || 0;
+        g.don += Number(r?.soDon) || 0;
+        g.donThucTe += Number(r?.soDonThucTe) || 0;
+        g.chot += Number(r?.dsChot) || 0;
+      });
+
+      const rows = [...groups.values()].sort((a, b) =>
+        String(a.dateLabel).localeCompare(String(b.dateLabel), 'vi') ||
+        String(a.employeeName).localeCompare(String(b.employeeName), 'vi') ||
+        String(a.product).localeCompare(String(b.product), 'vi') ||
+        String(a.market).localeCompare(String(b.market), 'vi')
+      );
+      const counters = new Map();
+      const alerts = [];
+      rows.forEach((g) => {
+        const counterKey = `${g.dateLabel}|${normalizeNameForKey(g.employeeName)}`;
+        const stt = (counters.get(counterKey) || 0) + 1;
+        counters.set(counterKey, stt);
+        const orders = shouldHideSummaryTtColumns() ? g.don : g.donThucTe;
+        const cpds = g.chot > 0 ? g.cpqc / g.chot : 0;
+        const cps = orders > 0 ? g.cpqc / orders : 0;
+        const closingRate = g.mess > 0 ? orders / g.mess : 0;
+        const noSales = g.cpqc > 0 && g.chot <= 0;
+        const noOrders = g.cpqc > 0 && orders <= 0;
+        const base = {
+          dateLabel: g.dateLabel, reportDateMs: g.reportDateMs,
+          employeeName: g.employeeName, team: g.team, product: g.product,
+          market: g.market, stt, cpqc: g.cpqc, chot: g.chot, ts: Date.now(),
+        };
+
+        const cpdsSeverity = noSales || cpds > 0.5 ? 'critical' : cpds > 0.33 ? 'warning' : 'normal';
+        alerts.push({
+          ...base, id: buildAlertId([g.dateLabel, g.employeeName, g.product, g.market, 'cpds']),
+          metricKey: 'cpds', displayValue: formatPercent(cpds),
+          content: `CPQC/DS: ${formatPercent(cpds)}`,
+          cause: noSales ? 'Nghiêm trọng (chạy quảng cáo không có doanh số)' : ALERT_SEVERITY_META[cpdsSeverity].label,
+          severity: cpdsSeverity,
+        });
+
+        const cpsClass = noOrders ? 'bg-lightred' : getCpsCellStyle(cps, [g.market]);
+        const cpsSeverity = noOrders || cpsClass === 'bg-lightred' ? 'critical' : cpsClass === 'bg-yellow' ? 'warning' : 'normal';
+        alerts.push({
+          ...base, id: buildAlertId([g.dateLabel, g.employeeName, g.product, g.market, 'cps']),
+          metricKey: 'cps', displayValue: formatCurrency(cps),
+          content: `CPS: ${formatCurrency(cps)}`,
+          cause: noOrders ? 'Nghiêm trọng (chạy quảng cáo không có doanh số)' : ALERT_SEVERITY_META[cpsSeverity].label,
+          severity: cpsSeverity,
+        });
+
+        const closeSeverity = noOrders || closingRate < 0.05 ? 'critical' : closingRate < 0.1 ? 'warning' : 'normal';
+        alerts.push({
+          ...base, id: buildAlertId([g.dateLabel, g.employeeName, g.product, g.market, 'ti_le_chot']),
+          metricKey: 'ti_le_chot', displayValue: formatPercent(closingRate),
+          content: `Tỷ lệ chốt: ${formatPercent(closingRate)}`,
+          cause: noOrders ? 'Nghiêm trọng (không chốt được)' : ALERT_SEVERITY_META[closeSeverity].label,
+          severity: closeSeverity,
+        });
+      });
+      return alerts;
+    }
+
+    function getCpdsCellStyle(value) {
+      const ratio = Number(value) || 0;
+      if (ratio > 0.5) return 'bg-lightred';
+      if (ratio > 0.33) return 'bg-yellow';
+      return 'bg-green';
+    }
+
+    function getClosingRateCellStyle(value) {
+      const ratio = Number(value) || 0;
+      if (ratio < 0.05) return 'bg-lightred';
+      if (ratio < 0.1) return 'bg-yellow';
+      return 'bg-green';
+    }
+
     function getCpsCellStyle(cps, selectedMarkets) {
       const hasAsia = selectedMarkets.some(m => m === 'Châu Á' || MARKET_GROUPS['Châu Á'].includes(m));
       const hasNonAsia = selectedMarkets.some(m => m === 'Ngoài Châu Á' || MARKET_GROUPS['Ngoài Châu Á'].includes(m));

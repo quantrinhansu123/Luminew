@@ -765,13 +765,27 @@ const nextYmdDate = (ymd) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const applyFfmDateRange = (query, { dateFrom, dateTo, dateType } = {}) => {
+const applyFfmDateRange = (query, { dateFrom, dateTo, dateType, emptyDate = false } = {}) => {
     const dateColumn = FFM_DATE_COLUMN_MAPPING[dateType] || FFM_DATE_COLUMN_MAPPING['Ngày lên đơn'];
     let q = query;
-    if (dateColumn && dateFrom) q = q.gte(dateColumn, dateFrom);
-    if (dateColumn && dateTo) {
-        const nextDay = nextYmdDate(dateTo);
-        q = nextDay ? q.lt(dateColumn, nextDay) : q.lte(dateColumn, dateTo);
+    if (!dateColumn) return q;
+
+    if (emptyDate) {
+        // Các cột ngày có thể là timestamptz ở từng bảng/nhánh. Không bao giờ
+        // so sánh với chuỗi rỗng: Postgres sẽ trả 22007 trước khi lọc dữ liệu.
+        q = q.is(dateColumn, null);
+        if (dateType === 'Ngày đẩy đơn') {
+            q = q.is('time_dayon', null);
+        }
+        return q;
+    }
+
+    const from = String(dateFrom ?? '').trim();
+    const to = String(dateTo ?? '').trim();
+    if (from) q = q.gte(dateColumn, from);
+    if (to) {
+        const nextDay = nextYmdDate(to);
+        q = nextDay ? q.lt(dateColumn, nextDay) : q.lte(dateColumn, to);
     }
     return q;
 };
@@ -815,6 +829,8 @@ export const fetchFFMOrdersBatch = async ({
     dateFrom = '',
     dateTo = '',
     dateType = 'Ngày lên đơn',
+    /** true = chỉ đơn trống cột ngày theo `dateType` (bỏ khoảng Từ–Tới). */
+    emptyDate = false,
     market = ''
 } = {}) => {
     const table = String(ordersTable || 'orders').trim() || 'orders';
@@ -862,7 +878,7 @@ export const fetchFFMOrdersBatch = async ({
                       .select(selectQuery)
                       .or('shipping_unit.ilike.%MGT%,shipping_unit.ilike.%T&T%')
               ),
-              { dateFrom, dateTo, dateType }
+              { dateFrom, dateTo, dateType, emptyDate }
           )
               .order('order_date', { ascending: false })
               .range(mgtFrom, mgtFrom + pageSize - 1);
@@ -877,7 +893,7 @@ export const fetchFFMOrdersBatch = async ({
                       .not('tracking_code', 'is', null)
                       .neq('tracking_code', '')
               ),
-              { dateFrom, dateTo, dateType }
+              { dateFrom, dateTo, dateType, emptyDate }
           )
               .order('order_date', { ascending: false })
               .range(trackedFrom, trackedFrom + pageSize - 1);
@@ -976,7 +992,7 @@ export const fetchFFMOrdersByOrderCodes = async ({
 };
 
 /** Tải toàn bộ FFM (lặp batch) — ưu tiên dùng fetchFFMOrdersBatch + gộp phía UI để hiện từng lô. */
-export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', dateTo = '', dateType = 'Ngày lên đơn', market = '' } = {}) => {
+export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', dateTo = '', dateType = 'Ngày lên đơn', emptyDate = false, market = '' } = {}) => {
     const merge = new Map();
     let state = {
         mgtFrom: 0,
@@ -999,6 +1015,7 @@ export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', da
                 dateFrom,
                 dateTo,
                 dateType,
+                emptyDate,
                 market
             });
             for (const r of b.rows) {
@@ -1397,7 +1414,9 @@ export const fetchVanDon = async (options = {}) => {
         /** `co_trung` | `khong_trung` — lọc cột cảnh báo (mức SQL; gần với lưới). */
         canh_bao_filter = null,
         /**
-         * Tab «Đẩy Đơn» (hanoi): lưới chỉ giữ đơn Check=OK, chưa có ĐVVC (và NV thường: chưa có mã tracking).
+         * Tab «Đẩy Đơn» (hanoi):
+         * - `ffm_queue` / `ffm_queue_admin`: Check=OK, ĐVVC trống (mặc định hàng đợi phân FFM).
+         * - `ffm_assigned_no_push`: Check=OK, ĐVVC có giá trị, Ngày đẩy đơn (accounting_check_date) trống.
          * Không đẩy xuống SQL → phân trang + tổng tiền + count PostgREST lệch hoàn toàn với dữ liệu hiển thị (/van-don-hcm gồm).
          */
         hanoiTabSqlScope = null,
@@ -1491,6 +1510,14 @@ export const fetchVanDon = async (options = {}) => {
             }
             if (hanoiTabSqlScope === 'ffm_queue') {
                 query = query.or('tracking_code.is.null,tracking_code.eq.');
+            }
+            /** Có ĐVVC nhưng chưa có Ngày đẩy đơn (accounting_check_date). */
+            if (hanoiTabSqlScope === 'ffm_assigned_no_push') {
+                query = query.ilike('check_result', 'ok');
+                query = query.not('shipping_unit', 'is', null);
+                query = query.neq('shipping_unit', '');
+                // accounting_check_date là timestamptz: `eq.` chuỗi rỗng gây lỗi 22007.
+                query = query.is('accounting_check_date', null);
             }
 
             if (status) {

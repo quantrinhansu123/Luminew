@@ -661,6 +661,8 @@ function FFM({ variant = 'MGT' }) {
 
   const [omActiveTeam, setOmActiveTeam] = useState('all');
   const [omDateType, setOmDateType] = useState('Ngày lên đơn');
+  /** Bộ lọc «Trống ngày»: chỉ đơn không có giá trị ở cột theo Loại ngày (bỏ Từ–Tới). */
+  const [ffmEmptyDateFilter, setFfmEmptyDateFilter] = useState(false);
   const [showFilters, setShowFilters] = useState(true); // Bộ lọc mở mặc định để dễ thấy
   const [activeMarketTab, setActiveMarketTab] = useState(() => {
     const saved = localStorage.getItem(FFM_ACTIVE_MARKET_LS_KEY);
@@ -866,13 +868,19 @@ function FFM({ variant = 'MGT' }) {
       ffmDateAutoLoadReadyRef.current = true;
       return undefined;
     }
-    if (!dateFrom || !dateTo) return undefined;
+    if (!ffmEmptyDateFilter && (!dateFrom || !dateTo)) return undefined;
     const timer = setTimeout(() => {
       setCurrentPage(1);
-      void loadData({ dateFrom, dateTo, dateType: omDateType, market: resolveFfmMarketParam(activeMarketTab) });
+      void loadData({
+        dateFrom: ffmEmptyDateFilter ? '' : dateFrom,
+        dateTo: ffmEmptyDateFilter ? '' : dateTo,
+        dateType: omDateType,
+        emptyDate: ffmEmptyDateFilter,
+        market: resolveFfmMarketParam(activeMarketTab),
+      });
     }, 350);
     return () => clearTimeout(timer);
-  }, [dateFrom, dateTo, omDateType]);
+  }, [dateFrom, dateTo, omDateType, ffmEmptyDateFilter]);
 
   useEffect(() => {
     // Auto-sync data changes made from "outside" (e.g., another tab/admin) into current grid.
@@ -1115,10 +1123,12 @@ function FFM({ variant = 'MGT' }) {
   const loadData = async (dateRangeOverride = {}) => {
     ffmLoadGenRef.current += 1;
     const loadGen = ffmLoadGenRef.current;
+    const emptyDate = dateRangeOverride.emptyDate ?? ffmEmptyDateFilter;
     const ffmDateRangeArgs = {
-      dateFrom: dateRangeOverride.dateFrom ?? dateFrom,
-      dateTo: dateRangeOverride.dateTo ?? dateTo,
+      dateFrom: emptyDate ? '' : (dateRangeOverride.dateFrom ?? dateFrom),
+      dateTo: emptyDate ? '' : (dateRangeOverride.dateTo ?? dateTo),
       dateType: dateRangeOverride.dateType ?? omDateType,
+      emptyDate: emptyDate === true,
       market: resolveFfmMarketParam(dateRangeOverride.market ?? activeMarketTab),
     };
     const branchFilterForLoad = dateRangeOverride.branch ?? ffmBranchFilter;
@@ -1489,7 +1499,13 @@ function FFM({ variant = 'MGT' }) {
   const loadMoreFfmData = async () => {
     if (!ffmHasMore || loadingMore || loading || ffmBackgroundLoading) return;
     if (typeof API.fetchFFMOrdersBatch !== 'function') return;
-    const ffmDateRangeArgs = { dateFrom, dateTo, dateType: omDateType, market: resolveFfmMarketParam(activeMarketTab) };
+    const ffmDateRangeArgs = {
+      dateFrom: ffmEmptyDateFilter ? '' : dateFrom,
+      dateTo: ffmEmptyDateFilter ? '' : dateTo,
+      dateType: omDateType,
+      emptyDate: ffmEmptyDateFilter === true,
+      market: resolveFfmMarketParam(activeMarketTab),
+    };
     const sourceTablesForLoadMore = getFfmBranchSourceTables(ffmBranchFilter);
     const shouldLoadOrders = sourceTablesForLoadMore.includes(FFM_HANOI_SUPABASE_TABLE);
     const shouldLoadHcm = sourceTablesForLoadMore.includes(FFM_HCM_SUPABASE_TABLE);
@@ -1652,6 +1668,7 @@ function FFM({ variant = 'MGT' }) {
     setDateFrom(currentYearRange.from);
     setDateTo(currentYearRange.to);
     setOmDateType('Ngày lên đơn');
+    setFfmEmptyDateFilter(false);
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
     setFfmEmptyCellsQuickFilter('off');
@@ -1662,6 +1679,7 @@ function FFM({ variant = 'MGT' }) {
       dateFrom: currentYearRange.from,
       dateTo: currentYearRange.to,
       dateType: 'Ngày lên đơn',
+      emptyDate: false,
       market: resolveFfmMarketParam(activeMarketTab),
     });
   };
@@ -1820,21 +1838,25 @@ function FFM({ variant = 'MGT' }) {
       data = data.filter((row) => set.has(row['Mặt hàng']));
     }
 
-    if (dateFrom) {
-      const fromYmd = dateFrom;
-      data = data.filter((row) => {
-        const cellYmd = getOmDateYmdFromRow(row, activeDateType);
-        if (!cellYmd) return false;
-        return cellYmd >= fromYmd;
-      });
-    }
-    if (dateTo) {
-      const toYmd = dateTo;
-      data = data.filter((row) => {
-        const cellYmd = getOmDateYmdFromRow(row, activeDateType);
-        if (!cellYmd) return false;
-        return cellYmd <= toYmd;
-      });
+    if (ffmEmptyDateFilter) {
+      data = data.filter((row) => !getOmDateYmdFromRow(row, activeDateType));
+    } else {
+      if (dateFrom) {
+        const fromYmd = dateFrom;
+        data = data.filter((row) => {
+          const cellYmd = getOmDateYmdFromRow(row, activeDateType);
+          if (!cellYmd) return false;
+          return cellYmd >= fromYmd;
+        });
+      }
+      if (dateTo) {
+        const toYmd = dateTo;
+        data = data.filter((row) => {
+          const cellYmd = getOmDateYmdFromRow(row, activeDateType);
+          if (!cellYmd) return false;
+          return cellYmd <= toYmd;
+        });
+      }
     }
 
     Object.entries(fv).forEach(([key, val]) => {
@@ -1874,6 +1896,10 @@ function FFM({ variant = 'MGT' }) {
       }
 
       if (isDateColFilter) {
+        if (String(val).trim() === '__EMPTY__') {
+          data = data.filter((row) => !getOmDateYmdFromRow(row, key));
+          return;
+        }
         const filterYmd = normalizeToYmdForCompare(val);
         if (!filterYmd) return;
         data = data.filter((row) => {
@@ -2123,7 +2149,7 @@ function FFM({ variant = 'MGT' }) {
     }
 
     return data;
-  }, [omActiveTeam, omDateType, dateFrom, dateTo, ffmBranchFilter, ffmTrackingPresence, ffmEmptyCellsQuickFilter, ffmDateDiffFilter, ffmShowOnlyMarkedRows, markedRows, variant, pendingChanges]);
+  }, [omActiveTeam, omDateType, dateFrom, dateTo, ffmBranchFilter, ffmTrackingPresence, ffmEmptyCellsQuickFilter, ffmDateDiffFilter, ffmEmptyDateFilter, ffmShowOnlyMarkedRows, markedRows, variant, pendingChanges]);
 
   const getFilteredData = useMemo(() => {
     return applyFfmFilters(allData, localFilterValues);
@@ -2169,6 +2195,7 @@ function FFM({ variant = 'MGT' }) {
     setLocalFilterValues(next);
     setDateFrom('');
     setDateTo('');
+    setFfmEmptyDateFilter(false);
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
     setFfmEmptyCellsQuickFilter('off');
@@ -4417,13 +4444,35 @@ function FFM({ variant = 'MGT' }) {
       );
     }
     if (['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)) {
+          const colFilterVal = localFilterValues[filterKey] || '';
+          const isEmptyMode = colFilterVal === '__EMPTY__';
           return (
-            <input
-              type="date"
-              className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-              value={localFilterValues[filterKey] || ''}
-              onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
-            />
+            <div className="flex flex-col gap-0.5 w-full">
+              <select
+                className="w-full text-[10px] px-1 py-0.5 border rounded shadow-sm bg-white"
+                value={isEmptyMode ? '__EMPTY__' : colFilterVal ? '__DATE__' : ''}
+                onChange={(e) => {
+                  const mode = e.target.value;
+                  setLocalFilterValues((p) => ({
+                    ...p,
+                    [filterKey]: mode === '__EMPTY__' ? '__EMPTY__' : '',
+                  }));
+                }}
+                title={`Lọc cột ${col}`}
+              >
+                <option value="">Tất cả</option>
+                <option value="__EMPTY__">Trống</option>
+                <option value="__DATE__">Chọn ngày…</option>
+              </select>
+              {!isEmptyMode && (
+                <input
+                  type="date"
+                  className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+                  value={colFilterVal && colFilterVal !== '__EMPTY__' ? colFilterVal : ''}
+                  onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+                />
+              )}
+            </div>
           );
         }
     return (
@@ -4824,7 +4873,11 @@ function FFM({ variant = 'MGT' }) {
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Loại ngày</label>
-                <select className="px-2 py-1 border rounded text-xs bg-white" value={omDateType} onChange={(e) => setOmDateType(e.target.value)}>
+                <select
+                  className="px-2 py-1 border rounded text-xs bg-white"
+                  value={omDateType}
+                  onChange={(e) => setOmDateType(e.target.value)}
+                >
                   <option value="Ngày lên đơn">Ngày lên đơn</option>
                   <option value="Ngày đóng hàng">Ngày đóng hàng</option>
                   <option value="Ngày đẩy đơn">Ngày đẩy đơn</option>
@@ -4835,8 +4888,9 @@ function FFM({ variant = 'MGT' }) {
                 <label className="text-xs font-semibold text-gray-500">Từ ngày</label>
                 <input
                   type="date"
-                  className="px-2 py-1 border rounded text-xs bg-white"
+                  className="px-2 py-1 border rounded text-xs bg-white disabled:bg-gray-100 disabled:text-gray-400"
                   value={dateFrom}
+                  disabled={ffmEmptyDateFilter}
                   onChange={(e) => setDateFrom(e.target.value)}
                 />
               </div>
@@ -4844,10 +4898,37 @@ function FFM({ variant = 'MGT' }) {
                 <label className="text-xs font-semibold text-gray-500">Tới ngày</label>
                 <input
                   type="date"
-                  className="px-2 py-1 border rounded text-xs bg-white"
+                  className="px-2 py-1 border rounded text-xs bg-white disabled:bg-gray-100 disabled:text-gray-400"
                   value={dateTo}
+                  disabled={ffmEmptyDateFilter}
                   onChange={(e) => setDateTo(e.target.value)}
                 />
+              </div>
+              <div className="flex-1 flex flex-col gap-1 min-w-[130px] justify-end">
+                <label
+                  className={`flex items-center gap-1.5 px-2 py-1 border rounded text-xs cursor-pointer select-none ${
+                    ffmEmptyDateFilter
+                      ? 'bg-amber-50 border-amber-400 text-amber-900 font-semibold'
+                      : 'bg-white border-gray-300 text-gray-700'
+                  }`}
+                  title={`Chỉ hiện đơn trống cột «${omDateType}». Với đơn như FitFCdgpGJ (đã có ngày lên đơn, chưa đẩy): chọn Loại ngày = Ngày đẩy đơn rồi bật ô này.`}
+                >
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300"
+                    checked={ffmEmptyDateFilter}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setFfmEmptyDateFilter(on);
+                      // FFM: «trống ngày» thường là chưa đẩy — tránh lọc nhầm «Ngày lên đơn» (đơn vẫn có ngày lên đơn).
+                      if (on && omDateType === 'Ngày lên đơn') {
+                        setOmDateType('Ngày đẩy đơn');
+                      }
+                      setCurrentPage(1);
+                    }}
+                  />
+                  Trống «{omDateType === 'Ngày lên đơn' && !ffmEmptyDateFilter ? 'Ngày đẩy đơn' : omDateType}»
+                </label>
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Kết quả Check</label>

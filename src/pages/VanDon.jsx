@@ -124,6 +124,44 @@ function rowHasVanDonCanhBao(row) {
   return !isVanDonSemanticEmpty(v);
 }
 
+function getVanDonRowShippingUnit(row) {
+  return (
+    row?.['Đơn vị vận chuyển'] ??
+    row?.['Đơn vị Vận chuyển'] ??
+    row?.['Đơn_vị_vận_chuyển'] ??
+    row?.shipping_unit ??
+    ''
+  );
+}
+
+function getVanDonRowPushDateRaw(row) {
+  return (
+    row?.['Ngày đẩy đơn'] ??
+    row?.['Ngày Kế toán đối soát với FFM lần 2'] ??
+    row?.accounting_check_date
+  );
+}
+
+/** Tab «Đẩy đơn HN»: mặc định ĐVVC trống; nút lọc «Có ĐVVC · chưa đẩy» → ĐVVC có + Ngày đẩy trống. */
+function matchesHanoiFfmTabRow(row, { assignedNoPushDate = false, wantTeam = null } = {}) {
+  const checkResult = String(row?.['Kết quả Check'] || row?.['Kết quả check'] || '').trim();
+  if (checkResult.toLowerCase() !== 'ok') return false;
+  if (wantTeam) {
+    const team = String(row?.['Team'] || row?.team || '').trim();
+    if (team !== wantTeam) return false;
+  }
+  const deliveryUnit = String(getVanDonRowShippingUnit(row) || '').trim();
+  if (assignedNoPushDate) {
+    return !isVanDonSemanticEmpty(deliveryUnit) && isVanDonSemanticEmpty(getVanDonRowPushDateRaw(row));
+  }
+  return isVanDonSemanticEmpty(deliveryUnit);
+}
+
+function resolveHanoiTabSqlScope(isHanoiTab, assignedNoPushDate) {
+  if (!isHanoiTab) return null;
+  return assignedNoPushDate ? 'ffm_assigned_no_push' : 'ffm_queue_admin';
+}
+
 /** Chuẩn hóa header cột (NFC) — tránh lệch ký tự Unicode so với EDITABLE_COLS. */
 function normalizeColHeader(col) {
   if (col == null || col === '') return '';
@@ -622,16 +660,16 @@ function vanDonDeliveryStaffIsSelf(row, sessionNorm) {
 }
 
 /** Khi ghép đơn chưa lưu vào kết quả API sau đổi bộ lọc — chỉ giữ dòng phù hợp tab (tránh lệch với Đơn Nhật/Hà Nội). */
-function rowMatchesBolTabForInject(row, tab, isAdminVanDonTab = false, dataSource = 'default') {
+function rowMatchesBolTabForInject(
+  row,
+  tab,
+  isAdminVanDonTab = false,
+  dataSource = 'default',
+  assignedNoPushDate = false
+) {
   if (tab === 'hanoi') {
-    const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-    const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-    const isCheckOk = checkResult.toLowerCase() === 'ok';
-    const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
-    if (!isCheckOk || !isDeliveryUnitEmpty) return false;
-    const team = String(row['Team'] || row.team || '').trim();
     const wantTeam = dataSource === 'hcm' ? 'HCM' : 'Hà Nội';
-    return team === wantTeam;
+    return matchesHanoiFfmTabRow(row, { assignedNoPushDate, wantTeam });
   }
   if (tab === 'japan') {
     const country = String(row.country || row['Country'] || row['Khu vực'] || '').trim();
@@ -884,6 +922,8 @@ function VanDon({ dataSource = 'default' }) {
 
   // --- Bill of Lading Specific State ---
   const [bolActiveTab, setBolActiveTab] = useState('all'); // all, ca_nhan, readonly_all, japan, hanoi
+  /** Tab Đẩy đơn HN: lọc ĐVVC có giá trị nhưng Ngày đẩy đơn trống */
+  const [hanoiDvvcNoPushDateFilter, setHanoiDvvcNoPushDateFilter] = useState(false);
   const [bolDateType, setBolDateType] = useState('Ngày lên đơn');
   const [appliedBolDateType, setAppliedBolDateType] = useState('Ngày lên đơn');
   const [isLongTextExpanded, setIsLongTextExpanded] = useState(false);
@@ -1254,7 +1294,7 @@ function VanDon({ dataSource = 'default' }) {
       if (!orderId || ids.has(orderId)) return;
       const snap = pendingRowSnapshotsRef.current.get(orderId);
       if (!snap) return;
-      if (!rowMatchesBolTabForInject(snap, bolActiveTab, isAdmin, dataSource)) return;
+      if (!rowMatchesBolTabForInject(snap, bolActiveTab, isAdmin, dataSource, hanoiDvvcNoPushDateFilter)) return;
       extra.push({ ...snap });
     });
     return extra.length ? [...rows, ...extra] : rows;
@@ -1410,7 +1450,8 @@ function VanDon({ dataSource = 'default' }) {
       canh_bao_filter:
         appliedFilterValues.canh_bao_filter === 'co_trung' || appliedFilterValues.canh_bao_filter === 'khong_trung'
           ? appliedFilterValues.canh_bao_filter
-          : undefined
+          : undefined,
+      hanoiDvvcNoPushDateFilter: bolActiveTab === 'hanoi' && hanoiDvvcNoPushDateFilter === true
     };
     console.log('🔍 [VanDon] Active Filters:', filters);
     return filters;
@@ -1429,7 +1470,8 @@ function VanDon({ dataSource = 'default' }) {
     serverColumnFilters,
     serverTrackingFilter,
     isAdmin,
-    dataSource
+    dataSource,
+    hanoiDvvcNoPushDateFilter
   ]);
 
   /** Bộ lọc gửi kèm SUM tiền — không phụ thuộc trang (tránh refetch tổng tiền mỗi lần đổi trang). */
@@ -1527,8 +1569,10 @@ function VanDon({ dataSource = 'default' }) {
         limit,
         team: activeFilters.team,
         excludeHcmTeam: activeFilters.excludeHcmTeam === true,
-        hanoiTabSqlScope:
-          activeFilters.tab === 'hanoi' ? 'ffm_queue_admin' : null,
+        hanoiTabSqlScope: resolveHanoiTabSqlScope(
+          activeFilters.tab === 'hanoi',
+          activeFilters.hanoiDvvcNoPushDateFilter === true
+        ),
         market: activeFilters.market,
         product: activeFilters.product,
         nv_sale: activeFilters.nv_sale,
@@ -1719,16 +1763,14 @@ function VanDon({ dataSource = 'default' }) {
   const allData = useMemo(() => {
     let rows = queryResult?.data || [];
     if (bolActiveTab === 'hanoi') {
-      rows = rows.filter(row => {
-        const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-        const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-        return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
-      });
+      rows = rows.filter((row) =>
+        matchesHanoiFfmTabRow(row, { assignedNoPushDate: hanoiDvvcNoPushDateFilter })
+      );
     }
     const result = mergePendingRowsIntoFetchedData(rows);
     console.log('📊 [VanDon] Final allData length:', result.length);
     return result;
-  }, [queryResult?.data, bolActiveTab]);
+  }, [queryResult?.data, bolActiveTab, hanoiDvvcNoPushDateFilter]);
 
   const totalRecords = queryResult?.total || 0;
   /** SUM toàn bộ đơn khớp lọc — giữ `undefined` khi chưa có kết quả query (không nhầm với 0 thật). */
@@ -1869,20 +1911,16 @@ function VanDon({ dataSource = 'default' }) {
         } else if (bolActiveTab === 'hanoi') {
           // Tab đẩy FFM: /van-don → Team "Hà Nội"; /van-don-hcm → Team "HCM"
           const wantTeam = dataSource === 'hcm' ? 'HCM' : 'Hà Nội';
-          data = data.filter(row => {
-            const team = String(row['Team'] || row.team || '').trim();
-            const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-            const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-
-            const isTeamMatch = team === wantTeam;
-            const isCheckOk = checkResult.toLowerCase() === 'ok';
-            const isDeliveryUnitEmpty = isVanDonSemanticEmpty(deliveryUnit);
-
-            // Xóa rào cản isTrackingEmpty để giống như Admin: vẫn hiện đơn đã có mã Tracking
-            return isTeamMatch && isCheckOk && isDeliveryUnitEmpty;
-          });
+          data = data.filter((row) =>
+            matchesHanoiFfmTabRow(row, {
+              assignedNoPushDate: hanoiDvvcNoPushDateFilter,
+              wantTeam
+            })
+          );
           console.log(
-            `🏛️ [VanDon Fallback] Tab đẩy FFM — Team="${wantTeam}", Check=Ok, empty Tracking & ĐVVC:`,
+            `🏛️ [VanDon Fallback] Tab đẩy FFM — Team="${wantTeam}", Check=Ok, ${
+              hanoiDvvcNoPushDateFilter ? 'có ĐVVC · Ngày đẩy trống' : 'ĐVVC trống'
+            }:`,
             data.length,
             'orders'
           );
@@ -2518,7 +2556,8 @@ function VanDon({ dataSource = 'default' }) {
     appliedEnableDateFilter,
     isAdmin,
     useBackendPagination,
-    dataSource
+    dataSource,
+    hanoiDvvcNoPushDateFilter
   ]);
 
   const getFilteredData = useMemo(() => computeFilteredData(allData), [computeFilteredData, allData]);
@@ -3352,11 +3391,9 @@ function VanDon({ dataSource = 'default' }) {
 
       let rows = sourceRows;
       if (bolActiveTab === 'hanoi') {
-        rows = rows.filter((row) => {
-          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-          return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
-        });
+        rows = rows.filter((row) =>
+          matchesHanoiFfmTabRow(row, { assignedNoPushDate: hanoiDvvcNoPushDateFilter })
+        );
       }
       rows = mergePendingRowsIntoFetchedData(rows);
       const filtered = computeFilteredData(rows);
@@ -3397,6 +3434,7 @@ function VanDon({ dataSource = 'default' }) {
     useBackendPagination,
     allData,
     bolActiveTab,
+    hanoiDvvcNoPushDateFilter,
     mergePendingRowsIntoFetchedData,
     computeFilteredData,
     runVanDonFetch,
@@ -3437,11 +3475,9 @@ function VanDon({ dataSource = 'default' }) {
 
       let rows = sourceRows;
       if (bolActiveTab === 'hanoi') {
-        rows = rows.filter((row) => {
-          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-          return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
-        });
+        rows = rows.filter((row) =>
+          matchesHanoiFfmTabRow(row, { assignedNoPushDate: hanoiDvvcNoPushDateFilter })
+        );
       }
       rows = mergePendingRowsIntoFetchedData(rows);
       const filtered = computeFilteredData(rows);
@@ -3483,6 +3519,7 @@ function VanDon({ dataSource = 'default' }) {
     useBackendPagination,
     allData,
     bolActiveTab,
+    hanoiDvvcNoPushDateFilter,
     mergePendingRowsIntoFetchedData,
     computeFilteredData,
     runVanDonFetch,
@@ -3581,7 +3618,10 @@ function VanDon({ dataSource = 'default' }) {
           limit,
           team: tempFilters.team,
           excludeHcmTeam: tempFilters.excludeHcmTeam === true,
-          hanoiTabSqlScope: tempFilters.tab === 'hanoi' ? 'ffm_queue_admin' : null,
+          hanoiTabSqlScope: resolveHanoiTabSqlScope(
+            tempFilters.tab === 'hanoi',
+            tempFilters.hanoiDvvcNoPushDateFilter === true
+          ),
           market: tempFilters.market,
           product: tempFilters.product,
           nv_sale: tempFilters.nv_sale,
@@ -5851,6 +5891,7 @@ function VanDon({ dataSource = 'default' }) {
                       setCurrentPage(1);
                       if (tab.id !== 'hanoi') {
                         setSelectedRows(new Set());
+                        setHanoiDvvcNoPushDateFilter(false);
                       }
                     }}
                   >
@@ -6300,6 +6341,25 @@ function VanDon({ dataSource = 'default' }) {
                     </div>
                   )}
                 </div>
+              )}
+
+              {bolActiveTab === 'hanoi' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHanoiDvvcNoPushDateFilter((v) => !v);
+                    setCurrentPage(1);
+                    setSelectedRows(new Set());
+                  }}
+                  title="Lọc đơn có Đơn vị vận chuyển nhưng cột Ngày đẩy đơn còn trống"
+                  className={`p-0.5 px-1.5 rounded text-[11px] font-bold transition-all flex items-center gap-0.5 shadow-sm border ${
+                    hanoiDvvcNoPushDateFilter
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600'
+                      : 'bg-white hover:bg-amber-50 text-amber-800 border-amber-300'
+                  }`}
+                >
+                  Có ĐVVC · chưa đẩy
+                </button>
               )}
 
 
