@@ -807,6 +807,15 @@ function Home() {
           allowDirectorDept: true,
         },
         {
+          title: "Báo cáo MKT (HN + HCM)",
+          icon: <TrendingUp className="w-8 h-8" />,
+          color: "bg-emerald-600",
+          path: "/xem-bao-cao-mkt-hn-hcm",
+          status: "Lọc chi nhánh",
+          adminOnly: true,
+          allowDirectorDept: true,
+        },
+        {
           title: "Dashboard OKR",
           icon: <Award className="w-8 h-8" />,
           color: "bg-indigo-600",

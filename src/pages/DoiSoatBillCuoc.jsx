@@ -400,6 +400,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [showBulkDropdown, setShowBulkDropdown] = useState(false);
   const [editingHistoryRows, setEditingHistoryRows] = useState(new Set());
   const [historyActionLoading, setHistoryActionLoading] = useState(false);
+  const [bulkDeletingRows, setBulkDeletingRows] = useState(false);
   const [historyActionRowId, setHistoryActionRowId] = useState(null);
   const [rowContextMenu, setRowContextMenu] = useState(null); // { x, y, row }
   const accountantOptions = ["", "Đã thu tiền", "Chưa thu tiền", "Treo", "Hủy", "Khác"];

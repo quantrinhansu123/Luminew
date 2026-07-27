@@ -6,15 +6,50 @@
   <title>Báo cáo chi phí tổng hợp</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
   <style>
     /* --- CÀI ĐẶT CHUNG & TABS --- */
+    :root {
+      --font-main: 'Roboto', Arial, Helvetica, sans-serif;
+    }
+
+    html,
+    body,
+    *,
+    *::before,
+    *::after {
+      font-family: var(--font-main) !important;
+    }
+
     body {
-      font-family: 'Roboto', Arial, sans-serif;
+      font-family: var(--font-main);
       padding: 20px;
       background-color: #f4f4f4;
       color: #333;
       font-size: 16px;
+    }
+
+    button,
+    input,
+    select,
+    textarea,
+    optgroup,
+    option,
+    table,
+    th,
+    td,
+    label,
+    a,
+    span,
+    div,
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      font-family: var(--font-main) !important;
     }
 
     .tab-container {
@@ -31,6 +66,7 @@
       cursor: pointer;
       padding: 14px 20px;
       transition: 0.3s;
+      font-family: var(--font-main);
       font-size: 17px;
       font-weight: 500;
       border-radius: 8px 8px 0 0;
@@ -171,6 +207,368 @@
       color: white;
     }
 
+    /* --- STYLES CHO TAB CẢNH BÁO --- */
+    .alert-tab-wrap {
+      padding: 16px 18px 24px;
+    }
+
+    .alert-tab-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .alert-tab-filters {
+      display: flex;
+      align-items: flex-end;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .alert-tab-filters select,
+    .alert-tab-filters input[type="date"] {
+      padding: 4px 8px;
+      border: 1px solid #cfd8dc;
+      border-radius: 6px;
+      font: inherit;
+    }
+
+    .alert-filter-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 13px;
+      color: #37474f;
+    }
+
+    .alert-filter-field > span {
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .alert-check-panel {
+      position: relative;
+      min-width: 180px;
+    }
+
+    .alert-check-panel summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 5px 10px;
+      border: 1px solid #cfd8dc;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 13px;
+      user-select: none;
+    }
+
+    .alert-check-panel summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .alert-check-panel[open] summary {
+      border-color: #2d7c2d;
+    }
+
+    .alert-check-dropdown {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 240px;
+      max-height: 260px;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #cfd8dc;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      padding: 8px 10px;
+    }
+
+    .alert-check-dropdown label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 2px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .alert-check-dropdown .alert-check-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 6px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .alert-check-dropdown .alert-check-actions button {
+      border: none;
+      background: #e8f5e9;
+      color: #1b5e20;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .alert-metric-counts {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .alert-metric-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      background: #eef7ee;
+      color: #1b4b1b;
+      border: 1px solid #c8e6c9;
+    }
+
+    .alert-metric-pill strong {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .alert-summary-counts {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .alert-count-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .alert-count-pill.critical {
+      background: #fdecea;
+      color: #c62828;
+    }
+
+    .alert-count-pill.warning {
+      background: #fff8e1;
+      color: #a06a00;
+    }
+
+    .alert-count-pill.info {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+
+    .alert-tab-hint {
+      color: #607d8b;
+      font-size: 13px;
+      margin: 8px 0 14px;
+    }
+
+    #alert-table td,
+    #alert-table th {
+      vertical-align: middle;
+    }
+
+    .alert-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .alert-badge.critical {
+      background: #F44336;
+      color: #fff;
+    }
+
+    .alert-badge.warning {
+      background: #FFEB3B;
+      color: #5d4200;
+    }
+
+    .alert-badge.info {
+      background: #2196F3;
+      color: #fff;
+    }
+
+    .alert-badge.ok {
+      background: #2e7d32;
+      color: #fff;
+    }
+
+    .alert-badge.metric {
+      background: #eceff1;
+      color: #37474f;
+      font-weight: 600;
+    }
+
+    /* Tab cảnh báo: căn trái chữ trạng thái/nội dung (không dùng text-align:right chung của bảng) */
+    #AlertReport #alert-table th,
+    #AlertReport #alert-table td {
+      text-align: left !important;
+      color: #333 !important;
+      white-space: normal;
+    }
+
+    #AlertReport #alert-table th:nth-child(8),
+    #AlertReport #alert-table th:nth-child(9),
+    #AlertReport #alert-table td:nth-child(8),
+    #AlertReport #alert-table td:nth-child(9) {
+      text-align: right !important;
+      white-space: nowrap;
+    }
+
+    #alert-table tr.row-critical td {
+      background: #fef5f4;
+    }
+
+    #alert-table tr.row-warning td {
+      background: #fffdf3;
+    }
+
+    .alert-empty {
+      text-align: center;
+      color: #90a4ae;
+      padding: 22px 8px !important;
+    }
+
+    /* --- Cột Giải trình --- */
+    .alert-note-cell {
+      min-width: 200px;
+      vertical-align: top;
+    }
+
+    .alert-note-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom: 6px;
+      color: #37474f;
+      font-size: 13px;
+    }
+
+    .alert-note-input {
+      width: 100%;
+      min-width: 180px;
+      box-sizing: border-box;
+      border: 1px solid #cfd8dc;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 13px;
+      resize: vertical;
+    }
+
+    .alert-note-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .alert-note-btn {
+      border: none;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .alert-note-btn.add,
+    .alert-note-btn.edit {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+
+    .alert-note-btn.add:hover,
+    .alert-note-btn.edit:hover {
+      background: #bbdefb;
+    }
+
+    .alert-note-btn.save {
+      background: #2d7c2d;
+      color: #fff;
+    }
+
+    .alert-note-btn.save:hover {
+      background: #256725;
+    }
+
+    .alert-note-btn.cancel {
+      background: #eceff1;
+      color: #546e7a;
+    }
+
+    .alert-note-btn.cancel:hover {
+      background: #cfd8dc;
+    }
+
+    .alert-tab-badge {
+      display: inline-block;
+      min-width: 18px;
+      padding: 0 6px;
+      margin-left: 4px;
+      border-radius: 999px;
+      background: #F44336;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 18px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    /* Chữ tab Cảnh báo lớn, dễ đọc hơn. */
+    #AlertReport .alert-tab-head h2 {
+      font-size: 27px;
+    }
+
+    #AlertReport .alert-filter-field,
+    #AlertReport .alert-filter-field > span,
+    #AlertReport .alert-tab-filters select,
+    #AlertReport .alert-tab-filters input[type="date"],
+    #AlertReport .alert-check-panel summary,
+    #AlertReport .alert-check-dropdown label,
+    #AlertReport .alert-check-dropdown .alert-check-actions button {
+      font-size: 17px;
+    }
+
+    #AlertReport .alert-tab-hint,
+    #AlertReport .alert-metric-pill,
+    #AlertReport .alert-count-pill {
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    #AlertReport #alert-table th {
+      font-size: 19px;
+      line-height: 1.3;
+    }
+
+    #AlertReport #alert-table td {
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    #AlertReport .alert-badge,
+    #AlertReport .alert-note-btn,
+    #AlertReport .alert-note-input {
+      font-size: 17px;
+    }
+
     /* --- STYLES CHO TABS & LAYOUT CHUNG --- */
     .report-container {
       display: flex;
@@ -230,6 +628,213 @@
 
     .main-content-area {
       flex-grow: 1;
+      min-width: 0;
+    }
+
+    .dual-branch-grid {
+      display: block;
+    }
+
+    .branch-pane-title {
+      display: none;
+      margin: 0 0 8px;
+      padding: 8px 12px;
+      background: #2d7c2d;
+      color: #fff;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .branch-pane-hcm {
+      display: none;
+    }
+
+    #mkt-hcm-dual-iframe {
+      width: 100%;
+      min-height: 640px;
+      height: calc(100vh - 11rem);
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    body.mkt-dual-mode {
+      margin: 0;
+      padding: 8px;
+      background: #f4f7fb;
+    }
+
+    body.mkt-dual-mode .report-container {
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    body.mkt-dual-mode .sidebar {
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 12px;
+      padding: 10px 12px;
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+
+    body.mkt-dual-mode .sidebar > h3:first-of-type {
+      width: 100%;
+      margin: 0 0 2px;
+      padding: 6px 10px;
+      font-size: 14px;
+      border-radius: 6px;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd {
+      position: relative;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd > h3 {
+      margin: 0;
+      padding: 5px 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      white-space: nowrap;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      user-select: none;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd > h3::after {
+      content: '\25BE';
+      font-size: 9px;
+      opacity: .85;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd.open > h3::after {
+      content: '\25B4';
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-count {
+      display: none;
+      min-width: 14px;
+      padding: 0 5px;
+      background: rgba(255, 255, 255, 0.28);
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-count:not(:empty) {
+      display: inline-block;
+    }
+
+    body.mkt-dual-mode .sidebar > label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin: 0;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    body.mkt-dual-mode .sidebar input[type="date"],
+    body.mkt-dual-mode .sidebar select {
+      width: auto;
+      min-width: 132px;
+      margin: 0;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-panel {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      z-index: 60;
+      margin-top: 4px;
+      min-width: 220px;
+      max-width: 320px;
+      max-height: 280px;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, .14);
+      padding: 8px 10px;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd.open .mkt-filter-dd-panel {
+      display: block;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-panel > label {
+      display: block;
+      margin: 0 0 6px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-panel > div[id$="-options-tab1"] {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin: 0;
+      padding: 0;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-panel > div[id$="-options-tab1"] label {
+      margin: 0;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd .indent {
+      margin-left: 0;
+    }
+
+    body.mkt-dual-mode .main-content-area {
+      width: 100%;
+    }
+
+    body.mkt-dual-mode .dual-branch-grid {
+      display: block;
+    }
+
+    body.mkt-dual-mode .branch-pane-title,
+    body.mkt-dual-mode .branch-pane-hcm {
+      display: none !important;
+    }
+
+    body.mkt-dual-mode .branch-pane-hn .header {
+      display: flex;
+    }
+
+    body.mkt-dual-mode .tab-container {
+      display: none !important;
+    }
+
+    body.mkt-dual-mode #summary-table th,
+    body.mkt-dual-mode #summary-table td {
+      padding: 3px 5px;
+      font-size: 10.5px;
+      line-height: 1.25;
+    }
+
+    body.mkt-dual-mode #summary-table th {
+      font-size: 10px;
+    }
+
+    body.mkt-dual-mode #summary-table tr.total-row {
+      font-size: 1em;
     }
 
     .header {
@@ -370,7 +975,7 @@
       padding: 6px 10px;
       border: 1px solid #e0e0e0;
       border-radius: 4px;
-      font-family: inherit;
+      font-family: var(--font-main) !important;
       background-color: #fff;
       font-size: 14px;
     }
@@ -399,6 +1004,20 @@
     #MarketReport th {
       background-color: #4CAF50;
       color: white;
+      font-size: 19px;
+      line-height: 1.25;
+    }
+
+    #MarketReport td {
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    #MarketReport .total-row td,
+    #MarketReport .highlight td,
+    #MarketReport td[rowspan] {
+      font-size: 18px;
+      font-weight: 700;
     }
 
     #MarketReport .highlight {
@@ -488,6 +1107,9 @@
     <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
     <button class="tablinks" onclick="openTab(event, 'MarketReport')">Hiệu suất MKT</button>
+    <button class="tablinks" onclick="openTab(event, 'AlertReport')">
+      Cảnh báo <span id="alert-tab-badge" class="alert-tab-badge" style="display:none">0</span>
+    </button>
     <!-- TAB MỚI: Báo cáo thủ công, ẩn mặc định -->
     <button class="tablinks" onclick="openTab(event, 'ManualReport')" id="manual-report-tab-btn"
       style="display: none;">Báo cáo thủ công</button>
@@ -501,6 +1123,11 @@
     <div class="report-container">
       <div class="sidebar">
         <h3>Bộ lọc</h3>
+        <label for="mkt-branch-select-tab1">Chi nhánh:</label>
+        <select id="mkt-branch-select-tab1" title="Hà Nội = detail_reports · HCM = marketing_report_hcm">
+          <option value="hn" selected>Hà Nội</option>
+          <option value="hcm">HCM</option>
+        </select>
         <label for="quick-date-select-tab1">Chọn nhanh:</label>
         <select id="quick-date-select-tab1">
           <option value="">-- Chọn nhanh --</option>
@@ -537,53 +1164,78 @@
         </select>
         <label for="start-date-tab1">Từ ngày:</label><input type="date" id="start-date-tab1">
         <label for="end-date-tab1">Đến ngày:</label><input type="date" id="end-date-tab1">
-        <h3>Sản phẩm</h3>
-        <label><input type="checkbox" id="product-all-tab1" checked> Tất cả</label>
-        <div id="product-options-tab1" class="indent"></div>
-        <h3>Ca</h3>
-        <label><input type="checkbox" id="ca-all-tab1" checked> Tất cả</label>
-        <div id="ca-options-tab1" class="indent"></div>
-        <h3>Team</h3>
-        <label><input type="checkbox" id="team-all-tab1" checked> Tất cả</label>
-        <div id="team-options-tab1" class="indent"></div>
-        <h3>Thị trường</h3>
-        <label><input type="checkbox" id="market-all-tab1" checked> Tất cả</label>
-        <div id="market-options-tab1"></div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="product">
+          <h3>Sản phẩm<span class="mkt-filter-dd-count" id="product-count-tab1"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="product-all-tab1" checked> Tất cả</label>
+            <div id="product-options-tab1" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="ca">
+          <h3>Ca<span class="mkt-filter-dd-count" id="ca-count-tab1"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="ca-all-tab1" checked> Tất cả</label>
+            <div id="ca-options-tab1" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="team">
+          <h3>Team<span class="mkt-filter-dd-count" id="team-count-tab1"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="team-all-tab1" checked> Tất cả</label>
+            <div id="team-options-tab1" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="market">
+          <h3>Thị trường<span class="mkt-filter-dd-count" id="market-count-tab1"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="market-all-tab1" checked> Tất cả</label>
+            <div id="market-options-tab1"></div>
+          </div>
+        </div>
       </div>
       <div class="main-content-area">
-        <div class="header">
-          <img
-            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
-            alt="Logo">
-          <h2 id="report-title-tab1">DỮ LIỆU CHI PHÍ ADS</h2>
+        <div class="dual-branch-grid" id="dual-branch-grid">
+          <div class="branch-pane branch-pane-hn">
+            <div class="branch-pane-title">Hà Nội</div>
+            <div class="header">
+              <img
+                src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
+                alt="Logo">
+              <h2 id="report-title-tab1">DỮ LIỆU CHI PHÍ ADS</h2>
+            </div>
+            <p id="giua-ca-manual-hint-tab1" class="mkt-giua-ca-manual-hint" style="display:none;"></p>
+            <div class="table-responsive-container">
+              <table id="summary-table" class="sortable-table">
+                <thead>
+                  <tr>
+                    <th class="green-header">STT<span class="sort-icon"></span></th>
+                    <th class="green-header">Team<span class="sort-icon"></span></th>
+                    <th class="green-header">Marketing<span class="sort-icon"></span></th>
+                    <th class="green-header">Số Mess<span class="sort-icon"></span></th>
+                    <th class="green-header">CPQC<span class="sort-icon"></span></th>
+                    <th class="green-header">Số Đơn<span class="sort-icon"></span></th>
+                    <th class="blue-header">Số Đơn (TT)<span class="sort-icon"></span></th>
+                    <th class="green-header">DS Chốt<span class="sort-icon"></span></th>
+                    <th class="blue-header">DS Chốt (TT)<span class="sort-icon"></span></th>
+                    <th class="yellow-header">Tỉ lệ chốt<span class="sort-icon"></span></th>
+                    <th class="yellow-header">Tỉ lệ chốt (TT)<span class="sort-icon"></span></th>
+                    <th class="yellow-header">Giá Mess<span class="sort-icon"></span></th>
+                    <th class="yellow-header">CPS<span class="sort-icon"></span></th>
+                    <th class="yellow-header">%CP/DS<span class="sort-icon"></span></th>
+                    <th class="yellow-header">Giá TB Đơn<span class="sort-icon"></span></th>
+                  </tr>
+                </thead>
+                <tbody id="summary-body"></tbody>
+                <tfoot id="summary-foot"></tfoot>
+              </table>
+            </div>
+            <div id="daily-breakdown"></div>
+          </div>
+          <div class="branch-pane branch-pane-hcm" id="branch-pane-hcm">
+            <div class="branch-pane-title">HCM</div>
+            <iframe id="mkt-hcm-dual-iframe" title="Báo cáo MKT HCM" loading="lazy"></iframe>
+          </div>
         </div>
-        <p id="giua-ca-manual-hint-tab1" class="mkt-giua-ca-manual-hint" style="display:none;"></p>
-        <div class="table-responsive-container">
-          <table id="summary-table" class="sortable-table">
-            <thead>
-              <tr>
-                <th class="green-header">STT<span class="sort-icon"></span></th>
-                <th class="green-header">Team<span class="sort-icon"></span></th>
-                <th class="green-header">Marketing<span class="sort-icon"></span></th>
-                <th class="green-header">Số Mess<span class="sort-icon"></span></th>
-                <th class="green-header">CPQC<span class="sort-icon"></span></th>
-                <th class="green-header">Số Đơn<span class="sort-icon"></span></th>
-                <th class="blue-header">Số Đơn (TT)<span class="sort-icon"></span></th>
-                <th class="green-header">DS Chốt<span class="sort-icon"></span></th>
-                <th class="blue-header">DS Chốt (TT)<span class="sort-icon"></span></th>
-                <th class="yellow-header">Tỉ lệ chốt<span class="sort-icon"></span></th>
-                <th class="yellow-header">Tỉ lệ chốt (TT)<span class="sort-icon"></span></th>
-                <th class="yellow-header">Giá Mess<span class="sort-icon"></span></th>
-                <th class="yellow-header">CPS<span class="sort-icon"></span></th>
-                <th class="yellow-header">%CP/DS<span class="sort-icon"></span></th>
-                <th class="yellow-header">Giá TB Đơn<span class="sort-icon"></span></th>
-              </tr>
-            </thead>
-            <tbody id="summary-body"></tbody>
-            <tfoot id="summary-foot"></tfoot>
-          </table>
-        </div>
-        <div id="daily-breakdown"></div>
       </div>
     </div>
   </div>
@@ -819,6 +1471,79 @@
     <iframe id="vandon-report-iframe" style="width: 100%; height: 85vh; border: none;" src=""></iframe>
   </div>
 
+  <div id="AlertReport" class="tab-content">
+    <div class="alert-tab-wrap">
+      <div class="alert-tab-head">
+        <h2 style="margin:0;">⚠️ Cảnh báo KPI</h2>
+        <div class="alert-tab-filters">
+          <label class="alert-filter-field"><span>Từ ngày</span>
+            <input type="date" id="alert-date-from" />
+          </label>
+          <label class="alert-filter-field"><span>Đến ngày</span>
+            <input type="date" id="alert-date-to" />
+          </label>
+          <label class="alert-filter-field"><span>Mức độ</span>
+            <select id="alert-severity-filter">
+              <option value="all">Tất cả</option>
+              <option value="critical">Nghiêm trọng</option>
+              <option value="warning">Cảnh báo</option>
+              <option value="info">Thông tin</option>
+            </select>
+          </label>
+          <div class="alert-filter-field">
+            <span>Nội dung cảnh báo</span>
+            <details class="alert-check-panel" id="alert-content-panel">
+              <summary id="alert-content-summary">Tất cả nội dung</summary>
+              <div class="alert-check-dropdown">
+                <div class="alert-check-actions">
+                  <button type="button" data-alert-content-all="1">Chọn tất cả</button>
+                  <button type="button" data-alert-content-none="1">Bỏ chọn</button>
+                </div>
+                <div id="alert-content-options"></div>
+              </div>
+            </details>
+          </div>
+          <div class="alert-filter-field">
+            <span>Nhân sự</span>
+            <details class="alert-check-panel" id="alert-staff-panel">
+              <summary id="alert-staff-summary">Tất cả nhân sự</summary>
+              <div class="alert-check-dropdown">
+                <div class="alert-check-actions">
+                  <button type="button" data-alert-staff-all="1">Chọn tất cả</button>
+                  <button type="button" data-alert-staff-none="1">Bỏ chọn</button>
+                </div>
+                <div id="alert-staff-options"></div>
+              </div>
+            </details>
+          </div>
+          <span id="alert-summary-counts" class="alert-summary-counts"></span>
+        </div>
+      </div>
+      <div id="alert-metric-counts" class="alert-metric-counts"></div>
+      <p class="alert-tab-hint">Danh sách cảnh báo được tổng hợp từ dữ liệu đang hiển thị ở tab «Báo cáo chi tiết» (theo bộ lọc hiện tại). Cột <strong>Trạng thái</strong> = loại KPI (Tỉ lệ chốt / CPS / %CP/DS / Giá Mess); cột <strong>Mức độ</strong> = Nghiêm trọng / Cảnh báo / Thông tin.</p>
+      <div class="table-responsive-container">
+        <table id="alert-table" class="sortable-table">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Nhân sự</th>
+              <th>Nhóm</th>
+              <th>Trạng thái</th>
+              <th>Mức độ</th>
+              <th>Nội dung cảnh báo</th>
+              <th>Nguyên nhân / Ngưỡng</th>
+              <th>Doanh số</th>
+              <th>CPQC</th>
+            </tr>
+          </thead>
+          <tbody id="alert-table-body">
+            <tr><td colspan="9" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo chi tiết» để tải dữ liệu.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <script>
     // =================================================================================
     // --- I. KHAI BÁO BIẾN TOÀN CỤC & CẤU HÌNH ---
@@ -854,6 +1579,261 @@
     const MKT_ALLOWED_TEAMS = getMktAllowedTeamsFromPage();
     const MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktLegacy.scope';
     const MKT_EMPTY_ROW_ID = '00000000-0000-0000-0000-000000000000';
+    const MKT_BRANCH_PAGE = {
+      hn: '/viewNsMoiNhanh.html',
+      hcm: '/viewNsMoiNhanh-HCM.html',
+    };
+    const MKT_HCM_DEFAULT_TEAM = 'MKT - Đức Anh';
+    /** Bộ lọc + ngày + tab dùng chung khi đổi chi nhánh (HN ↔ HCM). */
+    const MKT_SHARED_UI_STATE_KEY = 'luminew.mktReport.sharedUiState';
+    const MKT_FILTER_PREFS_HN_KEY = 'luminew.mktReport.filterPrefs';
+    const MKT_FILTER_PREFS_HCM_KEY = 'luminew.mktReportHcm.filterPrefs';
+    const MKT_DUAL_FILTER_MSG = 'MKT_DUAL_FILTER_SYNC';
+    const MKT_DUAL_MODE = (() => {
+      try {
+        const qp = new URLSearchParams(window.location.search);
+        return qp.get('dual') === '1' || qp.get('topBar') === '1';
+      } catch (e) {
+        return false;
+      }
+    })();
+
+    function getMktInputValue(id) {
+      return String(document.getElementById(id)?.value || '').trim();
+    }
+
+    function syncDualHcmFilters() {
+      if (!MKT_DUAL_MODE) return;
+      const iframe = document.getElementById('mkt-hcm-dual-iframe');
+      if (!iframe || !iframe.contentWindow) return;
+      try {
+        if (typeof persistMktFilterStatesFromDom === 'function') persistMktFilterStatesFromDom();
+        const filters =
+          (typeof captureAllMktFilterStates === 'function' && captureAllMktFilterStates()) ||
+          null;
+        iframe.contentWindow.postMessage(
+          {
+            type: MKT_DUAL_FILTER_MSG,
+            v: 1,
+            filters,
+            start: getMktInputValue('start-date-tab1') || getMktInputValue('start-date-mkt'),
+            end: getMktInputValue('end-date-tab1') || getMktInputValue('end-date-mkt'),
+            quick: getMktInputValue('quick-date-select-tab1'),
+          },
+          '*'
+        );
+        iframe.contentWindow.postMessage(
+          {
+            source: 'luminew-host',
+            type: 'MKT_HCM_PERSONNEL_SCOPE',
+            v: 1,
+            skipPersonnelFilter: true,
+            allowedNames: [],
+            ts: Date.now(),
+          },
+          '*'
+        );
+      } catch (e) { /* ignore */ }
+    }
+
+    function initMktDualMode() {
+      if (!MKT_DUAL_MODE) return;
+      document.body.classList.add('mkt-dual-mode');
+      const filterTitle = document.querySelector('#DetailedReport .sidebar > h3');
+      if (filterTitle) filterTitle.textContent = 'Bộ lọc';
+      const hcmPane = document.getElementById('branch-pane-hcm');
+      if (hcmPane) hcmPane.style.display = 'none';
+      const iframe = document.getElementById('mkt-hcm-dual-iframe');
+      if (iframe) {
+        iframe.removeAttribute('src');
+        iframe.style.display = 'none';
+      }
+      initMktFilterDropdowns();
+      updateMktFilterDdCounts();
+    }
+
+    /** Bộ lọc Sản phẩm/Ca/Team/Thị trường ở thanh ngang dual-mode: đổi sang tick box thả xuống. */
+    function initMktFilterDropdowns() {
+      const groups = Array.from(document.querySelectorAll('.mkt-filter-dd'));
+      if (!groups.length) return;
+      groups.forEach((group) => {
+        const trigger = group.querySelector(':scope > h3');
+        if (!trigger) return;
+        trigger.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const wasOpen = group.classList.contains('open');
+          groups.forEach((g) => g.classList.remove('open'));
+          if (!wasOpen) group.classList.add('open');
+        });
+      });
+      document.addEventListener('click', (e) => {
+        if (e.target.closest('.mkt-filter-dd')) return;
+        groups.forEach((g) => g.classList.remove('open'));
+      });
+    }
+
+    /** Cập nhật số lượng mục đã chọn hiển thị trên nhãn dropdown (rỗng nếu đang chọn Tất cả). */
+    function updateMktFilterDdCounts() {
+      const groups = [
+        { all: 'product-all-tab1', cls: 'filter-product-tab1', count: 'product-count-tab1' },
+        { all: 'ca-all-tab1', cls: 'filter-ca-tab1', count: 'ca-count-tab1' },
+        { all: 'team-all-tab1', cls: 'filter-team-tab1', count: 'team-count-tab1' },
+        { all: 'market-all-tab1', cls: 'filter-market-tab1', count: 'market-count-tab1' },
+      ];
+      groups.forEach(({ all, cls, count }) => {
+        const countEl = document.getElementById(count);
+        if (!countEl) return;
+        const allCb = document.getElementById(all);
+        const children = document.querySelectorAll(`.${cls}`);
+        const checked = Array.from(children).filter((cb) => cb.checked).length;
+        countEl.textContent = (!children.length || (allCb && allCb.checked)) ? '' : String(checked);
+      });
+    }
+
+    function getMktActiveTabId() {
+      const visibleTab = Array.from(document.querySelectorAll('.tab-content')).find(
+        (el) => el.style.display !== 'none'
+      );
+      return visibleTab?.id || 'DetailedReport';
+    }
+
+    function persistMktSharedUiStateBeforeBranchSwitch() {
+      try {
+        if (typeof persistMktFilterStatesFromDom === 'function') persistMktFilterStatesFromDom();
+        const filters =
+          (typeof captureAllMktFilterStates === 'function' && captureAllMktFilterStates()) ||
+          null;
+        const state = {
+          filters,
+          dates: {
+            startTab1: getMktInputValue('start-date-tab1'),
+            endTab1: getMktInputValue('end-date-tab1'),
+            startTab3: getMktInputValue('start-date-tab3'),
+            endTab3: getMktInputValue('end-date-tab3'),
+            startMkt: getMktInputValue('start-date-mkt'),
+            endMkt: getMktInputValue('end-date-mkt'),
+          },
+          quick: {
+            tab1: getMktInputValue('quick-date-select-tab1'),
+            tab3: getMktInputValue('quick-date-select-tab3'),
+            mkt: getMktInputValue('quick-date-mkt'),
+          },
+          activeTab: getMktActiveTabId(),
+        };
+        sessionStorage.setItem(MKT_SHARED_UI_STATE_KEY, JSON.stringify(state));
+        if (filters) {
+          const raw = JSON.stringify(filters);
+          sessionStorage.setItem(MKT_FILTER_PREFS_HN_KEY, raw);
+          sessionStorage.setItem(MKT_FILTER_PREFS_HCM_KEY, raw);
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    function loadMktSharedUiState() {
+      try {
+        const raw = sessionStorage.getItem(MKT_SHARED_UI_STATE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function applyMktSharedDatesAndQuickSelects() {
+      const shared = loadMktSharedUiState();
+      if (!shared) return;
+      const dateMap = {
+        'start-date-tab1': shared.dates?.startTab1,
+        'end-date-tab1': shared.dates?.endTab1,
+        'start-date-tab3': shared.dates?.startTab3,
+        'end-date-tab3': shared.dates?.endTab3,
+        'start-date-mkt': shared.dates?.startMkt,
+        'end-date-mkt': shared.dates?.endMkt,
+      };
+      Object.entries(dateMap).forEach(([id, val]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(val || ''))) return;
+        const el = document.getElementById(id);
+        if (el) el.value = val;
+      });
+      const quickMap = {
+        'quick-date-select-tab1': shared.quick?.tab1,
+        'quick-date-select-tab3': shared.quick?.tab3,
+        'quick-date-mkt': shared.quick?.mkt,
+      };
+      Object.entries(quickMap).forEach(([id, val]) => {
+        if (!val) return;
+        const el = document.getElementById(id);
+        if (el) el.value = val;
+      });
+    }
+
+    function restoreMktActiveTabFromShared() {
+      let tabId = '';
+      try {
+        tabId = String(new URLSearchParams(window.location.search).get('tab') || '').trim();
+      } catch (e) { /* ignore */ }
+      if (!tabId) tabId = String(loadMktSharedUiState()?.activeTab || '').trim();
+      if (!tabId || tabId === 'DetailedReport') return;
+      const btn = Array.from(document.querySelectorAll('.tablinks')).find((el) => {
+        const onclickAttr = el.getAttribute('onclick') || '';
+        return onclickAttr.includes(`'${tabId}'`) || onclickAttr.includes(`"${tabId}"`);
+      });
+      if (btn) {
+        try {
+          btn.click();
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    /** Chuyển HN ↔ HCM (giữ ngày, tab, bộ lọc SP/ca/team/thị trường). */
+    function navigateMktBranch(nextBranch) {
+      const target = nextBranch === 'hcm' ? 'hcm' : 'hn';
+      persistMktSharedUiStateBeforeBranchSwitch();
+      const qs = new URLSearchParams();
+      const start =
+        getMktInputValue('start-date-tab1') ||
+        getMktInputValue('start-date-mkt') ||
+        '';
+      const end =
+        getMktInputValue('end-date-tab1') ||
+        getMktInputValue('end-date-mkt') ||
+        '';
+      try {
+        const cur = new URLSearchParams(window.location.search);
+        // Ưu tiên ô ngày đang chọn trên UI, không lấy dashboard_* cũ trên URL.
+        const dashFrom = start || String(cur.get('dashboard_from') || '').trim();
+        const dashTo = end || String(cur.get('dashboard_to') || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dashFrom)) qs.set('dashboard_from', dashFrom);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dashTo)) qs.set('dashboard_to', dashTo);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(start)) qs.set('start', start);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(end)) qs.set('end', end);
+        const activeTab = getMktActiveTabId();
+        if (activeTab) qs.set('tab', activeTab);
+        if (cur.get('dual') === '1') qs.set('dual', '1');
+        if (cur.get('topBar') === '1') qs.set('topBar', '1');
+        if (target === 'hcm') qs.append('allowedTeams', MKT_HCM_DEFAULT_TEAM);
+        const rd = String(cur.get('rdProductsOnly') || '').trim();
+        if (rd === '1' && target === 'hn') qs.set('rdProductsOnly', '1');
+      } catch (e) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(start)) qs.set('dashboard_from', start);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(end)) qs.set('dashboard_to', end);
+        if (target === 'hcm') qs.append('allowedTeams', MKT_HCM_DEFAULT_TEAM);
+      }
+      const url = `${MKT_BRANCH_PAGE[target]}?${qs.toString()}`;
+      window.location.replace(url);
+    }
+
+    function wireMktBranchSelect(currentBranch) {
+      const el = document.getElementById('mkt-branch-select-tab1');
+      if (!el) return;
+      el.value = currentBranch === 'hcm' ? 'hcm' : 'hn';
+      el.addEventListener('change', () => {
+        const next = el.value === 'hcm' ? 'hcm' : 'hn';
+        if (next === currentBranch) return;
+        showLoader?.();
+        navigateMktBranch(next);
+      });
+    }
     const RD_PRODUCTS_ONLY = (() => {
       try {
         const params = new URLSearchParams(window.location.search);
@@ -1705,9 +2685,60 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      wireMktBranchSelect('hn');
       setupEventListeners();
       setDefaultDates();
+      initMktDualMode();
       showDefaultMktTab();
+      restoreMktActiveTabFromShared();
+      const alertFilter = document.getElementById('alert-severity-filter');
+      if (alertFilter) alertFilter.addEventListener('change', renderAlertTable);
+      const alertDateFrom = document.getElementById('alert-date-from');
+      const alertDateTo = document.getElementById('alert-date-to');
+      if (alertDateFrom) {
+        alertDateFrom.addEventListener('change', () => {
+          alertDateFrom.dataset.userTouched = '1';
+          renderAlertTable();
+        });
+      }
+      if (alertDateTo) {
+        alertDateTo.addEventListener('change', () => {
+          alertDateTo.dataset.userTouched = '1';
+          renderAlertTable();
+        });
+      }
+      document.addEventListener('click', (e) => {
+        const t = e.target;
+        if (!(t instanceof Element)) return;
+        if (t.matches('[data-alert-content-all]')) {
+          setAllAlertContentChecks(true);
+          updateAlertContentSummaryLabel();
+          renderAlertTable();
+        } else if (t.matches('[data-alert-content-none]')) {
+          setAllAlertContentChecks(false);
+          updateAlertContentSummaryLabel();
+          renderAlertTable();
+        } else if (t.matches('[data-alert-staff-all]')) {
+          setAllAlertStaffChecks(true);
+          updateAlertStaffSummaryLabel();
+          renderAlertTable();
+        } else if (t.matches('[data-alert-staff-none]')) {
+          setAllAlertStaffChecks(false);
+          updateAlertStaffSummaryLabel();
+          renderAlertTable();
+        }
+      });
+      document.addEventListener('change', (e) => {
+        const t = e.target;
+        if (!(t instanceof Element)) return;
+        if (t.matches('.alert-content-cb')) {
+          updateAlertContentSummaryLabel();
+          renderAlertTable();
+        } else if (t.matches('.alert-staff-cb')) {
+          updateAlertStaffSummaryLabel();
+          renderAlertTable();
+        }
+      });
       fetchAndProcessData();
     });
 
@@ -1717,6 +2748,7 @@
       const to = String(e.data.to || '').trim();
       applyLumiDashboardGlobalDatesToMktInputs(from, to);
       persistMktFilterStatesFromDom();
+      syncDualHcmFilters();
       if (typeof fetchAndProcessData === 'function') {
         fetchAndProcessData();
       }
@@ -1735,13 +2767,27 @@
       let endVal;
       try {
         const qp = new URLSearchParams(window.location.search);
+        const qStart = String(qp.get('start') || '').trim();
+        const qEnd = String(qp.get('end') || '').trim();
         const qFrom = String(qp.get('dashboard_from') || '').trim();
         const qTo = String(qp.get('dashboard_to') || '').trim();
-        if (/^\d{4}-\d{2}-\d{2}$/.test(qFrom) && /^\d{4}-\d{2}-\d{2}$/.test(qTo)) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(qStart) && /^\d{4}-\d{2}-\d{2}$/.test(qEnd)) {
+          startVal = qStart;
+          endVal = qEnd;
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(qFrom) && /^\d{4}-\d{2}-\d{2}$/.test(qTo)) {
           startVal = qFrom;
           endVal = qTo;
         }
       } catch (e) { /* ignore */ }
+      if (!startVal || !endVal) {
+        const shared = loadMktSharedUiState();
+        const s = shared?.dates?.startTab1 || shared?.dates?.startMkt;
+        const e = shared?.dates?.endTab1 || shared?.dates?.endMkt;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(e || ''))) {
+          startVal = s;
+          endVal = e;
+        }
+      }
       if (!startVal || !endVal) {
         const g = readLumiDashboardGlobalRange();
         if (g) {
@@ -1768,6 +2814,7 @@
         if (!el) return;
         el.value = id.startsWith('start-') ? startVal : endVal;
       });
+      applyMktSharedDatesAndQuickSelects();
     }
 
     function setupEventListeners() {
@@ -2215,6 +3262,7 @@
         mktPersistedFilterStates = savedFilters;
         saveMktFilterStatesToStorage(savedFilters);
         applyFiltersForVisibleTab();
+        syncDualHcmFilters();
       } catch (err) {
         console.error("Lỗi tải dữ liệu:", err);
         const detail = err?.message ? `\n\nChi tiết: ${err.message}` : '';
@@ -2259,6 +3307,7 @@
       handleCheckbox('team-all-tab1', 'filter-team-tab1', target);
       handleCheckbox('market-all-tab1', 'filter-market-tab1', target);
       applyTab1Filters();
+      updateMktFilterDdCounts();
       persistMktFilterStatesFromDom();
     }
 
@@ -2283,6 +3332,10 @@
       const container = target.closest('.tab-content');
       if (!container) return;
 
+      if (target.matches('input.mkt-filter-checkbox')) {
+        syncMktCheckFilterChange(target);
+      }
+
       if (target.matches('select[id^="quick-date"]')) {
         handleQuickDateChange(e);
         return;
@@ -2290,6 +3343,7 @@
 
       if (target.matches('input[type="date"]') && MKT_REFETCH_DATE_IDS.has(target.id)) {
         persistMktFilterStatesFromDom();
+        syncDualHcmFilters();
         if (mktRefetchTimer) {
           clearTimeout(mktRefetchTimer);
         }
@@ -2374,11 +3428,11 @@
 
       let selectedProducts, selectedMarkets, selectedCas, selectedTeams;
       if (isMktTab) {
-        selectedProducts = Array.from(document.getElementById('product-filter-mkt').selectedOptions).map(opt => opt.value);
-        selectedMarkets = Array.from(document.getElementById('market-filter-mkt').selectedOptions).map(opt => opt.value);
+        selectedProducts = getMktSelectedFilterValues('product-filter-mkt');
+        selectedMarkets = getMktSelectedFilterValues('market-filter-mkt');
         // THÊM BỘ LỌC TEAM VÀ CA CHO TAB MKT
-        selectedTeams = Array.from(document.getElementById('team-filter-mkt').selectedOptions).map(opt => opt.value);
-        selectedCas = Array.from(document.getElementById('ca-filter-mkt').selectedOptions).map(opt => opt.value);
+        selectedTeams = getMktSelectedFilterValues('team-filter-mkt');
+        selectedCas = getMktSelectedFilterValues('ca-filter-mkt');
       } else {
         const getSelected = (type) => {
           const allCheckbox = document.getElementById(`${type}-all-${tabPrefix}`);
@@ -2470,7 +3524,7 @@
       return filteredDataResult;
     }
 
-    const MKT_FILTER_PREFS_STORAGE_KEY = 'luminew.mktReport.filterPrefs';
+    const MKT_FILTER_PREFS_STORAGE_KEY = MKT_FILTER_PREFS_HN_KEY;
     /** Giữ bộ lọc khi đổi ngày — lưu ngay trước debounce / await. */
     let mktPersistedFilterStates = null;
     let mktLastFilterOptionsKey = '';
@@ -2511,8 +3565,62 @@
       const el = document.getElementById(id);
       if (!el || !el.options || el.options.length === 0) return { all: true, selected: null };
       const selected = Array.from(el.selectedOptions).map((o) => o.value);
-      const all = selected.length === 0 || selected.length >= el.options.length;
+      const all = selected.length >= el.options.length;
       return { all, selected: all ? null : selected };
+    }
+
+    function updateMktCheckFilterSummary(details) {
+      if (!details) return;
+      const checks = [...details.querySelectorAll('input.mkt-filter-checkbox:not([data-all])')];
+      const checked = checks.filter((cb) => cb.checked);
+      const allCheck = details.querySelector('input.mkt-filter-checkbox[data-all]');
+      if (allCheck) {
+        allCheck.checked = checks.length > 0 && checked.length === checks.length;
+        allCheck.indeterminate = checked.length > 0 && checked.length < checks.length;
+      }
+      const summary = details.querySelector('summary');
+      if (!summary) return;
+      if (!checks.length || checked.length === checks.length) summary.textContent = 'Tất cả';
+      else if (checked.length === 0) summary.textContent = 'Chưa chọn';
+      else if (checked.length === 1) summary.textContent = checked[0].dataset.label || checked[0].value;
+      else summary.textContent = `Đã chọn ${checked.length}`;
+    }
+
+    function renderMktCheckFilter(selectId) {
+      const select = document.getElementById(selectId);
+      const details = document.querySelector(`.mkt-check-filter[data-mkt-select="${selectId}"]`);
+      const dropdown = details?.querySelector('.mkt-check-dropdown');
+      if (!select || !details || !dropdown) return;
+      const options = [...select.options];
+      dropdown.innerHTML =
+        `<label><input type="checkbox" class="mkt-filter-checkbox" data-all="1"> Tất cả</label>` +
+        options.map((option) =>
+          `<label><input type="checkbox" class="mkt-filter-checkbox" value="${escapeFilterAttr(option.value)}" data-label="${escapeFilterAttr(option.textContent)}"${option.selected ? ' checked' : ''}> ${escapeFilterAttr(option.textContent)}</label>`
+        ).join('');
+      updateMktCheckFilterSummary(details);
+    }
+
+    function syncMktCheckFilterChange(target) {
+      const details = target?.closest('.mkt-check-filter');
+      if (!details || !target.matches('input.mkt-filter-checkbox')) return false;
+      const select = document.getElementById(details.dataset.mktSelect || '');
+      if (!select) return false;
+      const itemChecks = [...details.querySelectorAll('input.mkt-filter-checkbox:not([data-all])')];
+      if (target.dataset.all) {
+        itemChecks.forEach((cb) => { cb.checked = target.checked; });
+      }
+      const checkedValues = new Set(itemChecks.filter((cb) => cb.checked).map((cb) => cb.value));
+      [...select.options].forEach((option) => { option.selected = checkedValues.has(option.value); });
+      updateMktCheckFilterSummary(details);
+      return true;
+    }
+
+    function getMktSelectedFilterValues(selectId) {
+      const select = document.getElementById(selectId);
+      if (!select) return [];
+      const selected = [...select.selectedOptions].map((option) => option.value);
+      if (select.options.length > 0 && selected.length === 0) return ['__NONE__'];
+      return selected;
     }
 
     function captureAllMktFilterStates() {
@@ -2531,13 +3639,22 @@
     function saveMktFilterStatesToStorage(state) {
       if (!state) return;
       try {
-        sessionStorage.setItem(MKT_FILTER_PREFS_STORAGE_KEY, JSON.stringify(state));
+        const raw = JSON.stringify(state);
+        sessionStorage.setItem(MKT_FILTER_PREFS_STORAGE_KEY, raw);
+        sessionStorage.setItem(MKT_FILTER_PREFS_HCM_KEY, raw);
+        const shared = loadMktSharedUiState() || {};
+        shared.filters = state;
+        sessionStorage.setItem(MKT_SHARED_UI_STATE_KEY, JSON.stringify(shared));
       } catch (e) { /* ignore */ }
     }
 
     function loadMktFilterStatesFromStorage() {
       try {
-        const raw = sessionStorage.getItem(MKT_FILTER_PREFS_STORAGE_KEY);
+        const shared = loadMktSharedUiState();
+        if (shared?.filters) return shared.filters;
+        const raw =
+          sessionStorage.getItem(MKT_FILTER_PREFS_STORAGE_KEY) ||
+          sessionStorage.getItem(MKT_FILTER_PREFS_HCM_KEY);
         if (!raw) return null;
         return JSON.parse(raw);
       } catch (e) {
@@ -2550,6 +3667,18 @@
       saveMktFilterStatesToStorage(mktPersistedFilterStates);
     }
 
+    /** Nếu không còn giá trị giao với chi nhánh mới → coi như Tất cả. */
+    function normalizeTypeStateForOptions(typeState, availableValues) {
+      if (!typeState || typeState.all || typeState.selected == null) {
+        return typeState || { all: true, selected: null };
+      }
+      const avail = new Set(availableValues || []);
+      const selected = (typeState.selected || []).filter((v) => avail.has(v));
+      if (!selected.length) return { all: true, selected: null };
+      if (selected.length >= avail.size && avail.size > 0) return { all: true, selected: null };
+      return { all: false, selected };
+    }
+
     function restoreCheckboxFilterState(prefix, typeState) {
       if (!typeState) return;
       ['product', 'ca', 'team', 'market'].forEach((type) => {
@@ -2558,12 +3687,14 @@
         const allEl = document.getElementById(`${type}-all-${prefix}`);
         const checkboxes = document.querySelectorAll(`.filter-${type}-${prefix}`);
         if (!checkboxes.length) return;
-        if (ts.all || ts.selected == null) {
+        const available = Array.from(checkboxes).map((cb) => cb.value);
+        const norm = normalizeTypeStateForOptions(ts, available);
+        if (norm.all || norm.selected == null) {
           if (allEl) allEl.checked = true;
           checkboxes.forEach((cb) => { cb.checked = true; });
           return;
         }
-        const wanted = new Set(ts.selected || []);
+        const wanted = new Set(norm.selected || []);
         checkboxes.forEach((cb) => { cb.checked = wanted.has(cb.value); });
         if (allEl) allEl.checked = [...checkboxes].every((cb) => cb.checked);
       });
@@ -2572,12 +3703,16 @@
     function restoreSelectFilterState(id, typeState) {
       const el = document.getElementById(id);
       if (!el || !typeState || !el.options || el.options.length === 0) return;
-      if (typeState.all || typeState.selected == null) {
+      const available = Array.from(el.options).map((o) => o.value);
+      const norm = normalizeTypeStateForOptions(typeState, available);
+      if (norm.all || norm.selected == null) {
         Array.from(el.options).forEach((o) => { o.selected = true; });
+        renderMktCheckFilter(id);
         return;
       }
-      const wanted = new Set(typeState.selected || []);
+      const wanted = new Set(norm.selected || []);
       Array.from(el.options).forEach((o) => { o.selected = wanted.has(o.value); });
+      renderMktCheckFilter(id);
     }
 
     function restoreAllMktFilterStates(saved) {
@@ -2596,7 +3731,10 @@
       const visibleTab = Array.from(document.querySelectorAll('.tab-content'))
         .find((el) => el.style.display !== 'none');
       const tabId = visibleTab ? visibleTab.id : 'DetailedReport';
-      if (tabId === 'DetailedReport') applyTab1Filters({ immediate: true });
+      if (tabId === 'DetailedReport') {
+        applyTab1Filters({ immediate: true });
+        updateMktFilterDdCounts();
+      }
       else if (tabId === 'KpiReport') applyTab3Filters();
       else if (tabId === 'MarketReport') applyTab4Filters();
     }
@@ -2692,7 +3830,20 @@
       };
 
       ['tab1', 'tab3'].forEach((prefix) => {
-        const tabState = savedState ? savedState[prefix] : null;
+        const raw = savedState ? savedState[prefix] : null;
+        const marketAvail = [
+          ...Object.keys(MARKET_GROUPS),
+          ...Object.values(MARKET_GROUPS).flat(),
+          ...markets,
+        ];
+        const tabState = raw
+          ? {
+              product: normalizeTypeStateForOptions(raw.product, products),
+              ca: normalizeTypeStateForOptions(raw.ca, cas),
+              team: normalizeTypeStateForOptions(raw.team, teams),
+              market: normalizeTypeStateForOptions(raw.market, marketAvail),
+            }
+          : null;
         document.getElementById(`product-options-${prefix}`).innerHTML = createCheckboxes(
           products,
           `filter-product-${prefix}`,
@@ -2715,7 +3866,15 @@
         syncAllFlags(prefix, tabState);
       });
 
-      const mktState = savedState ? savedState.mkt : null;
+      const rawMkt = savedState ? savedState.mkt : null;
+      const mktState = rawMkt
+        ? {
+            product: normalizeTypeStateForOptions(rawMkt.product, products),
+            market: normalizeTypeStateForOptions(rawMkt.market, markets),
+            team: normalizeTypeStateForOptions(rawMkt.team, teams),
+            ca: normalizeTypeStateForOptions(rawMkt.ca, cas),
+          }
+        : null;
       const createOptions = (items, typeState) =>
         items
           .map((item) => {
@@ -2739,6 +3898,8 @@
         cas,
         mktState ? mktState.ca : null
       );
+      ['team-filter-mkt', 'ca-filter-mkt', 'market-filter-mkt', 'product-filter-mkt']
+        .forEach(renderMktCheckFilter);
     }
 
     // =================================================================================
@@ -2781,6 +3942,7 @@
       } else {
         renderDailyBreakdownPlaceholder(filteredData);
       }
+      syncDualHcmFilters();
     }
 
     function renderDailyBreakdownPlaceholder(filteredData) {
@@ -3127,7 +4289,8 @@
       let total = { cpqc: 0, dsChot: 0, soDonHuy: 0, doanhSoHuy: 0, dsSauShip: 0, dsThanhCong: 0, kpis: 0, dsChotThucTe: 0, soDonHuyThucTe: 0, dsHoanHuyThucTe: 0, dsSauHoanHuyThucTe: 0, dsThanhCongThucTe: 0 };
       const bodyRowsHtml = dataList.map((s, i) => {
         Object.keys(total).forEach(key => total[key] += s[key] || 0);
-        const cpds = s.dsSauShip ? s.cpqc / s.dsSauShip : 0, kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0, cpdsClass = cpds > 0.33 ? 'bg-yellow' : '';
+        const cpds = s.dsSauShip ? s.cpqc / s.dsSauShip : 0, kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0;
+        const cpdsClass = !isFinite(cpds) || cpds <= 0 ? 'bg-lightred' : (cpds > 0.33 ? 'bg-yellow' : '');
         return `<tr>
                 <td class="text-center">${i + 1}</td>
                 <td class="text-left">${s.team}</td>
@@ -3213,7 +4376,8 @@
       const avgOrderValue = data.soDonThucTe ? data.dsChotThucTe / data.soDonThucTe : 0;
       const closingRateThucTe = data.soMessCmt ? data.soDonThucTe / data.soMessCmt : 0;
 
-      const rateThucTeClass = closingRateThucTe > 0.1 ? 'bg-green' : (closingRateThucTe > 0.05 ? 'bg-yellow' : '');
+      const rateThucTeClass = closingRateThucTe > 0.1 ? 'bg-green' : (closingRateThucTe > 0.05 ? 'bg-yellow' : 'bg-lightred');
+      const costPercentClass = !isFinite(costPercent) || costPercent <= 0 ? 'bg-lightred' : (costPercent > 0.33 ? 'bg-yellow' : '');
       const isTotalRow = className.includes('total-row');
       const productCell = isTotalRow ? `<td class="total-label" colspan="2">${productName}</td>` : `<td class="text-left">${productName}</td>`;
       const marketCell = showMarket && !isTotalRow ? `<td class="text-left">${marketName}</td>` : (isTotalRow ? '' : '<td></td>');
@@ -3226,7 +4390,7 @@
             <td>${formatCurrency(data.dsChotThucTe)}</td>
             <td>${formatCurrency(data.dsHoanHuyThucTe)}</td>
             <td>${formatCurrency(dsSauHoanHuyThucTe)}</td>
-            <td class="text-center">${formatPercent(costPercent)}</td>
+            <td class="text-center ${costPercentClass}">${formatPercent(costPercent)}</td>
             <td>${formatCurrency(cps)}</td>
             <td>${formatCurrency(avgOrderValue)}</td>
             <td class="text-center ${rateThucTeClass}">${formatPercent(closingRateThucTe)}</td>
@@ -3326,10 +4490,11 @@
         const pd = s.don ? s.cpqc / s.don : 0;
         const pc = s.chot ? s.cpqc / s.chot : 0;
         const pdt = s.don ? s.chot / s.don : 0;
-        const rateClass = rate > 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : '');
-        const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : '');
+        const rateClass = rate > 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : 'bg-lightred');
+        const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : 'bg-lightred');
         const cpsClass = getCpsCellStyle(pd, selectedMarkets);
-        const cpdsClass = pc > 0.33 ? 'bg-yellow' : '';
+        // %CP/DS: >33% vàng; =0% (không DS / bất thường) đỏ
+        const cpdsClass = !isFinite(pc) || pc <= 0 ? 'bg-lightred' : (pc > 0.33 ? 'bg-yellow' : '');
         return `<tr>
                 <td class="text-center">${index + 1}</td>
                 <td class="text-left">${s.team}</td>
@@ -3372,9 +4537,16 @@
       // Phát cảnh báo KPI theo nhân sự (chỉ bảng tổng — tránh spam khi render theo ngày).
       if (!options.skipAlerts) {
         try {
+          const startEl = document.getElementById('start-date-tab1');
+          const endEl = document.getElementById('end-date-tab1');
+          window.__LUMI_MKT_ALERT_RANGE = {
+            from: String(startEl?.value || '').trim(),
+            to: String(endEl?.value || '').trim(),
+          };
           const dateLabel = String(window.__LUMI_MKT_ALERT_DATE_LABEL || '').trim() || 'Tổng hợp';
           const alerts = buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets);
           safePostMktAlerts(alerts);
+          setLocalMktAlerts(alerts);
         } catch {
           // ignore
         }
@@ -3514,6 +4686,7 @@
       await loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/chart.js');
       await loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels');
       if (typeof Chart === 'undefined') return;
+      Chart.defaults.font.family = "'Roboto', Arial, Helvetica, sans-serif";
       if (typeof ChartDataLabels !== 'undefined') {
         Chart.register(ChartDataLabels);
       }
@@ -3540,6 +4713,7 @@
             await ensureMarketReportCharts();
             applyTab4Filters();
           }
+          if (tabName === 'AlertReport') renderAlertTable();
         } catch (error) {
           console.error('Lỗi khi chuyển tab:', tabName, error);
         } finally {
@@ -3608,8 +4782,8 @@
           responsive: true, maintainAspectRatio: false, indexAxis: 'y',
           plugins: {
             legend: { display: false },
-            title: { display: true, text: chartTitle, font: { size: 16 } },
-            datalabels: { anchor: 'end', align: 'right', offset: 4, color: '#333', font: { weight: '600' }, formatter: formatPriceShort }
+            title: { display: true, text: chartTitle, font: { size: 16, family: "'Roboto', Arial, Helvetica, sans-serif" } },
+            datalabels: { anchor: 'end', align: 'right', offset: 4, color: '#333', font: { weight: '600', family: "'Roboto', Arial, Helvetica, sans-serif" }, formatter: formatPriceShort }
           },
           scales: { x: { display: false }, y: { grid: { display: false } } }
         }
@@ -3623,10 +4797,10 @@
           responsive: true, maintainAspectRatio: false,
           plugins: {
             legend: { position: 'bottom' },
-            title: { display: true, text: chartTitle, font: { size: 16 } },
+            title: { display: true, text: chartTitle, font: { size: 16, family: "'Roboto', Arial, Helvetica, sans-serif" } },
             tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${formatPercent(ctx.raw)}` } },
             datalabels: {
-              color: '#fff', font: { weight: 'bold' },
+              color: '#fff', font: { weight: 'bold', family: "'Roboto', Arial, Helvetica, sans-serif" },
               formatter: (value, ctx) => {
                 const total = ctx.chart.getDatasetMeta(0).total;
                 if (total === 0) return '0%';
@@ -3686,6 +4860,323 @@
     // --- XI. CẢNH BÁO KPI (postMessage → host React) ---
     // =================================================================================
     const LUMI_MKT_ALERTS_MSG_TYPE = 'LUMINEW_MKT_ALERTS';
+
+    // --- Cảnh báo hiển thị tại tab «Cảnh báo» (bảng) ---
+    window.__LUMI_MKT_LOCAL_ALERTS = window.__LUMI_MKT_LOCAL_ALERTS || [];
+    window.__LUMI_MKT_ALERT_RANGE = window.__LUMI_MKT_ALERT_RANGE || { from: '', to: '' };
+    const ALERT_SEVERITY_META = {
+      critical: { label: 'Nghiêm trọng', order: 0 },
+      warning: { label: 'Cảnh báo', order: 1 },
+      info: { label: 'Thông tin', order: 2 },
+    };
+    const ALERT_CONTENT_META = {
+      ti_le_chot: { label: 'Tỉ lệ chốt' },
+      cps: { label: 'CPS' },
+      cpds: { label: '%CP/DS' },
+      gia_mess: { label: 'Giá Mess' },
+    };
+
+    function ymdFromDateObj(d) {
+      if (!(d instanceof Date) || isNaN(d)) return '';
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function getTab1AlertDateRangeIso() {
+      const from = String(document.getElementById('start-date-tab1')?.value || '').trim();
+      const to = String(document.getElementById('end-date-tab1')?.value || '').trim();
+      return { from, to };
+    }
+
+    function getTab1AlertDateLabel() {
+      const { from, to } = getTab1AlertDateRangeIso();
+      const d0 = from ? parseYmdInputForMkt(from) : null;
+      const d1 = to ? parseYmdInputForMkt(to) : null;
+      if (d0 && d1) {
+        const a = formatDate(d0);
+        const b = formatDate(d1);
+        return a === b ? a : `${a} → ${b}`;
+      }
+      return 'Tổng hợp';
+    }
+
+    function syncAlertDateInputsFromTab1() {
+      const { from, to } = getTab1AlertDateRangeIso();
+      const fromEl = document.getElementById('alert-date-from');
+      const toEl = document.getElementById('alert-date-to');
+      if (fromEl && !fromEl.dataset.userTouched && from) fromEl.value = from;
+      if (toEl && !toEl.dataset.userTouched && to) toEl.value = to;
+    }
+
+    function setLocalMktAlerts(alerts) {
+      window.__LUMI_MKT_LOCAL_ALERTS = Array.isArray(alerts) ? alerts.slice() : [];
+      updateAlertTabBadge();
+      populateAlertFilterOptions();
+      syncAlertDateInputsFromTab1();
+      const tab = document.getElementById('AlertReport');
+      if (tab && tab.style.display !== 'none') renderAlertTable();
+    }
+
+    function updateAlertTabBadge() {
+      const badge = document.getElementById('alert-tab-badge');
+      if (!badge) return;
+      const n = (window.__LUMI_MKT_LOCAL_ALERTS || []).filter(
+        (a) => a && (a.severity === 'critical' || a.severity === 'warning')
+      ).length;
+      if (n > 0) {
+        badge.textContent = String(n);
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    function escapeAlertHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function getCheckedAlertValues(containerId, checkboxClass) {
+      const root = document.getElementById(containerId);
+      if (!root) return [];
+      return [...root.querySelectorAll(`input.${checkboxClass}:checked`)].map((cb) => cb.value);
+    }
+
+    function setAllAlertContentChecks(on) {
+      document.querySelectorAll('#alert-content-options input.alert-content-cb').forEach((cb) => {
+        cb.checked = !!on;
+      });
+    }
+
+    function setAllAlertStaffChecks(on) {
+      document.querySelectorAll('#alert-staff-options input.alert-staff-cb').forEach((cb) => {
+        cb.checked = !!on;
+      });
+    }
+
+    function updateAlertContentSummaryLabel() {
+      const el = document.getElementById('alert-content-summary');
+      if (!el) return;
+      const all = [...document.querySelectorAll('#alert-content-options input.alert-content-cb')];
+      const checked = all.filter((cb) => cb.checked);
+      if (!all.length || checked.length === 0 || checked.length === all.length) {
+        el.textContent = 'Tất cả nội dung';
+        return;
+      }
+      if (checked.length === 1) {
+        el.textContent = checked[0].dataset.label || checked[0].value;
+        return;
+      }
+      el.textContent = `${checked.length} nội dung`;
+    }
+
+    function updateAlertStaffSummaryLabel() {
+      const el = document.getElementById('alert-staff-summary');
+      if (!el) return;
+      const all = [...document.querySelectorAll('#alert-staff-options input.alert-staff-cb')];
+      const checked = all.filter((cb) => cb.checked);
+      if (!all.length || checked.length === 0 || checked.length === all.length) {
+        el.textContent = 'Tất cả nhân sự';
+        return;
+      }
+      if (checked.length === 1) {
+        el.textContent = checked[0].value;
+        return;
+      }
+      el.textContent = `${checked.length} nhân sự`;
+    }
+
+    function populateAlertFilterOptions() {
+      const all = Array.isArray(window.__LUMI_MKT_LOCAL_ALERTS) ? window.__LUMI_MKT_LOCAL_ALERTS : [];
+      const contentRoot = document.getElementById('alert-content-options');
+      const staffRoot = document.getElementById('alert-staff-options');
+
+      const prevContent = new Set(getCheckedAlertValues('alert-content-options', 'alert-content-cb'));
+      const prevStaff = new Set(getCheckedAlertValues('alert-staff-options', 'alert-staff-cb'));
+      const hadContentOpts = !!document.querySelector('#alert-content-options input.alert-content-cb');
+      const hadStaffOpts = !!document.querySelector('#alert-staff-options input.alert-staff-cb');
+
+      const metricKeys = [...new Set(all.map((a) => a?.metricKey).filter(Boolean))];
+      Object.keys(ALERT_CONTENT_META).forEach((k) => {
+        if (!metricKeys.includes(k) && all.some((a) => String(a?.content || '').includes(ALERT_CONTENT_META[k].label))) {
+          metricKeys.push(k);
+        }
+      });
+      // Luôn hiện đủ 4 loại nội dung để tick lọc
+      Object.keys(ALERT_CONTENT_META).forEach((k) => {
+        if (!metricKeys.includes(k)) metricKeys.push(k);
+      });
+
+      if (contentRoot) {
+        contentRoot.innerHTML = metricKeys
+          .map((key) => {
+            const label = (ALERT_CONTENT_META[key] && ALERT_CONTENT_META[key].label) || key;
+            const checked = !hadContentOpts || prevContent.size === 0 || prevContent.has(key);
+            return `<label><input type="checkbox" class="alert-content-cb" value="${escapeAlertHtml(key)}" data-label="${escapeAlertHtml(label)}"${checked ? ' checked' : ''}> ${escapeAlertHtml(label)}</label>`;
+          })
+          .join('');
+        updateAlertContentSummaryLabel();
+      }
+
+      const staffNames = [...new Set(all.map((a) => String(a?.employeeName || '').trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'vi'));
+      if (staffRoot) {
+        staffRoot.innerHTML = staffNames
+          .map((name) => {
+            const checked = !hadStaffOpts || prevStaff.size === 0 || prevStaff.has(name);
+            return `<label><input type="checkbox" class="alert-staff-cb" value="${escapeAlertHtml(name)}"${checked ? ' checked' : ''}> ${escapeAlertHtml(name)}</label>`;
+          })
+          .join('');
+        updateAlertStaffSummaryLabel();
+      }
+    }
+
+    function alertPassesDateFilter(a, fromYmd, toYmd) {
+      if (!fromYmd && !toYmd) return true;
+      const fromMs = fromYmd ? parseYmdInputForMkt(fromYmd)?.setHours(0, 0, 0, 0) : null;
+      const toMs = toYmd ? parseYmdInputForMkt(toYmd)?.setHours(23, 59, 59, 999) : null;
+      // Prefer single-day reportDateMs
+      const reportMs = Number(a?.reportDateMs);
+      if (Number.isFinite(reportMs) && reportMs > 0) {
+        if (fromMs != null && reportMs < fromMs) return false;
+        if (toMs != null && reportMs > toMs) return false;
+        return true;
+      }
+      // Range stored on alert (summary tổng hợp nhiều ngày)
+      const aFrom = String(a?.rangeFrom || '').trim();
+      const aTo = String(a?.rangeTo || '').trim();
+      if (aFrom || aTo) {
+        const aFromMs = aFrom ? parseYmdInputForMkt(aFrom)?.setHours(0, 0, 0, 0) : null;
+        const aToMs = aTo ? parseYmdInputForMkt(aTo)?.setHours(23, 59, 59, 999) : null;
+        if (fromMs != null && aToMs != null && aToMs < fromMs) return false;
+        if (toMs != null && aFromMs != null && aFromMs > toMs) return false;
+        return true;
+      }
+      // Parse dd/mm/yyyy label
+      const labelMs = parseDdMmYyyyToMs(a?.dateLabel);
+      if (labelMs != null) {
+        if (fromMs != null && labelMs < fromMs) return false;
+        if (toMs != null && labelMs > toMs) return false;
+        return true;
+      }
+      return true;
+    }
+
+    function getFilteredMktAlerts() {
+      const all = Array.isArray(window.__LUMI_MKT_LOCAL_ALERTS) ? window.__LUMI_MKT_LOCAL_ALERTS : [];
+      const severity = document.getElementById('alert-severity-filter')?.value || 'all';
+      const fromYmd = document.getElementById('alert-date-from')?.value || '';
+      const toYmd = document.getElementById('alert-date-to')?.value || '';
+
+      const contentCbs = [...document.querySelectorAll('#alert-content-options input.alert-content-cb')];
+      const contentChecked = contentCbs.filter((cb) => cb.checked).map((cb) => cb.value);
+      const contentFilterActive = contentCbs.length > 0 && contentChecked.length > 0 && contentChecked.length < contentCbs.length;
+
+      const staffCbs = [...document.querySelectorAll('#alert-staff-options input.alert-staff-cb')];
+      const staffChecked = new Set(staffCbs.filter((cb) => cb.checked).map((cb) => cb.value));
+      const staffFilterActive = staffCbs.length > 0 && staffChecked.size > 0 && staffChecked.size < staffCbs.length;
+
+      return all
+        .filter((a) => a && (severity === 'all' || a.severity === severity))
+        .filter((a) => alertPassesDateFilter(a, fromYmd, toYmd))
+        .filter((a) => {
+          if (!contentFilterActive) return true;
+          const key = String(a.metricKey || '').trim();
+          if (key) return contentChecked.includes(key);
+          // fallback: match label in content
+          return contentChecked.some((k) => {
+            const lab = ALERT_CONTENT_META[k]?.label || k;
+            return String(a.content || '').includes(lab);
+          });
+        })
+        .filter((a) => {
+          if (!staffFilterActive) return true;
+          return staffChecked.has(String(a.employeeName || '').trim());
+        })
+        .sort((a, b) => {
+          const oa = (ALERT_SEVERITY_META[a.severity] || {}).order ?? 9;
+          const ob = (ALERT_SEVERITY_META[b.severity] || {}).order ?? 9;
+          if (oa !== ob) return oa - ob;
+          return String(a.employeeName || '').localeCompare(String(b.employeeName || ''), 'vi');
+        });
+    }
+
+    function renderAlertTable() {
+      const tbody = document.getElementById('alert-table-body');
+      const countsEl = document.getElementById('alert-summary-counts');
+      const metricEl = document.getElementById('alert-metric-counts');
+      if (!tbody) return;
+
+      const all = Array.isArray(window.__LUMI_MKT_LOCAL_ALERTS) ? window.__LUMI_MKT_LOCAL_ALERTS : [];
+      const counts = { critical: 0, warning: 0, info: 0 };
+      all.forEach((a) => {
+        if (a && counts[a.severity] != null) counts[a.severity] += 1;
+      });
+      if (countsEl) {
+        countsEl.innerHTML =
+          `<span class="alert-count-pill critical">● Nghiêm trọng: ${counts.critical}</span>` +
+          `<span class="alert-count-pill warning">● Cảnh báo: ${counts.warning}</span>` +
+          `<span class="alert-count-pill info">● Thông tin: ${counts.info}</span>`;
+      }
+
+      const rows = getFilteredMktAlerts();
+
+      // Bộ đếm DS / CPQC: 1 lần / nhân sự trong kết quả lọc
+      const byStaff = new Map();
+      rows.forEach((a) => {
+        const name = String(a.employeeName || '').trim();
+        if (!name) return;
+        if (!byStaff.has(name)) {
+          byStaff.set(name, {
+            chot: Number(a.chot) || 0,
+            cpqc: Number(a.cpqc) || 0,
+          });
+        }
+      });
+      let sumChot = 0;
+      let sumCpqc = 0;
+      byStaff.forEach((v) => {
+        sumChot += v.chot;
+        sumCpqc += v.cpqc;
+      });
+      if (metricEl) {
+        metricEl.innerHTML =
+          `<span class="alert-metric-pill">Số cảnh báo: <strong>${formatNumber(rows.length)}</strong></span>` +
+          `<span class="alert-metric-pill">Nhân sự: <strong>${formatNumber(byStaff.size)}</strong></span>` +
+          `<span class="alert-metric-pill">Doanh số: <strong>${formatCurrency(sumChot)}</strong></span>` +
+          `<span class="alert-metric-pill">CPQC: <strong>${formatCurrency(sumCpqc)}</strong></span>`;
+      }
+
+      if (rows.length === 0) {
+        tbody.innerHTML =
+          '<tr><td colspan="9" class="alert-empty">Không có cảnh báo phù hợp bộ lọc.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rows
+        .map((a) => {
+          const sev = a.severity || 'info';
+          const meta = ALERT_SEVERITY_META[sev] || { label: sev };
+          const rowCls = sev === 'critical' ? 'row-critical' : sev === 'warning' ? 'row-warning' : '';
+          const metricKey = String(a.metricKey || '').trim();
+          const metricLabel = (ALERT_CONTENT_META[metricKey] && ALERT_CONTENT_META[metricKey].label) || metricKey || 'KPI';
+          return `<tr class="${rowCls}">
+            <td>${escapeAlertHtml(a.dateLabel || '')}</td>
+            <td>${escapeAlertHtml(a.employeeName || '')}</td>
+            <td>${escapeAlertHtml(a.team || '')}</td>
+            <td><span class="alert-badge metric">${escapeAlertHtml(metricLabel)}</span></td>
+            <td><span class="alert-badge ${sev}">${escapeAlertHtml(meta.label)}</span></td>
+            <td>${escapeAlertHtml(a.content || '')}</td>
+            <td>${escapeAlertHtml(a.cause || '')}</td>
+            <td>${formatCurrency(a.chot)}</td>
+            <td>${formatCurrency(a.cpqc)}</td>
+          </tr>`;
+        })
+        .join('');
+    }
+
     function safePostMktAlerts(alerts) {
       try {
         const payload = {
@@ -3715,7 +5206,15 @@
     function buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets) {
       const alerts = [];
       const now = Date.now();
-      const reportDateMs = parseDdMmYyyyToMs(dateLabel);
+      const range = window.__LUMI_MKT_ALERT_RANGE || getTab1AlertDateRangeIso();
+      const rangeFrom = String(range.from || '').trim();
+      const rangeTo = String(range.to || '').trim();
+      // Nếu khoảng 1 ngày → gắn reportDateMs để lọc ngày chính xác
+      let reportDateMs = parseDdMmYyyyToMs(dateLabel);
+      if (reportDateMs == null && rangeFrom && rangeFrom === rangeTo) {
+        const d = parseYmdInputForMkt(rangeFrom);
+        reportDateMs = d ? d.getTime() : null;
+      }
       (dataList || []).forEach((s) => {
         const employeeName = String(s?.name || '').trim();
         const team = String(s?.team || '').trim();
@@ -3735,42 +5234,44 @@
         const cps = donForRate ? cpqc / donForRate : 0;
         const cpds = chot ? cpqc / chot : 0;
 
+        const baseMetrics = {
+          dateLabel,
+          reportDateMs,
+          rangeFrom,
+          rangeTo,
+          employeeName,
+          team,
+          cpqc,
+          chot,
+          ts: now,
+        };
+
         if (tiLeChotVal <= 0.05) {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'ti_le_chot_tt', 'critical']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'ti_le_chot',
             content: `${tiLeChotLabel} thấp: ${formatPercent(tiLeChotVal)}`,
             cause: 'Ngưỡng cảnh báo: <= 5%',
             severity: 'critical',
           });
         } else if (tiLeChotVal <= 0.1) {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'ti_le_chot_tt', 'warning']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'ti_le_chot',
             content: `${tiLeChotLabel} chạm ngưỡng: ${formatPercent(tiLeChotVal)}`,
             cause: 'Ngưỡng theo bảng: 5%–10%',
             severity: 'warning',
           });
         }
 
-        // CPS: theo logic đỏ/vàng (phụ thuộc nhóm thị trường)
         const cpsClass = getCpsCellStyle(cps, selectedMarkets || []);
         if (cpsClass === 'bg-lightred') {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'cps', 'critical']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'cps',
             content: `CPS vượt ngưỡng đỏ: ${formatCurrency(cps)}`,
             cause:
               'Ngưỡng CPS đỏ theo nhóm thị trường (Châu Á > 1,000,000 hoặc Ngoài Châu Á > 1,500,000)',
@@ -3778,12 +5279,9 @@
           });
         } else if (cpsClass === 'bg-yellow') {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'cps', 'warning']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'cps',
             content: `CPS chạm ngưỡng: ${formatCurrency(cps)}`,
             cause:
               'Ngưỡng CPS vàng theo nhóm thị trường (Châu Á > 700,000 hoặc Ngoài Châu Á > 1,000,000)',
@@ -3791,31 +5289,31 @@
           });
         }
 
-        // %CP/DS: theo logic tô vàng (> 33%)
-        if (cpds > 0.33) {
+        if (!isFinite(cpds) || cpds <= 0) {
           alerts.push({
+            ...baseMetrics,
+            id: buildAlertId([dateLabel, employeeName, 'cpds', 'critical']),
+            metricKey: 'cpds',
+            content: `%CP/DS = 0%: ${formatPercent(cpds)}`,
+            cause: 'Không có doanh số chốt hoặc CP/DS bất thường (= 0%) — cần kiểm tra',
+            severity: 'critical',
+          });
+        } else if (cpds > 0.33) {
+          alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'cpds', 'warning']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'cpds',
             content: `%CP/DS cao: ${formatPercent(cpds)}`,
             cause: 'Ngưỡng theo bảng: > 33%',
             severity: 'warning',
           });
         }
 
-        // Giá Mess: hiện bảng chưa có màu ngưỡng rõ ràng → vẫn gửi cảnh báo dạng thông tin nếu quá cao
-        // (Tránh bịa ngưỡng; chỉ gửi nếu dữ liệu dị thường để hỗ trợ kiểm tra)
         if (giaMess > 0 && giaMess >= 2e6) {
           alerts.push({
+            ...baseMetrics,
             id: buildAlertId([dateLabel, employeeName, 'gia_mess', 'info']),
-            ts: now,
-            dateLabel,
-            reportDateMs,
-            employeeName,
-            team,
+            metricKey: 'gia_mess',
             content: `Giá Mess cao bất thường: ${formatCurrency(giaMess)}`,
             cause: 'Kiểm tra lại Mess/Cmt hoặc CPQC (ngưỡng kỹ thuật >= 2,000,000)',
             severity: 'info',
@@ -3824,7 +5322,8 @@
       });
       return alerts;
     }
-    function getCpsCellStyle(cps, selectedMarkets) {
+
+        function getCpsCellStyle(cps, selectedMarkets) {
       const hasAsia = selectedMarkets.some(m => m === 'Châu Á' || MARKET_GROUPS['Châu Á'].includes(m));
       const hasNonAsia = selectedMarkets.some(m => m === 'Ngoài Châu Á' || MARKET_GROUPS['Ngoài Châu Á'].includes(m));
       if (hasAsia && !hasNonAsia && selectedMarkets.length > 0) {

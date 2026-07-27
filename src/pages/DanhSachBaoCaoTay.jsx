@@ -314,6 +314,9 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
 
     const [loading, setLoading] = useState(true);
     const [manualReports, setManualReports] = useState([]);
+    // Rows that passed permission filtering but have not been filtered by Sale team.
+    // Team sync must include rows with an empty/incorrect team so it can repair them.
+    const [reportsBeforeSaleTeamFilter, setReportsBeforeSaleTeamFilter] = useState([]);
     const [filters, setFilters] = useState({
         startDate: '',
         endDate: '',
@@ -666,6 +669,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                 !isHcm && Array.isArray(filteredByPermission)
                     ? filteredByPermission.filter((row) => passesSaleManualAllowedTeam(row))
                     : filteredByPermission;
+            setReportsBeforeSaleTeamFilter(filteredByPermission || []);
             setManualReports(saleTeamFiltered);
         } catch (error) {
             console.error('Error fetching manual reports:', error);
@@ -1252,6 +1256,31 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         return rows;
     }, [manualReports, filters.personnel, staffTableSearch]);
 
+    const reportsForTeamSync = useMemo(() => {
+        let rows = reportsBeforeSaleTeamFilter || [];
+        const selected = filters.personnel || [];
+        if (selected.length > 0) {
+            const selectedCanon = selected
+                .map((name) => canonicalPersonName(name))
+                .filter(Boolean);
+            rows = rows.filter((item) => {
+                const rowName = canonicalPersonName(item?.name || '');
+                if (!rowName) return false;
+                return selectedCanon.some(
+                    (allowedName) =>
+                        rowName === allowedName ||
+                        rowName.includes(allowedName) ||
+                        allowedName.includes(rowName)
+                );
+            });
+        }
+        const q = staffTableSearch.trim().toLowerCase();
+        if (q) {
+            rows = rows.filter((item) => String(item?.name || '').toLowerCase().includes(q));
+        }
+        return rows;
+    }, [reportsBeforeSaleTeamFilter, filters.personnel, staffTableSearch]);
+
     /** Ghi các dòng đang hiển thị (sau bộ lọc ngày / SP / TT / nhân sự / ô tìm tên) vào sales_reports_backup. Trùng id → ghi đè bản trong backup. */
     const handleBackupFilteredToSalesReportsBackup = useCallback(async () => {
         const rows = reportsAfterPersonnelFilter;
@@ -1313,7 +1342,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         ) {
             return;
         }
-        const rows = reportsAfterPersonnelFilter;
+        const rows = reportsForTeamSync;
         if (!rows.length) {
             toast.warn('Không có dữ liệu trong khoảng đã lọc.');
             return;
@@ -1383,7 +1412,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         } finally {
             setTeamSyncing(false);
         }
-    }, [reportsAfterPersonnelFilter, fetchData, normalizeNameForUserTeamLookup, reportTable]);
+    }, [reportsForTeamSync, fetchData, normalizeNameForUserTeamLookup, reportTable]);
 
     /**
      * Gộp team «CSKH-Lý» / «CSKH- Lý» → CSKH-HN trên sales_reports, users
@@ -1895,7 +1924,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                     <button
                                         type="button"
                                         onClick={handleSyncTeamFromUsers}
-                                        disabled={teamSyncing || loading || reportsAfterPersonnelFilter.length === 0}
+                                        disabled={teamSyncing || loading || reportsForTeamSync.length === 0}
                                         className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md text-sm font-bold transition shadow-sm"
                                         title="Cập nhật Team & Chi nhánh trên các dòng đang hiển thị theo bảng users (name / username)"
                                     >

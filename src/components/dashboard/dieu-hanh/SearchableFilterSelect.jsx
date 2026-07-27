@@ -40,7 +40,10 @@ export default function SearchableFilterSelect({
   const inputRef = useRef(null);
 
   const normalizedOptions = useMemo(() => {
-    const rows = [{ value: allValue, label: allLabel }];
+    const rows = [];
+    if (allLabel != null && allLabel !== '') {
+      rows.push({ value: allValue, label: allLabel });
+    }
     (options || []).forEach((option) => {
       const nextValue = optionValue(option);
       if (!nextValue || nextValue === allValue) return;
