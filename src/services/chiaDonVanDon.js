@@ -388,6 +388,52 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             }
         }
 
+        // Bước 5.2: Bảng order_code_hcm = phạm vi HCM.
+        // Đơn trên bảng này nhưng team lệch (vd. "Hà Nội") sẽ bị skip khi branchFilter=HCM
+        // (chỉ chia bucket HCM) và cũng không vào phiên Hà Nội (query bảng orders) → mất đơn.
+        if (ordersTable === 'order_code_hcm') {
+            addLog('📋 Bước 5.2: Chuẩn hoá team=HCM cho đơn trên bảng order_code_hcm', 'info');
+            const hcmTeamFixes = [];
+            for (const order of ordersArray) {
+                const key = normalizeBranchKey(order.team);
+                if (key !== 'HCM') {
+                    hcmTeamFixes.push({
+                        order_code: order.order_code,
+                        from: order.team == null || String(order.team).trim() === '' ? '(trống)' : String(order.team).trim(),
+                    });
+                    order.team = 'HCM';
+                }
+            }
+            // Đồng bộ allOrdersArray (carry-over / đếm) nếu cùng mã
+            if (hcmTeamFixes.length > 0) {
+                const fixSet = new Set(hcmTeamFixes.map((x) => String(x.order_code || '').trim().toLowerCase()));
+                allOrdersArray.forEach((o) => {
+                    const oc = String(o?.order_code || '').trim().toLowerCase();
+                    if (fixSet.has(oc) && normalizeBranchKey(o.team) !== 'HCM') o.team = 'HCM';
+                });
+                addLog(
+                    `⚠️ Có ${hcmTeamFixes.length} đơn trên order_code_hcm team lệch → ép team=HCM: ${hcmTeamFixes
+                        .slice(0, 15)
+                        .map((x) => `${x.order_code} (was ${x.from})`)
+                        .join(', ')}${hcmTeamFixes.length > 15 ? '…' : ''}`,
+                    'warning'
+                );
+                console.warn('⚠️ [Chia đơn vận đơn] Ép team=HCM trên order_code_hcm:', hcmTeamFixes);
+                const CHUNK_SIZE = 50;
+                for (let i = 0; i < hcmTeamFixes.length; i += CHUNK_SIZE) {
+                    const chunk = hcmTeamFixes.slice(i, i + CHUNK_SIZE);
+                    await Promise.all(
+                        chunk.map((u) =>
+                            supabase.from(ordersTable).update({ team: 'HCM' }).eq('order_code', u.order_code)
+                        )
+                    );
+                }
+                addLog(`✅ Đã cập nhật team=HCM cho ${hcmTeamFixes.length} đơn trên order_code_hcm`, 'success');
+            } else {
+                addLog('✅ Không có đơn order_code_hcm nào bị lệch team', 'success');
+            }
+        }
+
         // Phân loại đơn theo Team (đơn Nhật Bản đã được loại trừ ở bước trước)
         addLog('📋 Bước 6: Phân loại đơn theo team (HCM/Hà Nội)', 'info');
         const ordersHCM = [];
@@ -436,6 +482,13 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             }
 
             // KHÔNG cần kiểm tra Nhật Bản nữa vì đã loại trừ ở bước trước
+
+            // Phiên HCM đọc order_code_hcm: mọi đơn cần chia thuộc bucket HCM (đã chuẩn hoá ở 5.2).
+            // Tránh case team="Hà Nội" trên bảng HCM → vào ordersHaNoi rồi bị skip vì branchFilter=HCM.
+            if (ordersTable === 'order_code_hcm') {
+                ordersHCM.push(order);
+                return;
+            }
 
             const teamKey = normalizeBranchKey(teamRaw);
             

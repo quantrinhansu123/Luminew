@@ -343,9 +343,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   // Đồng bộ bill / cước tách riêng: mỗi bên có mốc thời gian để ẩn bản ghi đã sync khỏi view
   const [lastBillSyncTime, setLastBillSyncTime] = useState(null);
   const [lastCuocSyncTime, setLastCuocSyncTime] = useState(null);
-  // Lọc theo ngày cho các tab "đã tải lên": 'sync' = Ngày đồng bộ (synced_at) | 'reconcile' = Ngày đối soát (ngay_doi_soat / ngay_doi_soat_cuoc)
-  const [billUploadedDateType, setBillUploadedDateType] = useState('sync');
-  const [cuocUploadedDateType, setCuocUploadedDateType] = useState('sync');
+  // Lọc theo ngày đồng bộ (synced_at) cho các tab "đã tải lên"
   const [billUploadedSyncDateFrom, setBillUploadedSyncDateFrom] = useState('');
   const [billUploadedSyncDateTo, setBillUploadedSyncDateTo] = useState('');
   const [cuocUploadedSyncDateFrom, setCuocUploadedSyncDateFrom] = useState('');
@@ -368,8 +366,6 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     syncDateTo: '',
     minSameMaCount: '',
   });
-  // Loại ngày cho khoảng "Ngày ... từ/đến" trong Bộ lọc dữ liệu: 'sync' = Ngày đồng bộ | 'reconcile' = Ngày đối soát
-  const [tableFilterDateType, setTableFilterDateType] = useState('sync');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [compareUploading, setCompareUploading] = useState(false);
@@ -404,6 +400,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [showBulkDropdown, setShowBulkDropdown] = useState(false);
   const [editingHistoryRows, setEditingHistoryRows] = useState(new Set());
   const [historyActionLoading, setHistoryActionLoading] = useState(false);
+  const [bulkDeletingRows, setBulkDeletingRows] = useState(false);
   const [historyActionRowId, setHistoryActionRowId] = useState(null);
   const [rowContextMenu, setRowContextMenu] = useState(null); // { x, y, row }
   const accountantOptions = ["", "Đã thu tiền", "Chưa thu tiền", "Treo", "Hủy", "Khác"];
@@ -1053,12 +1050,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         };
       });
       const filteredByDate = rows.filter((r) => {
-        const ymd =
-          billUploadedDateType === 'reconcile'
-            ? parseExcelDateToISO(r?.ngay_doi_soat) || ''
-            : r?.synced_at
-              ? String(r.synced_at).slice(0, 10)
-              : '';
+        const ymd = r?.synced_at ? String(r.synced_at).slice(0, 10) : '';
         if (billUploadedSyncDateFrom && (!ymd || ymd < billUploadedSyncDateFrom)) return false;
         if (billUploadedSyncDateTo && (!ymd || ymd > billUploadedSyncDateTo)) return false;
         if ((billUploadedSyncDateFrom || billUploadedSyncDateTo) && !ymd) return false;
@@ -1191,12 +1183,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         };
       });
       const filteredByDate = rows.filter((r) => {
-        const ymd =
-          cuocUploadedDateType === 'reconcile'
-            ? parseExcelDateToISO(r?.ngay_doi_soat_cuoc) || ''
-            : r?.synced_at
-              ? String(r.synced_at).slice(0, 10)
-              : '';
+        const ymd = r?.synced_at ? String(r.synced_at).slice(0, 10) : '';
         if (cuocUploadedSyncDateFrom && (!ymd || ymd < cuocUploadedSyncDateFrom)) return false;
         if (cuocUploadedSyncDateTo && (!ymd || ymd > cuocUploadedSyncDateTo)) return false;
         if ((cuocUploadedSyncDateFrom || cuocUploadedSyncDateTo) && !ymd) return false;
@@ -1296,8 +1283,6 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     }
   }, [
     activeTab,
-    billUploadedDateType,
-    cuocUploadedDateType,
     billUploadedSyncDateFrom,
     billUploadedSyncDateTo,
     cuocUploadedSyncDateFrom,
@@ -1487,7 +1472,6 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       syncDateTo: '',
       minSameMaCount: '',
     });
-    setTableFilterDateType('sync');
     setCurrentPage(1);
   };
 
@@ -1608,14 +1592,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       }
 
       if (syncDf || syncDt) {
-        const ymd =
-          tableFilterDateType === 'reconcile'
-            ? parseExcelDateToISO(
-                getEffectiveFilterValue(row, isBillTab ? 'ngay_doi_soat' : 'ngay_doi_soat_cuoc')
-              ) || ''
-            : row?.synced_at
-              ? String(row.synced_at).slice(0, 10)
-              : '';
+        const ymd = row?.synced_at ? String(row.synced_at).slice(0, 10) : '';
         if (syncDf && (!ymd || ymd < syncDf)) return false;
         if (syncDt && (!ymd || ymd > syncDt)) return false;
         if ((syncDf || syncDt) && !ymd) return false;
@@ -1678,8 +1655,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
   // Mouse handlers for selection
   const isViewOnlyTab = activeTab === 'bill_view' || activeTab === 'cuoc_view';
-  const hasTableSelectionColumn =
-    activeTab === 'bill' || activeTab === 'cuoc' || activeTab === 'bill_view' || activeTab === 'cuoc_view';
+  const hasTableSelectionColumn = activeTab === 'bill' || activeTab === 'bill_view' || activeTab === 'cuoc_view';
   const handleMouseDown = useCallback((rowIndex, colIndex, e) => {
     if (e.button !== 0) return;
     const target = e.target;
@@ -4838,19 +4814,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
             return (
               <div className="flex flex-wrap items-start gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mt-2">
                 <div className="flex items-center gap-2">
-                  <select
-                    value={activeTab === 'bill_view' ? billUploadedDateType : cuocUploadedDateType}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (activeTab === 'bill_view') setBillUploadedDateType(v);
-                      else setCuocUploadedDateType(v);
-                    }}
-                    className="bg-white border border-gray-200 rounded-lg px-2 py-2 text-xs font-bold text-gray-700 shadow-sm outline-none cursor-pointer"
-                    title="Chọn loại ngày để lọc"
-                  >
-                    <option value="sync">Ngày đồng bộ</option>
-                    <option value="reconcile">Ngày Đối soát</option>
-                  </select>
+                  <span className="text-xs font-bold text-gray-700">Ngày đồng bộ</span>
                   <input
                     type="date"
                     value={
@@ -4886,8 +4850,6 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 <button
                   type="button"
                   onClick={() => {
-                    setBillUploadedDateType('sync');
-                    setCuocUploadedDateType('sync');
                     setBillUploadedSyncDateFrom('');
                     setBillUploadedSyncDateTo('');
                     setCuocUploadedSyncDateFrom('');
@@ -5022,25 +4984,9 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                     </label>
                   )}
 
-                  <div className="grid grid-cols-1 gap-2 md:col-span-2 xl:col-span-2 sm:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-2 md:col-span-2 xl:col-span-2">
                     <label className="flex flex-col gap-1">
-                      <span className="text-[11px] font-semibold text-slate-600">Loại ngày</span>
-                      <select
-                        value={tableFilterDateType}
-                        onChange={(e) => {
-                          setTableFilterDateType(e.target.value);
-                          setCurrentPage(1);
-                        }}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                      >
-                        <option value="sync">Ngày đồng bộ</option>
-                        <option value="reconcile">Ngày Đối soát</option>
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] font-semibold text-slate-600">
-                        {tableFilterDateType === 'reconcile' ? 'Ngày đối soát từ' : 'Ngày đồng bộ từ'}
-                      </span>
+                      <span className="text-[11px] font-semibold text-slate-600">Ngày đồng bộ từ</span>
                       <input
                         type="date"
                         value={tableFilters.syncDateFrom}
@@ -5049,9 +4995,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                       />
                     </label>
                     <label className="flex flex-col gap-1">
-                      <span className="text-[11px] font-semibold text-slate-600">
-                        {tableFilterDateType === 'reconcile' ? 'Ngày đối soát đến' : 'Ngày đồng bộ đến'}
-                      </span>
+                      <span className="text-[11px] font-semibold text-slate-600">Ngày đồng bộ đến</span>
                       <input
                         type="date"
                         value={tableFilters.syncDateTo}

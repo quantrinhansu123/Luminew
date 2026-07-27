@@ -21,6 +21,7 @@ import DashboardShell from '../components/dashboard/dieu-hanh/DashboardShell';
 import DepartmentTab from '../components/dashboard/dieu-hanh/DepartmentTab';
 import IndividualTab from '../components/dashboard/dieu-hanh/IndividualTab';
 import { isExecutiveDashboardAudience } from '../utils/executiveAccess';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -104,6 +105,8 @@ function useDashboardAllowed() {
 
 export default function DashboardDieuHanh() {
   const { allowed, loading: allowedLoading } = useDashboardAllowed();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialPeriod = useMemo(() => initialPeriodRange(), []);
   const [periodMode, setPeriodMode] = useState('month');
   const [periodKey, setPeriodKey] = useState(initialPeriod.key);
@@ -115,8 +118,34 @@ export default function DashboardDieuHanh() {
   const [department, setDepartment] = useState('all');
   const [team, setTeam] = useState('all');
   const [person, setPerson] = useState('all');
-  const [activeTab, setActiveTab] = useState('company');
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(
+    tabFromUrl === 'department' || tabFromUrl === 'individual' || tabFromUrl === 'company'
+      ? tabFromUrl
+      : 'company'
+  );
   const periodOptions = useMemo(() => (periodMode === 'week' ? buildWeekOptions() : buildMonthOptions()), [periodMode]);
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'mkt') {
+      navigate('/xem-bao-cao-mkt-hn-hcm', { replace: true });
+    }
+  }, [searchParams, navigate]);
+
+  useEffect(() => {
+    const next = searchParams.get('tab');
+    if (next === 'department' || next === 'individual' || next === 'company') {
+      setActiveTab(next);
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (value) => {
+    setActiveTab(value);
+    const next = new URLSearchParams(searchParams);
+    if (value === 'company') next.delete('tab');
+    else next.set('tab', value);
+    setSearchParams(next, { replace: true });
+  };
 
   useEffect(() => {
     if (periodOptions.some((item) => item.value === periodKey)) return;
@@ -222,7 +251,7 @@ export default function DashboardDieuHanh() {
         onReload: data.reload,
       }}
     >
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         <TabsList className="lumi-tabs-list flex h-auto w-full justify-start overflow-x-auto border-b border-[#e2eaf4]">
           <TabsTrigger value="company" className="lumi-tab">
             <Building2 className="h-3.5 w-3.5" />

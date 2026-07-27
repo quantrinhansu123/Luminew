@@ -68,6 +68,7 @@ import BaoCaoCeo from './pages/BaoCaoCeo';
 import XemBaoCaoMKTLegacy from './pages/XemBaoCaoMKTLegacy';
 import XemBaoCaoMKTHcm from './pages/XemBaoCaoMKTHcm';
 import XemBaoCaoMKTRnD from './pages/XemBaoCaoMKTRnD';
+import XemBaoCaoMktHnHcm from './pages/XemBaoCaoMktHnHcm';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import MktKpiAlertsAdmin from './pages/MktKpiAlertsAdmin';
 import TestMKT from './pages/TestMKT.jsx';
@@ -293,6 +294,14 @@ function AppShell() {
               element={
                 <ProtectedRoute>
                   <XemBaoCaoMKTHcm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/xem-bao-cao-mkt-hn-hcm"
+              element={
+                <ProtectedRoute>
+                  <XemBaoCaoMktHnHcm />
                 </ProtectedRoute>
               }
             />

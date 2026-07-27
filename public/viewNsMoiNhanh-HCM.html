@@ -230,6 +230,224 @@
 
     .main-content-area {
       flex-grow: 1;
+      min-width: 0;
+    }
+
+    body.mkt-table-only {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+    }
+
+    body.mkt-table-only .tab-container {
+      display: none !important;
+    }
+
+    body.mkt-table-only table th,
+    body.mkt-table-only table td {
+      padding: 3px 5px;
+      font-size: 10.5px;
+      line-height: 1.25;
+    }
+
+    body.mkt-table-only table th {
+      font-size: 10px;
+    }
+
+    body.mkt-table-only tr.total-row {
+      font-size: 1em;
+    }
+
+    body.mkt-table-only .sidebar {
+      display: none !important;
+    }
+
+    body.mkt-table-only .report-container {
+      display: block;
+      gap: 0;
+    }
+
+    body.mkt-table-only .header {
+      display: none !important;
+    }
+
+    body.mkt-table-only #daily-breakdown {
+      display: none !important;
+    }
+
+    body.mkt-table-only #DetailedReport {
+      display: block !important;
+      padding: 0;
+    }
+
+    body.mkt-table-only .table-responsive-container {
+      margin: 0;
+    }
+
+    body.mkt-table-only #loading-overlay {
+      font-size: 14px;
+    }
+
+    /* Thanh bộ lọc ngang + 1 bảng (view HN+HCM combined) */
+    body.mkt-dual-mode {
+      margin: 0;
+      padding: 8px;
+      background: #f4f7fb;
+    }
+
+    body.mkt-dual-mode .report-container {
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    body.mkt-dual-mode .sidebar {
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 12px;
+      padding: 10px 12px;
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+
+    body.mkt-dual-mode .sidebar > h3:first-of-type {
+      width: 100%;
+      margin: 0 0 2px;
+      padding: 6px 10px;
+      font-size: 14px;
+      border-radius: 6px;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd {
+      position: relative;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd > h3 {
+      margin: 0;
+      padding: 5px 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      white-space: nowrap;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      user-select: none;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd > h3::after {
+      content: '\25BE';
+      font-size: 9px;
+      opacity: .85;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd.open > h3::after {
+      content: '\25B4';
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-count {
+      display: none;
+      min-width: 14px;
+      padding: 0 5px;
+      background: rgba(255, 255, 255, 0.28);
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-count:not(:empty) {
+      display: inline-block;
+    }
+
+    body.mkt-dual-mode .sidebar > label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin: 0;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    body.mkt-dual-mode .sidebar input[type="date"],
+    body.mkt-dual-mode .sidebar select {
+      width: auto;
+      min-width: 132px;
+      margin: 0;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-panel {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      z-index: 60;
+      margin-top: 4px;
+      min-width: 220px;
+      max-width: 320px;
+      max-height: 280px;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, .14);
+      padding: 8px 10px;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd.open .mkt-filter-dd-panel {
+      display: block;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-panel > label {
+      display: block;
+      margin: 0 0 6px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-panel > div[id$="-options-tab1"] {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin: 0;
+      padding: 0;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd-panel > div[id$="-options-tab1"] label {
+      margin: 0;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    body.mkt-dual-mode .mkt-filter-dd .indent {
+      margin-left: 0;
+    }
+
+    body.mkt-dual-mode .main-content-area {
+      width: 100%;
+    }
+
+    body.mkt-dual-mode .tab-container {
+      display: none !important;
+    }
+
+    body.mkt-dual-mode #summary-table th,
+    body.mkt-dual-mode #summary-table td {
+      padding: 3px 5px;
+      font-size: 10.5px;
+      line-height: 1.25;
+    }
+
+    body.mkt-dual-mode #summary-table th {
+      font-size: 10px;
     }
 
     .header {
@@ -482,6 +700,11 @@
     <div class="report-container">
       <div class="sidebar">
         <h3>Bộ lọc</h3>
+        <label for="mkt-branch-select-tab1">Chi nhánh:</label>
+        <select id="mkt-branch-select-tab1" title="Hà Nội = detail_reports · HCM = marketing_report_hcm">
+          <option value="hn">Hà Nội</option>
+          <option value="hcm" selected>HCM</option>
+        </select>
         <label for="quick-date-select-tab1">Chọn nhanh:</label>
         <select id="quick-date-select-tab1">
           <option value="">-- Chọn nhanh --</option>
@@ -518,18 +741,34 @@
         </select>
         <label for="start-date-tab1">Từ ngày:</label><input type="date" id="start-date-tab1">
         <label for="end-date-tab1">Đến ngày:</label><input type="date" id="end-date-tab1">
-        <h3>Sản phẩm</h3>
-        <label><input type="checkbox" id="product-all-tab1" checked> Tất cả</label>
-        <div id="product-options-tab1" class="indent"></div>
-        <h3>Ca</h3>
-        <label><input type="checkbox" id="ca-all-tab1" checked> Tất cả</label>
-        <div id="ca-options-tab1" class="indent"></div>
-        <h3>Team</h3>
-        <label><input type="checkbox" id="team-all-tab1" checked> Tất cả</label>
-        <div id="team-options-tab1" class="indent"></div>
-        <h3>Thị trường</h3>
-        <label><input type="checkbox" id="market-all-tab1" checked> Tất cả</label>
-        <div id="market-options-tab1"></div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="product">
+          <h3>Sản phẩm<span class="mkt-filter-dd-count" id="product-count-tab1"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="product-all-tab1" checked> Tất cả</label>
+            <div id="product-options-tab1" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="ca">
+          <h3>Ca<span class="mkt-filter-dd-count" id="ca-count-tab1"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="ca-all-tab1" checked> Tất cả</label>
+            <div id="ca-options-tab1" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="team">
+          <h3>Team<span class="mkt-filter-dd-count" id="team-count-tab1"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="team-all-tab1" checked> Tất cả</label>
+            <div id="team-options-tab1" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="market">
+          <h3>Thị trường<span class="mkt-filter-dd-count" id="market-count-tab1"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="market-all-tab1" checked> Tất cả</label>
+            <div id="market-options-tab1"></div>
+          </div>
+        </div>
       </div>
       <div class="main-content-area">
         <div class="header">
@@ -834,6 +1073,275 @@
     /** Phạm vi nhân sự: React ghi localStorage + sessionStorage; iframe còn nhận qua postMessage (sessionStorage iframe ≠ parent). */
     const MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
     const MKT_EMPTY_ROW_ID = '00000000-0000-0000-0000-000000000000';
+    const MKT_BRANCH_PAGE = {
+      hn: '/viewNsMoiNhanh.html',
+      hcm: '/viewNsMoiNhanh-HCM.html',
+    };
+    const MKT_HCM_DEFAULT_TEAM = 'MKT - Đức Anh';
+    /** Bộ lọc + ngày + tab dùng chung khi đổi chi nhánh (HN ↔ HCM). */
+    const MKT_SHARED_UI_STATE_KEY = 'luminew.mktReport.sharedUiState';
+    const MKT_FILTER_PREFS_HN_KEY = 'luminew.mktReport.filterPrefs';
+    const MKT_FILTER_PREFS_HCM_KEY = 'luminew.mktReportHcm.filterPrefs';
+    const MKT_DUAL_FILTER_MSG = 'MKT_DUAL_FILTER_SYNC';
+    const MKT_TABLE_ONLY = (() => {
+      try {
+        return new URLSearchParams(window.location.search).get('tableOnly') === '1';
+      } catch (e) {
+        return false;
+      }
+    })();
+    const MKT_DUAL_MODE = (() => {
+      try {
+        const qp = new URLSearchParams(window.location.search);
+        return qp.get('dual') === '1' || qp.get('topBar') === '1';
+      } catch (e) {
+        return false;
+      }
+    })();
+    let mktPersistedFilterStates = null;
+
+    function getMktInputValue(id) {
+      return String(document.getElementById(id)?.value || '').trim();
+    }
+
+    function initMktFilterDropdowns() {
+      const groups = Array.from(document.querySelectorAll('.mkt-filter-dd'));
+      if (!groups.length) return;
+      groups.forEach((group) => {
+        const trigger = group.querySelector(':scope > h3');
+        if (!trigger) return;
+        trigger.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const wasOpen = group.classList.contains('open');
+          groups.forEach((g) => g.classList.remove('open'));
+          if (!wasOpen) group.classList.add('open');
+        });
+      });
+      document.addEventListener('click', (e) => {
+        if (e.target.closest('.mkt-filter-dd')) return;
+        groups.forEach((g) => g.classList.remove('open'));
+      });
+    }
+
+    function updateMktFilterDdCounts() {
+      const groups = [
+        { all: 'product-all-tab1', cls: 'filter-product-tab1', count: 'product-count-tab1' },
+        { all: 'ca-all-tab1', cls: 'filter-ca-tab1', count: 'ca-count-tab1' },
+        { all: 'team-all-tab1', cls: 'filter-team-tab1', count: 'team-count-tab1' },
+        { all: 'market-all-tab1', cls: 'filter-market-tab1', count: 'market-count-tab1' },
+      ];
+      groups.forEach(({ all, cls, count }) => {
+        const countEl = document.getElementById(count);
+        if (!countEl) return;
+        const allEl = document.getElementById(all);
+        const boxes = Array.from(document.querySelectorAll(`.${cls}`));
+        if (!boxes.length) {
+          countEl.textContent = '';
+          return;
+        }
+        const checked = boxes.filter((cb) => cb.checked).length;
+        const isAll = allEl?.checked || checked === boxes.length;
+        countEl.textContent = isAll ? '' : String(checked);
+      });
+    }
+
+    function initMktDualMode() {
+      if (!MKT_DUAL_MODE) return;
+      document.body.classList.add('mkt-dual-mode');
+      const filterTitle = document.querySelector('#DetailedReport .sidebar > h3');
+      if (filterTitle) filterTitle.textContent = 'Bộ lọc';
+      initMktFilterDropdowns();
+      updateMktFilterDdCounts();
+    }
+
+    function applyMktDualFilterSync(payload) {
+      if (!payload) return;
+      const prevStart = getMktInputValue('start-date-tab1');
+      const prevEnd = getMktInputValue('end-date-tab1');
+      const nextStart = String(payload.start || '').trim();
+      const nextEnd = String(payload.end || '').trim();
+      const dateChanged =
+        /^\d{4}-\d{2}-\d{2}$/.test(nextStart) &&
+        /^\d{4}-\d{2}-\d{2}$/.test(nextEnd) &&
+        (nextStart !== prevStart || nextEnd !== prevEnd);
+
+      if (/^\d{4}-\d{2}-\d{2}$/.test(nextStart) && /^\d{4}-\d{2}-\d{2}$/.test(nextEnd)) {
+        ['start-date-tab1', 'start-date-tab3', 'start-date-mkt'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.value = nextStart;
+        });
+        ['end-date-tab1', 'end-date-tab3', 'end-date-mkt'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.value = nextEnd;
+        });
+      }
+      if (payload.quick) {
+        const q = document.getElementById('quick-date-select-tab1');
+        if (q) q.value = payload.quick;
+      }
+      if (payload.filters) {
+        mktPersistedFilterStates = payload.filters;
+        if (typeof saveMktFilterStatesToStorage === 'function') {
+          saveMktFilterStatesToStorage(payload.filters);
+        }
+      }
+      if (dateChanged && typeof fetchAndProcessData === 'function') {
+        fetchAndProcessData();
+        return;
+      }
+      if (
+        payload.filters &&
+        document.querySelector('.filter-product-tab1') &&
+        typeof restoreAllMktFilterStates === 'function'
+      ) {
+        restoreAllMktFilterStates(payload.filters);
+        if (typeof applyFiltersForVisibleTab === 'function') applyFiltersForVisibleTab();
+        else if (typeof applyTab1Filters === 'function') applyTab1Filters();
+      }
+    }
+
+    function getMktActiveTabId() {
+      const visibleTab = Array.from(document.querySelectorAll('.tab-content')).find(
+        (el) => el.style.display !== 'none'
+      );
+      return visibleTab?.id || 'DetailedReport';
+    }
+
+    function persistMktSharedUiStateBeforeBranchSwitch() {
+      try {
+        if (typeof persistMktFilterStatesFromDom === 'function') persistMktFilterStatesFromDom();
+        const filters =
+          (typeof captureAllMktFilterStates === 'function' && captureAllMktFilterStates()) ||
+          null;
+        const state = {
+          filters,
+          dates: {
+            startTab1: getMktInputValue('start-date-tab1'),
+            endTab1: getMktInputValue('end-date-tab1'),
+            startTab3: getMktInputValue('start-date-tab3'),
+            endTab3: getMktInputValue('end-date-tab3'),
+            startMkt: getMktInputValue('start-date-mkt'),
+            endMkt: getMktInputValue('end-date-mkt'),
+          },
+          quick: {
+            tab1: getMktInputValue('quick-date-select-tab1'),
+            tab3: getMktInputValue('quick-date-select-tab3'),
+            mkt: getMktInputValue('quick-date-mkt'),
+          },
+          activeTab: getMktActiveTabId(),
+        };
+        sessionStorage.setItem(MKT_SHARED_UI_STATE_KEY, JSON.stringify(state));
+        if (filters) {
+          const raw = JSON.stringify(filters);
+          sessionStorage.setItem(MKT_FILTER_PREFS_HN_KEY, raw);
+          sessionStorage.setItem(MKT_FILTER_PREFS_HCM_KEY, raw);
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    function loadMktSharedUiState() {
+      try {
+        const raw = sessionStorage.getItem(MKT_SHARED_UI_STATE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function applyMktSharedDatesAndQuickSelects() {
+      const shared = loadMktSharedUiState();
+      if (!shared) return;
+      const dateMap = {
+        'start-date-tab1': shared.dates?.startTab1,
+        'end-date-tab1': shared.dates?.endTab1,
+        'start-date-tab3': shared.dates?.startTab3,
+        'end-date-tab3': shared.dates?.endTab3,
+        'start-date-mkt': shared.dates?.startMkt,
+        'end-date-mkt': shared.dates?.endMkt,
+      };
+      Object.entries(dateMap).forEach(([id, val]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(val || ''))) return;
+        const el = document.getElementById(id);
+        if (el) el.value = val;
+      });
+      const quickMap = {
+        'quick-date-select-tab1': shared.quick?.tab1,
+        'quick-date-select-tab3': shared.quick?.tab3,
+        'quick-date-mkt': shared.quick?.mkt,
+      };
+      Object.entries(quickMap).forEach(([id, val]) => {
+        if (!val) return;
+        const el = document.getElementById(id);
+        if (el) el.value = val;
+      });
+    }
+
+    function restoreMktActiveTabFromShared() {
+      let tabId = '';
+      try {
+        tabId = String(new URLSearchParams(window.location.search).get('tab') || '').trim();
+      } catch (e) { /* ignore */ }
+      if (!tabId) tabId = String(loadMktSharedUiState()?.activeTab || '').trim();
+      if (!tabId || tabId === 'DetailedReport') return;
+      const btn = Array.from(document.querySelectorAll('.tablinks')).find((el) => {
+        const onclickAttr = el.getAttribute('onclick') || '';
+        return onclickAttr.includes(`'${tabId}'`) || onclickAttr.includes(`"${tabId}"`);
+      });
+      if (btn) {
+        try {
+          btn.click();
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    /** Chuyển HN ↔ HCM (giữ ngày, tab, bộ lọc SP/ca/team/thị trường). */
+    function navigateMktBranch(nextBranch) {
+      const target = nextBranch === 'hcm' ? 'hcm' : 'hn';
+      persistMktSharedUiStateBeforeBranchSwitch();
+      const qs = new URLSearchParams();
+      const start =
+        getMktInputValue('start-date-tab1') ||
+        getMktInputValue('start-date-mkt') ||
+        '';
+      const end =
+        getMktInputValue('end-date-tab1') ||
+        getMktInputValue('end-date-mkt') ||
+        '';
+      try {
+        const cur = new URLSearchParams(window.location.search);
+        // Ưu tiên ô ngày đang chọn trên UI, không lấy dashboard_* cũ trên URL.
+        const dashFrom = start || String(cur.get('dashboard_from') || '').trim();
+        const dashTo = end || String(cur.get('dashboard_to') || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dashFrom)) qs.set('dashboard_from', dashFrom);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dashTo)) qs.set('dashboard_to', dashTo);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(start)) qs.set('start', start);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(end)) qs.set('end', end);
+        const activeTab = getMktActiveTabId();
+        if (activeTab) qs.set('tab', activeTab);
+        if (cur.get('dual') === '1') qs.set('dual', '1');
+        if (cur.get('topBar') === '1') qs.set('topBar', '1');
+        if (target === 'hcm') qs.append('allowedTeams', MKT_HCM_DEFAULT_TEAM);
+      } catch (e) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(start)) qs.set('dashboard_from', start);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(end)) qs.set('dashboard_to', end);
+        if (target === 'hcm') qs.append('allowedTeams', MKT_HCM_DEFAULT_TEAM);
+      }
+      const url = `${MKT_BRANCH_PAGE[target]}?${qs.toString()}`;
+      window.location.replace(url);
+    }
+
+    function wireMktBranchSelect(currentBranch) {
+      const el = document.getElementById('mkt-branch-select-tab1');
+      if (!el) return;
+      el.value = currentBranch === 'hcm' ? 'hcm' : 'hn';
+      el.addEventListener('change', () => {
+        const next = el.value === 'hcm' ? 'hcm' : 'hn';
+        if (next === currentBranch) return;
+        if (typeof showLoader === 'function') showLoader();
+        navigateMktBranch(next);
+      });
+    }
 
     function parseMktHcmScopePayload(o) {
       if (!o || o.v !== 1) return { skipPersonnelFilter: false, allowedNames: [] };
@@ -1488,6 +1996,10 @@
     window.addEventListener('message', (ev) => {
       if (!ev || ev.origin !== window.location.origin) return;
       const d = ev.data;
+      if (d && d.type === MKT_DUAL_FILTER_MSG && d.v === 1) {
+        applyMktDualFilterSync(d);
+        return;
+      }
       if (
         !d ||
         d.source !== 'luminew-host' ||
@@ -1645,6 +2157,12 @@
       // Đăng ký plugin datalabels trên toàn cục
       Chart.register(ChartDataLabels);
 
+      if (MKT_TABLE_ONLY) {
+        document.body.classList.add('mkt-table-only');
+      }
+      initMktDualMode();
+
+      wireMktBranchSelect('hcm');
       setupEventListeners();
       setDefaultDates();
       initMarketReportCharts(); // KHỞI TẠO BIỂU ĐỒ MKT
@@ -1666,21 +2184,49 @@
       }
 
       document.getElementById("defaultOpen").click();
+      restoreMktActiveTabFromShared();
     });
 
-    /** Mặc định 2 ngày (hôm qua → hôm nay): ít dòng hơn cả tháng, tải nhanh; local date (tránh lệch TZ). */
+    /** Mặc định 2 ngày (hôm qua → hôm nay); ưu tiên ngày từ URL / shared state khi đổi chi nhánh. */
     function setDefaultDates() {
-      const now = new Date();
-      const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const yesterdayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
       const formatDateForInput = (date) => {
         const y = date.getFullYear();
         const m = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
       };
-      const startVal = formatDateForInput(yesterdayLocal);
-      const endVal = formatDateForInput(todayLocal);
+      let startVal;
+      let endVal;
+      try {
+        const qp = new URLSearchParams(window.location.search);
+        const qStart = String(qp.get('start') || '').trim();
+        const qEnd = String(qp.get('end') || '').trim();
+        const qFrom = String(qp.get('dashboard_from') || '').trim();
+        const qTo = String(qp.get('dashboard_to') || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(qStart) && /^\d{4}-\d{2}-\d{2}$/.test(qEnd)) {
+          startVal = qStart;
+          endVal = qEnd;
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(qFrom) && /^\d{4}-\d{2}-\d{2}$/.test(qTo)) {
+          startVal = qFrom;
+          endVal = qTo;
+        }
+      } catch (e) { /* ignore */ }
+      if (!startVal || !endVal) {
+        const shared = loadMktSharedUiState();
+        const s = shared?.dates?.startTab1 || shared?.dates?.startMkt;
+        const e = shared?.dates?.endTab1 || shared?.dates?.endMkt;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(e || ''))) {
+          startVal = s;
+          endVal = e;
+        }
+      }
+      if (!startVal || !endVal) {
+        const now = new Date();
+        const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const yesterdayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        startVal = formatDateForInput(yesterdayLocal);
+        endVal = formatDateForInput(todayLocal);
+      }
 
       const dateInputs = [
         'start-date-tab1', 'end-date-tab1',
@@ -1693,6 +2239,7 @@
         if (!el) return;
         el.value = id.startsWith('start-') ? startVal : endVal;
       });
+      applyMktSharedDatesAndQuickSelects();
     }
 
     function setupEventListeners() {
@@ -1908,11 +2455,13 @@
         );
 
         setupInitialReportView();
-        populateAllFilters(savedFilters);
-        restoreAllMktFilterStates(savedFilters);
-        mktPersistedFilterStates = savedFilters;
-        saveMktFilterStatesToStorage(savedFilters);
+        const filtersToApply = mktPersistedFilterStates || savedFilters;
+        populateAllFilters(filtersToApply);
+        restoreAllMktFilterStates(filtersToApply);
+        mktPersistedFilterStates = filtersToApply;
+        saveMktFilterStatesToStorage(filtersToApply);
         applyFiltersForVisibleTab();
+        if (typeof updateMktFilterDdCounts === 'function') updateMktFilterDdCounts();
       } catch (err) {
         console.error("Lỗi tải dữ liệu:", err);
         alert('Không thể tải dữ liệu từ Supabase (marketing_report_hcm). Vui lòng kiểm tra mạng, RLS (SELECT) và khóa anon.');
@@ -1957,6 +2506,7 @@
       handleCheckbox('market-all-tab1', 'filter-market-tab1', target);
       applyTab1Filters();
       persistMktFilterStatesFromDom();
+      if (typeof updateMktFilterDdCounts === 'function') updateMktFilterDdCounts();
     }
 
     function handleTab3Filters(target) {
@@ -2155,9 +2705,8 @@
       return filteredDataResult;
     }
 
-    /** Lưu / khôi phục bộ lọc checkbox & select khi đổi ngày (tải lại báo cáo). */
-    const MKT_FILTER_PREFS_STORAGE_KEY = 'luminew.mktReportHcm.filterPrefs';
-    let mktPersistedFilterStates = null;
+    /** Lưu / khôi phục bộ lọc checkbox & select khi đổi ngày / đổi chi nhánh. */
+    const MKT_FILTER_PREFS_STORAGE_KEY = MKT_FILTER_PREFS_HCM_KEY;
     let mktLastFilterOptionsKey = '';
 
     function escapeFilterAttr(s) {
@@ -2216,13 +2765,22 @@
     function saveMktFilterStatesToStorage(state) {
       if (!state) return;
       try {
-        sessionStorage.setItem(MKT_FILTER_PREFS_STORAGE_KEY, JSON.stringify(state));
+        const raw = JSON.stringify(state);
+        sessionStorage.setItem(MKT_FILTER_PREFS_STORAGE_KEY, raw);
+        sessionStorage.setItem(MKT_FILTER_PREFS_HN_KEY, raw);
+        const shared = loadMktSharedUiState() || {};
+        shared.filters = state;
+        sessionStorage.setItem(MKT_SHARED_UI_STATE_KEY, JSON.stringify(shared));
       } catch (e) { /* ignore */ }
     }
 
     function loadMktFilterStatesFromStorage() {
       try {
-        const raw = sessionStorage.getItem(MKT_FILTER_PREFS_STORAGE_KEY);
+        const shared = loadMktSharedUiState();
+        if (shared?.filters) return shared.filters;
+        const raw =
+          sessionStorage.getItem(MKT_FILTER_PREFS_STORAGE_KEY) ||
+          sessionStorage.getItem(MKT_FILTER_PREFS_HN_KEY);
         if (!raw) return null;
         return JSON.parse(raw);
       } catch (e) {
@@ -2235,6 +2793,18 @@
       saveMktFilterStatesToStorage(mktPersistedFilterStates);
     }
 
+    /** Nếu không còn giá trị giao với chi nhánh mới → coi như Tất cả. */
+    function normalizeTypeStateForOptions(typeState, availableValues) {
+      if (!typeState || typeState.all || typeState.selected == null) {
+        return typeState || { all: true, selected: null };
+      }
+      const avail = new Set(availableValues || []);
+      const selected = (typeState.selected || []).filter((v) => avail.has(v));
+      if (!selected.length) return { all: true, selected: null };
+      if (selected.length >= avail.size && avail.size > 0) return { all: true, selected: null };
+      return { all: false, selected };
+    }
+
     function restoreCheckboxFilterState(prefix, typeState) {
       if (!typeState) return;
       ['product', 'ca', 'team', 'market'].forEach((type) => {
@@ -2243,12 +2813,14 @@
         const allEl = document.getElementById(`${type}-all-${prefix}`);
         const checkboxes = document.querySelectorAll(`.filter-${type}-${prefix}`);
         if (!checkboxes.length) return;
-        if (ts.all || ts.selected == null) {
+        const available = Array.from(checkboxes).map((cb) => cb.value);
+        const norm = normalizeTypeStateForOptions(ts, available);
+        if (norm.all || norm.selected == null) {
           if (allEl) allEl.checked = true;
           checkboxes.forEach((cb) => { cb.checked = true; });
           return;
         }
-        const wanted = new Set(ts.selected || []);
+        const wanted = new Set(norm.selected || []);
         checkboxes.forEach((cb) => { cb.checked = wanted.has(cb.value); });
         if (allEl) allEl.checked = [...checkboxes].every((cb) => cb.checked);
       });
@@ -2257,11 +2829,13 @@
     function restoreSelectFilterState(id, typeState) {
       const el = document.getElementById(id);
       if (!el || !typeState || !el.options || el.options.length === 0) return;
-      if (typeState.all || typeState.selected == null) {
+      const available = Array.from(el.options).map((o) => o.value);
+      const norm = normalizeTypeStateForOptions(typeState, available);
+      if (norm.all || norm.selected == null) {
         Array.from(el.options).forEach((o) => { o.selected = true; });
         return;
       }
-      const wanted = new Set(typeState.selected || []);
+      const wanted = new Set(norm.selected || []);
       Array.from(el.options).forEach((o) => { o.selected = wanted.has(o.value); });
     }
 
@@ -2377,7 +2951,20 @@
       };
 
       ['tab1', 'tab3'].forEach((prefix) => {
-        const tabState = savedState ? savedState[prefix] : null;
+        const raw = savedState ? savedState[prefix] : null;
+        const marketAvail = [
+          ...Object.keys(MARKET_GROUPS),
+          ...Object.values(MARKET_GROUPS).flat(),
+          ...markets,
+        ];
+        const tabState = raw
+          ? {
+              product: normalizeTypeStateForOptions(raw.product, products),
+              ca: normalizeTypeStateForOptions(raw.ca, cas),
+              team: normalizeTypeStateForOptions(raw.team, teams),
+              market: normalizeTypeStateForOptions(raw.market, marketAvail),
+            }
+          : null;
         document.getElementById(`product-options-${prefix}`).innerHTML = createCheckboxes(
           products,
           `filter-product-${prefix}`,
@@ -2400,7 +2987,15 @@
         syncAllFlags(prefix, tabState);
       });
 
-      const mktState = savedState ? savedState.mkt : null;
+      const rawMkt = savedState ? savedState.mkt : null;
+      const mktState = rawMkt
+        ? {
+            product: normalizeTypeStateForOptions(rawMkt.product, products),
+            market: normalizeTypeStateForOptions(rawMkt.market, markets),
+            team: normalizeTypeStateForOptions(rawMkt.team, teams),
+            ca: normalizeTypeStateForOptions(rawMkt.ca, cas),
+          }
+        : null;
       const createOptions = (items, typeState) =>
         items
           .map((item) => {
@@ -2955,7 +3550,7 @@
         const cpds =
             s.dsChot > 0 ? s.cpqc / s.dsChot : s.dsSauShip ? s.cpqc / s.dsSauShip : 0;
         const kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0;
-        const cpdsClass = cpds > 0.33 ? 'bg-yellow' : '';
+        const cpdsClass = !isFinite(cpds) || cpds <= 0 ? 'bg-lightred' : (cpds > 0.33 ? 'bg-yellow' : '');
         return `<tr>
                 <td class="text-center">${i + 1}</td>
                 <td class="text-left">${s.team}</td>
@@ -3167,10 +3762,10 @@
         const pd = s.don ? s.cpqc / s.don : 0;
         const pc = s.chot ? s.cpqc / s.chot : 0;
         const pdt = s.don ? s.chot / s.don : 0;
-        const rateClass = rate > 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : '');
-        const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : '');
+        const rateClass = rate > 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : 'bg-lightred');
+        const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : 'bg-lightred');
         const cpsClass = getCpsCellStyle(pd, selectedMarkets);
-        const cpdsClass = pc > 0.33 ? 'bg-yellow' : '';
+        const cpdsClass = !isFinite(pc) || pc <= 0 ? 'bg-lightred' : (pc > 0.33 ? 'bg-yellow' : '');
         return `<tr>
                 <td class="text-center">${index + 1}</td>
                 <td class="text-left">${s.team}</td>
@@ -3585,7 +4180,19 @@
           });
         }
 
-        if (cpds > 0.33) {
+        if (!isFinite(cpds) || cpds <= 0) {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'cpds', 'critical']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `%CP/DS = 0%: ${formatPercent(cpds)}`,
+            cause: 'Không có doanh số chốt hoặc CP/DS bất thường (= 0%) — cần kiểm tra',
+            severity: 'critical',
+          });
+        } else if (cpds > 0.33) {
           alerts.push({
             id: buildAlertId([dateLabel, employeeName, 'cpds', 'warning']),
             ts: now,
