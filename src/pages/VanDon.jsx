@@ -6023,21 +6023,6 @@ function VanDon({ dataSource = 'default' }) {
                   />
                 </div>
               </div>
-              <div className="flex items-center gap-1 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200 shrink-0" title="NV Vận đơn">
-                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚚</span>
-                <div className="relative" style={{ minWidth: '168px', zIndex: 999 }}>
-                  <MultiSelect
-                    compact
-                    menuMinWidth={320}
-                    label="Chọn NV Vận đơn..."
-                    options={getFilterMultiSelectOptions('NV Vận đơn')}
-                    selected={filterValues.nv_van_don || []}
-                    onChange={(vals) => {
-                      setFilterValues((prev) => ({ ...prev, nv_van_don: vals }));
-                    }}
-                  />
-                </div>
-              </div>
               <div className="flex items-center gap-1 bg-orange-50 px-1.5 py-0.5 rounded-md border border-orange-200 shrink-0" title="Chi nhánh (Team)">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🏢</span>
                 <div className="relative" style={{ minWidth: '140px', zIndex: 998 }}>
