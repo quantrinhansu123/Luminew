@@ -288,6 +288,20 @@
       font-size: 14px;
     }
 
+    /* Trang HN/HCM riêng: không hiện Chi nhánh. Chỉ hiện ở view tổng hợp (?dual=1). */
+    label[for="mkt-branch-select-tab1"],
+    #mkt-branch-select-tab1 {
+      display: none !important;
+    }
+
+    body.mkt-dual-mode label[for="mkt-branch-select-tab1"] {
+      display: inline-flex !important;
+    }
+
+    body.mkt-dual-mode #mkt-branch-select-tab1 {
+      display: inline-block !important;
+    }
+
     /* Thanh bộ lọc ngang + 1 bảng (view HN+HCM combined) */
     body.mkt-dual-mode {
       margin: 0;
@@ -1332,6 +1346,7 @@
     }
 
     function wireMktBranchSelect(currentBranch) {
+      if (!MKT_DUAL_MODE) return;
       const el = document.getElementById('mkt-branch-select-tab1');
       if (!el) return;
       el.value = currentBranch === 'hcm' ? 'hcm' : 'hn';
