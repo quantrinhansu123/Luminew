@@ -690,6 +690,119 @@
         grid-template-columns: 1fr;
       }
     }
+
+    .mkt-staff-link {
+      color: #1565c0;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      text-align: left;
+    }
+
+    .mkt-staff-link:hover {
+      color: #0d47a1;
+    }
+
+    #mkt-staff-detail-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10050;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    #mkt-staff-detail-modal.open {
+      display: flex;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-panel {
+      position: relative;
+      z-index: 1;
+      width: min(1920px, 98vw);
+      max-height: min(92vh, 1800px);
+      overflow: auto;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+      padding: 20px 22px 22px;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-head h3 {
+      margin: 0;
+      font-size: 1.35rem;
+      color: #1b4b1b;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-sub {
+      margin: 4px 0 0;
+      font-size: 15px;
+      color: #555;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-close {
+      flex-shrink: 0;
+      border: none;
+      background: #eee;
+      color: #333;
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      font-size: 21px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    #mkt-staff-detail-modal .mkt-staff-detail-close:hover {
+      background: #ddd;
+    }
+
+    #mkt-staff-detail-modal table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 15px;
+    }
+
+    #mkt-staff-detail-modal th,
+    #mkt-staff-detail-modal td {
+      border: 1px solid #ddd;
+      padding: 8px 10px;
+    }
+
+    #mkt-staff-detail-modal thead th {
+      background: #2d7c2d;
+      color: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    #mkt-staff-detail-modal td.mkt-staff-product-merged {
+      vertical-align: middle;
+      font-weight: 600;
+      background: #f3faf3;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
@@ -697,6 +810,19 @@
 
 <body>
   <div id="loading-overlay">Đang tải dữ liệu...</div>
+  <div id="mkt-staff-detail-modal" role="dialog" aria-modal="true" aria-labelledby="mkt-staff-detail-title" hidden>
+    <div class="mkt-staff-detail-backdrop" data-mkt-staff-detail-close="1"></div>
+    <div class="mkt-staff-detail-panel">
+      <div class="mkt-staff-detail-head">
+        <div>
+          <h3 id="mkt-staff-detail-title">Chi tiết nhân viên</h3>
+          <p id="mkt-staff-detail-sub" class="mkt-staff-detail-sub"></p>
+        </div>
+        <button type="button" class="mkt-staff-detail-close" data-mkt-staff-detail-close="1" aria-label="Đóng">×</button>
+      </div>
+      <div id="mkt-staff-detail-body"></div>
+    </div>
+  </div>
   <div class="tab-container">
     <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
@@ -2286,9 +2412,36 @@
       document.getElementById('summary-table').querySelector('thead').addEventListener('click', (e) => sortTable(e, 'summary'));
       document.getElementById('kpi-summary-table').querySelector('thead').addEventListener('click', (e) => sortTable(e, 'kpi'));
       document.getElementById('daily-breakdown').addEventListener('click', (e) => {
+        const staffBtn = e.target.closest('[data-mkt-staff-name]');
+        if (staffBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          openStaffProductMarketModal(staffBtn.getAttribute('data-mkt-staff-name'));
+          return;
+        }
         if (e.target.closest('th')) {
           sortTable(e, 'daily');
         }
+      });
+      const summaryBody = document.getElementById('summary-body');
+      if (summaryBody) {
+        summaryBody.addEventListener('click', (e) => {
+          const staffBtn = e.target.closest('[data-mkt-staff-name]');
+          if (!staffBtn) return;
+          e.preventDefault();
+          openStaffProductMarketModal(staffBtn.getAttribute('data-mkt-staff-name'));
+        });
+      }
+      const staffModal = document.getElementById('mkt-staff-detail-modal');
+      if (staffModal) {
+        staffModal.addEventListener('click', (e) => {
+          if (e.target.closest('[data-mkt-staff-detail-close]')) {
+            closeStaffProductMarketModal();
+          }
+        });
+      }
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeStaffProductMarketModal();
       });
     }
 
@@ -2730,6 +2883,201 @@
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;')
         .replace(/</g, '&lt;');
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function buildStaffProductMarketBreakdown(staffName, filteredRows) {
+      const nameKey = normalizeNameForKey(staffName);
+      const rows = (filteredRows || []).filter(
+        (r) => normalizeNameForKey(r.ten) === nameKey
+      );
+      const groups = {};
+      const seenTtByGroup = {};
+      rows.forEach((r) => {
+        const product = String(r.sanPham || '').trim() || 'Chưa xác định';
+        const market = String(r.thiTruong || '').trim() || 'Không xác định';
+        const gKey = `${normalizeNameForKey(product)}||${normalizeNameForKey(market)}`;
+        if (!groups[gKey]) {
+          groups[gKey] = {
+            product,
+            market,
+            mess: 0,
+            don: 0,
+            chot: 0,
+            cpqc: 0,
+            donThucTe: 0,
+            chotThucTe: 0,
+          };
+          seenTtByGroup[gKey] = new Set();
+        }
+        const G = groups[gKey];
+        G.mess += Number(r.soMessCmt) || 0;
+        G.cpqc += Number(r.cpqc) || 0;
+        G.don += Number(r.soDon) || 0;
+        G.chot += Number(r.dsChot) || 0;
+        const detailKey = mktDetailRowKeyForTotals(r);
+        if (!seenTtByGroup[gKey].has(detailKey)) {
+          seenTtByGroup[gKey].add(detailKey);
+          G.donThucTe += Number(r.soDonThucTe) || 0;
+          G.chotThucTe += Number(r.dsChotThucTe) || 0;
+        }
+      });
+      const list = Object.values(groups).sort((a, b) => {
+        const p = String(a.product).localeCompare(String(b.product), 'vi');
+        if (p !== 0) return p;
+        return String(a.market).localeCompare(String(b.market), 'vi');
+      });
+      return { rows: list, sourceRowCount: rows.length };
+    }
+
+    function closeStaffProductMarketModal() {
+      const modal = document.getElementById('mkt-staff-detail-modal');
+      if (!modal) return;
+      modal.classList.remove('open');
+      modal.hidden = true;
+    }
+
+    function openStaffProductMarketModal(staffName) {
+      const name = String(staffName || '').trim();
+      if (!name) return;
+      const modal = document.getElementById('mkt-staff-detail-modal');
+      const bodyEl = document.getElementById('mkt-staff-detail-body');
+      const titleEl = document.getElementById('mkt-staff-detail-title');
+      const subEl = document.getElementById('mkt-staff-detail-sub');
+      if (!modal || !bodyEl) return;
+
+      const filteredData = getFilteredData('tab1');
+      const { rows, sourceRowCount } = buildStaffProductMarketBreakdown(name, filteredData);
+      const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map((cb) => cb.value);
+      const d0 = document.getElementById('start-date-tab1')?.value || '';
+      const d1 = document.getElementById('end-date-tab1')?.value || '';
+      const startD = d0 ? parseYmdInputForMkt(d0) : null;
+      const endD = d1 ? parseYmdInputForMkt(d1) : null;
+      const dateLabel =
+        startD && endD
+          ? `${formatDate(startD)} → ${formatDate(endD)}`
+          : d0 && d1
+            ? `${d0} → ${d1}`
+            : '';
+
+      if (titleEl) titleEl.textContent = `Chi tiết: ${name}`;
+      if (subEl) {
+        const uniqueProducts = new Set(rows.map((r) => normalizeNameForKey(r.product))).size;
+        subEl.textContent = [
+          dateLabel ? `Khoảng ngày: ${dateLabel}` : '',
+          `Theo bộ lọc hiện tại · ${formatNumber(sourceRowCount)} dòng gốc · ${formatNumber(uniqueProducts)} SP · ${formatNumber(rows.length)} dòng thị trường`,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+      }
+
+      if (!rows.length) {
+        bodyEl.innerHTML =
+          '<p style="text-align:center;padding:18px 8px;color:#666;">Không có dữ liệu SP / thị trường cho nhân viên này trong bộ lọc hiện tại.</p>';
+      } else {
+        const totals = rows.reduce(
+          (acc, r) => {
+            acc.mess += r.mess;
+            acc.cpqc += r.cpqc;
+            acc.don += r.don;
+            acc.chot += r.chot;
+            acc.donThucTe += r.donThucTe;
+            acc.chotThucTe += r.chotThucTe;
+            return acc;
+          },
+          { mess: 0, cpqc: 0, don: 0, chot: 0, donThucTe: 0, chotThucTe: 0 }
+        );
+
+        const productRowSpans = new Array(rows.length).fill(0);
+        for (let i = 0; i < rows.length; ) {
+          let j = i + 1;
+          const pk = normalizeNameForKey(rows[i].product);
+          while (j < rows.length && normalizeNameForKey(rows[j].product) === pk) j += 1;
+          productRowSpans[i] = j - i;
+          i = j;
+        }
+
+        const renderMetricCells = (s) => {
+          const rate = s.mess ? s.don / s.mess : 0;
+          const rateThucTe = s.mess ? s.donThucTe / s.mess : 0;
+          const pm = s.mess ? s.cpqc / s.mess : 0;
+          const pd = s.don ? s.cpqc / s.don : 0;
+          const pc = s.chot ? s.cpqc / s.chot : 0;
+          const pdt = s.don ? s.chot / s.don : 0;
+          const rateClass = rate > 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : 'bg-lightred');
+          const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : 'bg-lightred');
+          const cpsClass = getCpsCellStyle(pd, selectedMarkets);
+          const cpdsClass = !isFinite(pc) || pc <= 0 ? 'bg-lightred' : (pc > 0.33 ? 'bg-yellow' : '');
+          return `
+            <td>${formatNumber(s.mess)}</td>
+            <td>${formatCurrency(s.cpqc)}</td>
+            <td>${formatNumber(s.don)}</td>
+            <td>${formatNumber(s.donThucTe)}</td>
+            <td>${formatCurrency(s.chot)}</td>
+            <td>${formatCurrency(s.chotThucTe)}</td>
+            <td class="${rateClass}">${formatPercent(rate)}</td>
+            <td class="${rateThucTeClass}">${formatPercent(rateThucTe)}</td>
+            <td>${formatCurrency(pm)}</td>
+            <td class="${cpsClass}">${formatCurrency(pd)}</td>
+            <td class="${cpdsClass}">${formatPercent(pc)}</td>
+            <td>${formatCurrency(pdt)}</td>`;
+        };
+
+        const bodyRows = rows
+          .map((r, i) => {
+            const span = productRowSpans[i];
+            const productCell =
+              span > 0
+                ? `<td class="text-left mkt-staff-product-merged" rowspan="${span}">${escapeHtml(r.product)}</td>`
+                : '';
+            return `<tr>
+              <td class="text-center">${i + 1}</td>
+              ${productCell}
+              <td class="text-left">${escapeHtml(r.market)}</td>
+              ${renderMetricCells(r)}
+            </tr>`;
+          })
+          .join('');
+        const totalRow = `<tr class="total-row">
+            <td class="total-label" colspan="3">TỔNG CỘNG</td>
+            ${renderMetricCells(totals)}
+          </tr>`;
+        bodyEl.innerHTML = `
+          <div class="table-responsive-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>STT</th>
+                  <th>Sản phẩm</th>
+                  <th>Thị trường</th>
+                  <th>Số Mess</th>
+                  <th>CPQC</th>
+                  <th>Số Đơn</th>
+                  <th>Số Đơn (TT)</th>
+                  <th>DS Chốt</th>
+                  <th>DS Chốt (TT)</th>
+                  <th>Tỉ lệ chốt</th>
+                  <th>Tỉ lệ chốt (TT)</th>
+                  <th>Giá Mess</th>
+                  <th>CPS</th>
+                  <th>%CP/DS</th>
+                  <th>Giá TB Đơn</th>
+                </tr>
+              </thead>
+              <tbody>${totalRow}${bodyRows}</tbody>
+            </table>
+          </div>`;
+      }
+
+      modal.hidden = false;
+      modal.classList.add('open');
     }
 
     function isFilterValueChecked(typeState, value) {
@@ -3783,8 +4131,8 @@
         const cpdsClass = !isFinite(pc) || pc <= 0 ? 'bg-lightred' : (pc > 0.33 ? 'bg-yellow' : '');
         return `<tr>
                 <td class="text-center">${index + 1}</td>
-                <td class="text-left">${s.team}</td>
-                <td class="text-left">${s.name}</td>
+                <td class="text-left">${escapeHtml(s.team)}</td>
+                <td class="text-left"><button type="button" class="mkt-staff-link" data-mkt-staff-name="${escapeHtml(s.name)}" title="Xem chi tiết SP &amp; thị trường">${escapeHtml(s.name)}</button></td>
                 <td>${formatNumber(s.mess)}</td>
                 <td>${formatCurrency(s.cpqc)}</td>
                 <td>${formatNumber(s.don)}</td>
