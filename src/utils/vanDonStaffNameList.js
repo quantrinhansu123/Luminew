@@ -84,7 +84,8 @@ function normalizePersonNameKey(name) {
 }
 
 /**
- * Trạng thái nghỉ việc trên bảng `users.employment_status` (và các field liên quan).
+ * Trạng thái nghỉ việc trên bảng users (`employment_status` / `status` / `trang_thai`,
+ * và đôi khi gắn vào team/position = «Đã nghỉ»).
  * Ưu tiên khớp «Nghỉ việc»; đồng thời nhận «Nghỉ» / «Đã nghỉ».
  */
 export function isUserNghiViecStatus(...fields) {
@@ -92,7 +93,7 @@ export function isUserNghiViecStatus(...fields) {
     const plain = String(raw ?? '').trim().toLowerCase();
     const a = asciiLabel(raw);
     if (!plain && !a) continue;
-    // employment_status chuẩn: «Nghỉ việc»
+    // employment_status / Trạng thái chuẩn: «Nghỉ việc» / «Đã nghỉ»
     if (plain === 'nghỉ việc' || plain.includes('nghỉ việc')) return true;
     if (a === 'nghi viec' || a.includes('nghi viec')) return true;
     if (a === 'nghi' || a === 'da nghi' || a.startsWith('da nghi')) return true;
@@ -145,18 +146,22 @@ export async function fetchVanDonStaffNameList(supabaseClient, options = {}) {
 
   let usersRes = await supabaseClient
     .from('users')
-    .select('name, department, team, branch, position, employment_status')
+    .select('name, department, team, branch, position, employment_status, status, trang_thai')
     .not('name', 'is', null)
     .order('name', { ascending: true });
   if (usersRes.error) {
     const msg = String(usersRes.error.message || '').toLowerCase();
     const missingExtra =
       (msg.includes('does not exist') || msg.includes('could not find')) &&
-      (msg.includes('employment_status') || msg.includes('position') || msg.includes('branch'));
+      (msg.includes('employment_status') ||
+        msg.includes('trang_thai') ||
+        msg.includes('status') ||
+        msg.includes('position') ||
+        msg.includes('branch'));
     if (missingExtra) {
       usersRes = await supabaseClient
         .from('users')
-        .select('name, department, team, branch')
+        .select('name, department, team, branch, position, employment_status')
         .not('name', 'is', null)
         .order('name', { ascending: true });
     }
@@ -168,6 +173,15 @@ export async function fetchVanDonStaffNameList(supabaseClient, options = {}) {
         usersRes = await supabaseClient
           .from('users')
           .select('name, department, team')
+          .not('name', 'is', null)
+          .order('name', { ascending: true });
+      } else if (
+        (msg2.includes('does not exist') || msg2.includes('could not find')) &&
+        (msg2.includes('employment_status') || msg2.includes('position'))
+      ) {
+        usersRes = await supabaseClient
+          .from('users')
+          .select('name, department, team, branch')
           .not('name', 'is', null)
           .order('name', { ascending: true });
       } else {
@@ -183,10 +197,16 @@ export async function fetchVanDonStaffNameList(supabaseClient, options = {}) {
   (usersRes.data || []).forEach((u) => {
     const n = String(u.name || '').trim();
     if (!n) return;
-    // Chỉ lấy trạng thái nghỉ việc từ bảng users
+    // Trạng thái nghỉ: employment_status / status / trang_thai; fallback team/position
     if (
       excludeNghiViec &&
-      isUserNghiViecStatus(u.employment_status, u.department, u.position, u.team)
+      isUserNghiViecStatus(
+        u.employment_status,
+        u.status,
+        u.trang_thai,
+        u.position,
+        u.team
+      )
     ) {
       nghiViecNameKeys.add(normalizePersonNameKey(n));
       return;

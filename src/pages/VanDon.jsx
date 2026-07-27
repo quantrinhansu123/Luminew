@@ -1628,7 +1628,7 @@ function VanDon({ dataSource = 'default' }) {
   }, []);
 
   const { data: vanDonDistinctFilterOptions = {} } = useQuery({
-    queryKey: ['vanDonDistinctFilterOptions', dataSource],
+    queryKey: ['vanDonDistinctFilterOptions', dataSource, 'nv-hanoi-v3-no-da-nghi'],
     queryFn: () =>
       API.fetchVanDonDistinctFilterOptions({
         sourceTable: dataSource === 'hcm' ? 'order_code_hcm' : 'orders'
@@ -3925,7 +3925,13 @@ function VanDon({ dataSource = 'default' }) {
       } else if (col === 'Khu vực') {
         adminCatalogArr = keyMarketsCatalog;
       }
-      const base = [...adminCatalogArr, ...dbArr, ...pageArr];
+
+      // /van-don: NV Vận đơn chỉ dùng master HN (không gộp tên từ đơn — tránh lọt NV HCM / Đã nghỉ)
+      const isNvVanDonCol = normalizeColHeader(col) === normalizeColHeader('NV Vận đơn');
+      const useHanoiNvDirectoryOnly = isNvVanDonCol && dataSource !== 'hcm' && dbArr.length > 0;
+      const base = useHanoiNvDirectoryOnly
+        ? [...dbArr]
+        : [...adminCatalogArr, ...dbArr, ...pageArr];
 
       const byLower = new Map();
       for (const raw of base) {
@@ -3982,7 +3988,7 @@ function VanDon({ dataSource = 'default' }) {
       // Một mục "Trống" cho ô trống; không thêm __EMPTY__ (vẫn tương thích khi selected còn __EMPTY__ từ bản cũ)
       return ['Trống', ...merged];
     },
-    [getUniqueValues, vanDonDistinctFilterOptions, vanDonAdminCatalogProductNames, keyMarketsCatalog]
+    [getUniqueValues, vanDonDistinctFilterOptions, vanDonAdminCatalogProductNames, keyMarketsCatalog, dataSource]
   );
 
   /** Ô chỉnh sửa: cột NB / «Trạng thái giao hàng» gộp preset + distinct toàn DB (giống bộ lọc) + unique trang hiện tại. */
