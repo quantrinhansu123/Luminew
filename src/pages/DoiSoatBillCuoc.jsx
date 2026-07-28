@@ -2262,6 +2262,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       const syncTime = new Date().toISOString();
       const syncDateToday = toIsoDateString(new Date()) || syncTime.slice(0, 10);
       const syncLogRows = [];
+      const performedBy = getVanDonSessionDisplayName();
+      const syncBatchLabel = `Đợt ${new Date(syncTime).toLocaleString('vi-VN')}`;
       
       const ordersToUpdate = allOrderCodes
         .filter(oc => existingOrderCodes.has(oc))
@@ -2276,56 +2278,56 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         });
 
       setSyncProgress({ current: 0, total: ordersToUpdate.length, active: true });
-      
+
+      // Bắt buộc lưu snapshot lịch sử trước khi cập nhật lên orders/order_code_hcm.
+      const { data: tempRows, error: tempRowsError } = await supabase
+        .from('chi_tiet_bill_tien')
+        .select('*');
+      if (tempRowsError) throw tempRowsError;
+      if (!(tempRows || []).length) {
+        throw new Error('Không có dữ liệu bill tạm để lưu lịch sử trước khi đồng bộ.');
+      }
+
+      const historyRows = tempRows.map((row) => ({
+        sync_batch_id: syncBatchId,
+        sync_batch_label: syncBatchLabel,
+        synced_at: syncTime,
+        performed_by: performedBy,
+        source_row: row,
+      }));
+      const historyChunks = chunkArray(historyRows, 200);
+      for (const hChunk of historyChunks) {
+        const { error: historyError } = await supabase.from('bill_uploaded_history').insert(hChunk);
+        if (historyError) throw historyError;
+      }
+
       const chunks = chunkArray(ordersToUpdate, 50);
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const { error: updateError } = await supabase.from(ordersTableName).upsert(chunk, { onConflict: 'order_code' });
 
         if (updateError) {
-          console.error(`Error batch updating orders (chunk ${i}):`, updateError);
-        } else {
-          updateCount += chunk.length;
-          chunk.forEach(item => {
-            syncLogRows.push({
-              sync_batch_id: syncBatchId,
-              synced_at: syncTime,
-              order_code: item.order_code,
-              shipping_cost: null,
-              total_vnd: null,
-              revenue_actual: item.reconciled_vnd ?? null,
-              order_count_actual: null,
-            });
-          });
+          throw updateError;
         }
+
+        updateCount += chunk.length;
+        chunk.forEach(item => {
+          syncLogRows.push({
+            sync_batch_id: syncBatchId,
+            synced_at: syncTime,
+            order_code: item.order_code,
+            shipping_cost: null,
+            total_vnd: null,
+            revenue_actual: item.reconciled_vnd ?? null,
+            order_count_actual: null,
+          });
+        });
         setSyncProgress(prev => ({ ...prev, current: updateCount }));
       }
 
       if (syncLogRows.length > 0) {
-        await supabase.from('bill_sync_results').insert(syncLogRows);
-      }
-
-      // Lưu snapshot toàn bộ dữ liệu Nhập bill vào bảng lịch sử theo từng đợt đồng bộ
-      const performedBy = getVanDonSessionDisplayName();
-      const syncBatchLabel = `Đợt ${new Date(syncTime).toLocaleString('vi-VN')}`;
-      const { data: tempRows, error: tempRowsError } = await supabase
-        .from('chi_tiet_bill_tien')
-        .select('*');
-      if (tempRowsError) throw tempRowsError;
-
-      if ((tempRows || []).length > 0) {
-        const historyRows = tempRows.map((row) => ({
-          sync_batch_id: syncBatchId,
-          sync_batch_label: syncBatchLabel,
-          synced_at: syncTime,
-          performed_by: performedBy,
-          source_row: row,
-        }));
-        const historyChunks = chunkArray(historyRows, 200);
-        for (const hChunk of historyChunks) {
-          const { error: historyError } = await supabase.from('bill_uploaded_history').insert(hChunk);
-          if (historyError) throw historyError;
-        }
+        const { error: syncResultsError } = await supabase.from('bill_sync_results').insert(syncLogRows);
+        if (syncResultsError) throw syncResultsError;
       }
 
       // Sau khi đồng bộ thành công, xóa dữ liệu khỏi bảng nhập bill tạm
@@ -2437,6 +2439,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       const syncTime = new Date().toISOString();
       const syncDateToday = toIsoDateString(new Date()) || syncTime.slice(0, 10);
       const syncLogRows = [];
+      const performedBy = getVanDonSessionDisplayName();
+      const syncBatchLabel = `Đợt ${new Date(syncTime).toLocaleString('vi-VN')}`;
 
       const ordersToUpdate = validOrderCodes.map(oc => {
         const updateData = { order_code: oc };
@@ -2452,58 +2456,58 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
       setSyncProgress({ current: 0, total: ordersToUpdate.length, active: true });
 
+      // Bắt buộc lưu snapshot lịch sử trước khi cập nhật lên orders/order_code_hcm.
+      const { data: tempRows, error: tempRowsError } = await supabase
+        .from('chitiet_cuoc')
+        .select('*');
+      if (tempRowsError) throw tempRowsError;
+      if (!(tempRows || []).length) {
+        throw new Error('Không có dữ liệu cước tạm để lưu lịch sử trước khi đồng bộ.');
+      }
+
+      const historyRows = tempRows.map((row) => ({
+        sync_batch_id: syncBatchId,
+        sync_batch_label: syncBatchLabel,
+        synced_at: syncTime,
+        performed_by: performedBy,
+        source_row: row,
+      }));
+      const historyChunks = chunkArray(historyRows, 200);
+      for (const hChunk of historyChunks) {
+        const { error: historyError } = await supabase.from('cuoc_uploaded_history').insert(hChunk);
+        if (historyError) throw historyError;
+      }
+
       const chunks = chunkArray(ordersToUpdate, 50);
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        
+
         const { error: updateError } = await supabase
           .from(ordersTableName)
           .upsert(chunk, { onConflict: 'order_code' });
 
         if (updateError) {
-          console.error(`Error batch updating orders (cuoc chunk ${i}):`, updateError);
-        } else {
-          updateCount += chunk.length;
-          chunk.forEach(item => {
-            syncLogRows.push({
-              sync_batch_id: syncBatchId,
-              synced_at: syncTime,
-              order_code: item.order_code,
-              shipping_cost: item.shipping_cost ?? null,
-              total_vnd: null,
-              revenue_actual: null,
-              order_count_actual: item.order_count_actual ?? null,
-            });
-          });
+          throw updateError;
         }
+
+        updateCount += chunk.length;
+        chunk.forEach(item => {
+          syncLogRows.push({
+            sync_batch_id: syncBatchId,
+            synced_at: syncTime,
+            order_code: item.order_code,
+            shipping_cost: item.shipping_cost ?? null,
+            total_vnd: null,
+            revenue_actual: null,
+            order_count_actual: item.order_count_actual ?? null,
+          });
+        });
         setSyncProgress(prev => ({ ...prev, current: updateCount }));
       }
 
       if (syncLogRows.length > 0) {
-        await supabase.from('bill_sync_results').insert(syncLogRows);
-      }
-
-      // Lưu snapshot toàn bộ dữ liệu Nhập cước vào bảng lịch sử theo từng đợt đồng bộ
-      const performedBy = getVanDonSessionDisplayName();
-      const syncBatchLabel = `Đợt ${new Date(syncTime).toLocaleString('vi-VN')}`;
-      const { data: tempRows, error: tempRowsError } = await supabase
-        .from('chitiet_cuoc')
-        .select('*');
-      if (tempRowsError) throw tempRowsError;
-
-      if ((tempRows || []).length > 0) {
-        const historyRows = tempRows.map((row) => ({
-          sync_batch_id: syncBatchId,
-          sync_batch_label: syncBatchLabel,
-          synced_at: syncTime,
-          performed_by: performedBy,
-          source_row: row,
-        }));
-        const historyChunks = chunkArray(historyRows, 200);
-        for (const hChunk of historyChunks) {
-          const { error: historyError } = await supabase.from('cuoc_uploaded_history').insert(hChunk);
-          if (historyError) throw historyError;
-        }
+        const { error: syncResultsError } = await supabase.from('bill_sync_results').insert(syncLogRows);
+        if (syncResultsError) throw syncResultsError;
       }
 
       // Sau khi đồng bộ thành công, xóa dữ liệu khỏi bảng nhập cước tạm

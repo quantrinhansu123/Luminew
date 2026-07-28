@@ -4611,8 +4611,8 @@
     function getCpdsCellStyleForDetail(cpqc, ds, ratio) {
       const c = Number(cpqc) || 0;
       const s = Number(ds) || 0;
+      if (c <= 0) return '';
       if (c > 0 && s <= 0) return 'bg-lightred';
-      if (s > 0 && c <= 0) return '';
       if (!isFinite(ratio) || ratio <= 0) return '';
       if (ratio > 0.33) return 'bg-yellow';
       return '';
