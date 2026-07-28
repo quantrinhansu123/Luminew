@@ -1125,6 +1125,7 @@ export const MODULE_PAGES = {
         pages: [
             { code: 'ADMIN_TOOLS', name: 'Công cụ quản trị & Chốt ca', path: '/admin-tools' },
             { code: 'CHANGE_LOG', name: 'Lịch sử thay đổi hệ thống', path: '/lich-su-thay-doi' },
+            { code: 'DASHBOARD_DIEU_HANH', name: 'Dashboard điều hành', path: '/dashboard-dieu-hanh' },
             { code: 'DASHBOARD_QUAN_TRI', name: 'Dashboard quản trị (Sale/MKT/CSKH/VH)', path: '/dashboard-quan-tri' }
         ]
     }

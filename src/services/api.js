@@ -163,9 +163,6 @@ export const mapSupabaseOrderToApp = (sOrder) => {
         }
     });
 
-    // «Tổng tiền VNĐ» khớp header Tổng tiền: line → tong_tien (≠0) → total (không chỉ total_amount_vnd).
-    appOrder['Tổng tiền VNĐ'] = resolveVanDonMoneyVndFromDbRow(sOrder);
-
     // Lý do: ưu tiên cột lydo; nếu trống thì dùng reason (dữ liệu cũ).
     {
         const ly = appOrder['Lý do'];
@@ -283,8 +280,7 @@ export function resolveVanDonMoneyVndFromDbRow(r) {
     if (!r || typeof r !== 'object') return 0;
     if (r.van_don_line_total_vnd != null && r.van_don_line_total_vnd !== '') {
         const v = Number(r.van_don_line_total_vnd);
-        /** `0` coi như chưa có line — fallback tong_tien / total (tránh nuốt tiền thật). */
-        if (!Number.isNaN(v) && v !== 0) return v;
+        if (!Number.isNaN(v)) return v;
     }
     const rawTong = r.tong_tien_vnd ?? r.tong_tien_VND;
     if (rawTong != null && rawTong !== '' && !Number.isNaN(Number(rawTong))) {
@@ -336,13 +332,7 @@ function pickVanDonNumericDb(val) {
     return Number.isFinite(n) ? n : 0;
 }
 
-/** `payment_status` / detail chứa «Có bill» (kể cả bill 1 phần). */
-function vanDonPaymentStatusHasBillDb(raw) {
-    const s = String(raw ?? '').trim();
-    return s !== '' && s.includes('Có bill');
-}
-
-/** Có bill trên một dòng DB — ảnh / ngày up / payment_bill / trạng thái thu tiền «Có bill». */
+/** Có bill trên một dòng DB — khớp ý nghĩa lưới VanDon (ảnh / ngày up / payment_bill). */
 function vanDonRowHasBillEvidenceDb(r) {
     if (!r || typeof r !== 'object') return false;
     const img = r.payment_image;
@@ -351,8 +341,6 @@ function vanDonRowHasBillEvidenceDb(r) {
     if (up != null && String(up).trim() !== '') return true;
     const pb = r.payment_bill;
     if (pb != null && String(pb).trim() !== '') return true;
-    if (vanDonPaymentStatusHasBillDb(r.payment_status)) return true;
-    if (vanDonPaymentStatusHasBillDb(r.payment_status_detail)) return true;
     return false;
 }
 
@@ -765,27 +753,13 @@ const nextYmdDate = (ymd) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const applyFfmDateRange = (query, { dateFrom, dateTo, dateType, emptyDate = false } = {}) => {
+const applyFfmDateRange = (query, { dateFrom, dateTo, dateType } = {}) => {
     const dateColumn = FFM_DATE_COLUMN_MAPPING[dateType] || FFM_DATE_COLUMN_MAPPING['Ngày lên đơn'];
     let q = query;
-    if (!dateColumn) return q;
-
-    if (emptyDate) {
-        // Các cột ngày có thể là timestamptz ở từng bảng/nhánh. Không bao giờ
-        // so sánh với chuỗi rỗng: Postgres sẽ trả 22007 trước khi lọc dữ liệu.
-        q = q.is(dateColumn, null);
-        if (dateType === 'Ngày đẩy đơn') {
-            q = q.is('time_dayon', null);
-        }
-        return q;
-    }
-
-    const from = String(dateFrom ?? '').trim();
-    const to = String(dateTo ?? '').trim();
-    if (from) q = q.gte(dateColumn, from);
-    if (to) {
-        const nextDay = nextYmdDate(to);
-        q = nextDay ? q.lt(dateColumn, nextDay) : q.lte(dateColumn, to);
+    if (dateColumn && dateFrom) q = q.gte(dateColumn, dateFrom);
+    if (dateColumn && dateTo) {
+        const nextDay = nextYmdDate(dateTo);
+        q = nextDay ? q.lt(dateColumn, nextDay) : q.lte(dateColumn, dateTo);
     }
     return q;
 };
@@ -829,8 +803,6 @@ export const fetchFFMOrdersBatch = async ({
     dateFrom = '',
     dateTo = '',
     dateType = 'Ngày lên đơn',
-    /** true = chỉ đơn trống cột ngày theo `dateType` (bỏ khoảng Từ–Tới). */
-    emptyDate = false,
     market = ''
 } = {}) => {
     const table = String(ordersTable || 'orders').trim() || 'orders';
@@ -878,7 +850,7 @@ export const fetchFFMOrdersBatch = async ({
                       .select(selectQuery)
                       .or('shipping_unit.ilike.%MGT%,shipping_unit.ilike.%T&T%')
               ),
-              { dateFrom, dateTo, dateType, emptyDate }
+              { dateFrom, dateTo, dateType }
           )
               .order('order_date', { ascending: false })
               .range(mgtFrom, mgtFrom + pageSize - 1);
@@ -893,7 +865,7 @@ export const fetchFFMOrdersBatch = async ({
                       .not('tracking_code', 'is', null)
                       .neq('tracking_code', '')
               ),
-              { dateFrom, dateTo, dateType, emptyDate }
+              { dateFrom, dateTo, dateType }
           )
               .order('order_date', { ascending: false })
               .range(trackedFrom, trackedFrom + pageSize - 1);
@@ -992,7 +964,7 @@ export const fetchFFMOrdersByOrderCodes = async ({
 };
 
 /** Tải toàn bộ FFM (lặp batch) — ưu tiên dùng fetchFFMOrdersBatch + gộp phía UI để hiện từng lô. */
-export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', dateTo = '', dateType = 'Ngày lên đơn', emptyDate = false, market = '' } = {}) => {
+export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', dateTo = '', dateType = 'Ngày lên đơn', market = '' } = {}) => {
     const merge = new Map();
     let state = {
         mgtFrom: 0,
@@ -1015,7 +987,6 @@ export const fetchFFMOrders = async ({ ordersTable = 'orders', dateFrom = '', da
                 dateFrom,
                 dateTo,
                 dateType,
-                emptyDate,
                 market
             });
             for (const r of b.rows) {
@@ -1414,9 +1385,7 @@ export const fetchVanDon = async (options = {}) => {
         /** `co_trung` | `khong_trung` — lọc cột cảnh báo (mức SQL; gần với lưới). */
         canh_bao_filter = null,
         /**
-         * Tab «Đẩy Đơn» (hanoi):
-         * - `ffm_queue` / `ffm_queue_admin`: Check=OK, ĐVVC trống (mặc định hàng đợi phân FFM).
-         * - `ffm_assigned_no_push`: Check=OK, ĐVVC có giá trị, Ngày đẩy đơn (accounting_check_date) trống.
+         * Tab «Đẩy Đơn» (hanoi): lưới chỉ giữ đơn Check=OK, chưa có ĐVVC (và NV thường: chưa có mã tracking).
          * Không đẩy xuống SQL → phân trang + tổng tiền + count PostgREST lệch hoàn toàn với dữ liệu hiển thị (/van-don-hcm gồm).
          */
         hanoiTabSqlScope = null,
@@ -1490,6 +1459,10 @@ export const fetchVanDon = async (options = {}) => {
         const applyVanDonFilters = (initialQuery) => {
             let query = initialQuery;
 
+            if (team && team !== 'all') {
+                query = query.eq('team', team);
+            }
+
             if (Array.isArray(bulkOrderCodes) && bulkOrderCodes.length > 0) {
                 const exactCodes = Array.from(
                     new Set(
@@ -1504,20 +1477,17 @@ export const fetchVanDon = async (options = {}) => {
                 }
             }
 
+            if (excludeHcmTeam) {
+                // Keep NULL team, only exclude exact 'HCM'
+                query = query.or('team.is.null,team.neq.HCM');
+            }
+
             if (hanoiTabSqlScope === 'ffm_queue' || hanoiTabSqlScope === 'ffm_queue_admin') {
                 query = query.ilike('check_result', 'ok');
                 query = query.or('shipping_unit.is.null,shipping_unit.eq.');
             }
             if (hanoiTabSqlScope === 'ffm_queue') {
                 query = query.or('tracking_code.is.null,tracking_code.eq.');
-            }
-            /** Có ĐVVC nhưng chưa có Ngày đẩy đơn (accounting_check_date). */
-            if (hanoiTabSqlScope === 'ffm_assigned_no_push') {
-                query = query.ilike('check_result', 'ok');
-                query = query.not('shipping_unit', 'is', null);
-                query = query.neq('shipping_unit', '');
-                // accounting_check_date là timestamptz: `eq.` chuỗi rỗng gây lỗi 22007.
-                query = query.is('accounting_check_date', null);
             }
 
             if (status) {
@@ -1555,23 +1525,6 @@ export const fetchVanDon = async (options = {}) => {
                     query = query.or(emptyFragment);
                 }
             };
-
-            // Chi nhánh / Team: hỗ trợ 1 giá trị hoặc multi-select (Hà Nội, HCM, Trống…)
-            const teamFilterActive = Array.isArray(team)
-                ? team.length > 0
-                : Boolean(team && team !== 'all');
-            if (Array.isArray(team)) {
-                if (team.length > 0) {
-                    applyEmptyOrInFilter('team', team);
-                }
-            } else if (team && team !== 'all') {
-                query = query.eq('team', team);
-            }
-
-            // Chỉ loại HCM khi caller yêu cầu VÀ chưa có lọc Team (tránh che HCM khi «Tất cả»).
-            if (excludeHcmTeam && !teamFilterActive) {
-                query = query.or('team.is.null,team.neq.HCM');
-            }
 
             if (market !== undefined && market !== null) {
                 if (Array.isArray(market) ? market.length > 0 : typeof market === 'string' && market) {
@@ -1789,12 +1742,8 @@ export const fetchVanDon = async (options = {}) => {
 
         const loadVanDonFromTable = async (tableName) => {
             const selectCols =
-                tableName === 'order_code_hcm'
-                    ? VAN_DON_SELECT_QUERY_ORDER_CODE_HCM
-                    : tableName === 'orders'
-                      ? `${VAN_DON_SELECT_QUERY},van_don_line_total_vnd,tong_tien_vnd,shipping_cost`
-                      : VAN_DON_SELECT_QUERY;
-            /** SUM trên bảng vật lý `orders` (view thiếu line/tong). Tiền = coalesce từng dòng. */
+                tableName === 'order_code_hcm' ? VAN_DON_SELECT_QUERY_ORDER_CODE_HCM : VAN_DON_SELECT_QUERY;
+            /** SUM trên bảng vật lý: ưu tiên total_amount_vnd — khớp cột «Tổng tiền VNĐ» trên lưới (không dùng line total trước). */
             const sumFromTable = tableName === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
             const isHcmSumTable = sumFromTable === 'order_code_hcm';
             const sumMoneyCombinedQ = isHcmSumTable
@@ -1861,8 +1810,9 @@ export const fetchVanDon = async (options = {}) => {
                 }
 
                 /**
-                 * SUM(total_amount_vnd) lệch coalesce (line → tong → total) — vd. KemSaoEOBw.
-                 * Luôn quét từng dòng trên `orders` khi có đơn (trừ khi aggregate đã = 0 và probe cũng 0).
+                 * Gộp SUM khớp `resolveVanDonMoneyVndFromDbRow` / cột generated `van_don_line_total_vnd`:
+                 * `SUM(total_amount_vnd)` có thể = 0 trong khi tiền nằm ở tong_tien / sale_price / goods / line.
+                 * Trước đây nhánh `totalRaw != null` gán luôn cả 0 → bỏ qua line/tong → header «Tổng tiền» sai (vd. 43 đơn nhưng tổng 0).
                  */
                 let totalAmountVndSum = null;
                 const nz = (v) => {
@@ -1870,14 +1820,14 @@ export const fetchVanDon = async (options = {}) => {
                     const n = typeof v === 'number' ? v : Number(v);
                     return Number.isFinite(n) && n !== 0 ? n : null;
                 };
-                if (!lineMissing && nz(lineRaw) != null) {
+                if (!totalMissing && nz(totalRaw) != null) {
+                    totalAmountVndSum = nz(totalRaw);
+                }
+                if (totalAmountVndSum == null && !lineMissing && nz(lineRaw) != null) {
                     totalAmountVndSum = nz(lineRaw);
                 }
                 if (totalAmountVndSum == null && !tongMissing && nz(tongRaw) != null) {
                     totalAmountVndSum = nz(tongRaw);
-                }
-                if (totalAmountVndSum == null && !totalMissing && nz(totalRaw) != null) {
-                    totalAmountVndSum = nz(totalRaw);
                 }
                 if (totalAmountVndSum == null && !totalMissing && totalRaw != null) {
                     const n = typeof totalRaw === 'number' ? totalRaw : Number(totalRaw);
@@ -1896,8 +1846,8 @@ export const fetchVanDon = async (options = {}) => {
                 const rowCount = listRes.count ?? 0;
                 const pageRows = listRes.data || [];
                 const pageHasPositiveMoney = pageRows.some((r) => pickVanDonMoneyFromDbRow(r) > 0);
-                /** Money-only: `data` rỗng — vẫn phải coalesce-scan toàn bộ đơn khớp lọc. */
-                const needMoneyFallback = rowCount > 0;
+                const needMoneyFallback =
+                    rowCount > 0 && (isHcmSumTable || totalAmountVndSum === 0);
                 if (needMoneyFallback) {
                     const moneyCols = 'van_don_line_total_vnd,tong_tien_vnd,total_amount_vnd,sale_price,goods_amount';
                     const PROBE = 800;
@@ -1905,13 +1855,12 @@ export const fetchVanDon = async (options = {}) => {
                         supabase.from(sumFromTable).select(moneyCols)
                     )
                         .order('order_date', { ascending: false })
-                        .order('order_code', { ascending: false })
                         .range(0, PROBE - 1);
                     if (probeErr) {
                         console.warn('[fetchVanDon] money probe:', probeErr.message);
                     } else {
                         const probeSum = (probeRows || []).reduce((s, r) => s + pickVanDonMoneyFromDbRow(r), 0);
-                        const runFullScan = pageHasPositiveMoney || probeSum > 0 || pageRows.length === 0;
+                        const runFullScan = pageHasPositiveMoney || probeSum > 0;
                         if (runFullScan) {
                             /** PostgREST thường giới hạn ~1000 dòng/response; không được thoát sớm khi chunk < MONEY_BATCH. */
                             const MONEY_BATCH = 1000;
@@ -1923,7 +1872,6 @@ export const fetchVanDon = async (options = {}) => {
                                     supabase.from(sumFromTable).select(moneyCols)
                                 )
                                     .order('order_date', { ascending: false })
-                                    .order('order_code', { ascending: false })
                                     .range(scanned, scanned + MONEY_BATCH - 1);
                                 if (chunkErr) {
                                     console.warn('[fetchVanDon] money scan batch:', chunkErr.message);
@@ -1948,7 +1896,7 @@ export const fetchVanDon = async (options = {}) => {
 
             /**
              * Tổng phí ship + đơn/số tiền đã thu khi có bill.
-             * Bill: ngayupbill / payment_image / payment_bill / payment_status «Có bill» (khớp lưới).
+             * Bill: ngayupbill / payment_image / payment_bill (khớp lưới).
              * Tiền: reconciled_vnd > 0 HOẶC reconciled_amount > 0 (PostgREST: hai nhóm `.or()` AND với nhau).
              * Nếu SQL trả 0 nhưng có đơn trong lọc — quét theo lô giống phí ship (tránh lệch cột / client khác server).
              * Cùng bộ lọc với tổng tiền — trên bảng vật lý `sumFromTable`.
@@ -2026,11 +1974,9 @@ export const fetchVanDon = async (options = {}) => {
                 }
 
                 const upBillDbKeyCandidates = ['ngayupbill', 'ngay_up_bill'];
-                /** Có bill: ảnh / ngày up / payment_bill / payment_status chứa «Có bill». */
                 const buildBillOrCandidates = (upKey) => ([
-                    `${upKey}.not.is.null,payment_image.not.is.null,payment_bill.not.is.null,payment_status.ilike.%Có bill%`,
-                    `${upKey}.not.is.null,payment_image.not.is.null,payment_status.ilike.%Có bill%`,
-                    `payment_status.ilike.%Có bill%`,
+                    `${upKey}.not.is.null,payment_image.not.is.null,payment_bill.not.is.null`,
+                    `${upKey}.not.is.null,payment_image.not.is.null`,
                 ]);
 
                 const runBillPaidAggregates = async (billOr, moneyOr) => {
@@ -2127,14 +2073,13 @@ export const fetchVanDon = async (options = {}) => {
 
                 if (needBillScan) {
                     const BILL_PROBE = 3000;
-                    const billProbeCols = `${upBillDbKey},payment_image,payment_bill,payment_status,reconciled_vnd,reconciled_amount`;
+                    const billProbeCols = `${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`;
                     let probeRes = await applyVanDonFilters(
                         supabase
                             .from(sumFromTable)
                             .select(billProbeCols)
                     )
                         .order('order_date', { ascending: false })
-                        .order('order_code', { ascending: false })
                         .range(0, BILL_PROBE - 1);
                     if (
                         probeRes.error &&
@@ -2147,10 +2092,9 @@ export const fetchVanDon = async (options = {}) => {
                         probeRes = await applyVanDonFilters(
                             supabase
                                 .from(sumFromTable)
-                                .select(`${upBillDbKey},payment_image,payment_bill,payment_status,reconciled_vnd,reconciled_amount`)
+                                .select(`${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`)
                         )
                             .order('order_date', { ascending: false })
-                            .order('order_code', { ascending: false })
                             .range(0, BILL_PROBE - 1);
                     }
                     if (!probeRes.error && (probeRes.data || []).length > 0) {
@@ -2174,11 +2118,10 @@ export const fetchVanDon = async (options = {}) => {
                                     supabase
                                         .from(sumFromTable)
                                         .select(
-                                            `${upBillDbKey},payment_image,payment_bill,payment_status,reconciled_vnd,reconciled_amount`
+                                            `${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`
                                         )
                                 )
                                     .order('order_date', { ascending: false })
-                                    .order('order_code', { ascending: false })
                                     .range(scanned, scanned + BILL_BATCH - 1);
                                 if (chunkErr) {
                                     console.warn('[fetchVanDon] bill scan batch:', chunkErr.message);
@@ -2505,7 +2448,7 @@ async function fetchVanDonHcmNvVanDonFromDirectory() {
     return fetchVanDonStaffNameList(supabase, { vanDonBranch: 'hcm' });
 }
 
-/** Danh sách NV vận đơn Hà Nội — bộ lọc `/van-don`: loại nghỉ việc theo bảng users. */
+/** Danh sách NV vận đơn Hà Nội (bộ phận Vận đơn) — bộ lọc `/van-don`, loại Trạng thái = Đã nghỉ. */
 async function fetchVanDonHanoiNvVanDonFromDirectory() {
     return fetchVanDonStaffNameList(supabase, { vanDonBranch: 'hanoi', excludeNghiViec: true });
 }
@@ -2519,7 +2462,6 @@ const VAN_DON_DISTINCT_DB_TO_UI_KEYS = {
     page_name: ['Page'],
     delivery_staff: ['NV Vận đơn'],
     shipping_unit: ['Đơn vị vận chuyển'],
-    team: ['Team', 'Chi nhánh'],
     check_result: ['Kết quả Check', 'Kết quả check'],
     delivery_status: ['Trạng thái giao hàng'],
     delivery_status_nb: ['Trạng thái giao hàng NB'],
@@ -2546,17 +2488,7 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
             try {
                 let vals = [];
                 if (sourceTable === 'orders') {
-                    const { data, error } = await supabase.rpc('get_orders_distinct_values', { p_column: dbCol });
-                    if (error) {
-                        console.warn('[fetchVanDonDistinctFilterOptions] RPC', dbCol, error.message);
-                        return;
-                    }
-                    vals = (data || [])
-                        .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
-                        .filter(Boolean)
-                        .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
-
-                    // /van-don: dropdown NV Vận đơn = HN + bộ phận Vận đơn, loại nghỉ việc (users)
+                    // /van-don: NV Vận đơn CHỈ Hà Nội + bộ phận Vận đơn (users / danh_sach_van_don)
                     if (dbCol === 'delivery_staff') {
                         try {
                             vals = await fetchVanDonHanoiNvVanDonFromDirectory();
@@ -2565,12 +2497,26 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
                                 '[fetchVanDonDistinctFilterOptions] NV Vận đơn Hà Nội from directory:',
                                 mergeErr
                             );
+                            const { data, error } = await supabase.rpc('get_orders_distinct_values', { p_column: dbCol });
+                            if (error) {
+                                console.warn('[fetchVanDonDistinctFilterOptions] RPC', dbCol, error.message);
+                                return;
+                            }
+                            vals = (data || [])
+                                .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
+                                .filter(Boolean)
+                                .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
                         }
-                    }
-
-                    // Chi nhánh / Team: luôn hiện đủ Hà Nội + HCM trên dropdown
-                    if (dbCol === 'team') {
-                        vals = [...new Set([...(vals || []), 'Hà Nội', 'HCM'])];
+                    } else {
+                        const { data, error } = await supabase.rpc('get_orders_distinct_values', { p_column: dbCol });
+                        if (error) {
+                            console.warn('[fetchVanDonDistinctFilterOptions] RPC', dbCol, error.message);
+                            return;
+                        }
+                        vals = (data || [])
+                            .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
+                            .filter(Boolean)
+                            .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
                     }
                 } else {
                     let usedHcmDistinctRpc = false;
@@ -2625,10 +2571,6 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
                                 mergeErr
                             );
                         }
-                    }
-
-                    if (dbCol === 'team') {
-                        vals = [...new Set([...(vals || []), 'Hà Nội', 'HCM'])];
                     }
 
                     // HCM: bổ sung danh mục thị trường từ bảng mặc định `orders` để không thiếu dropdown

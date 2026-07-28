@@ -96,6 +96,7 @@ function useDashboardAllowed() {
     const isAdminOrLeadership = ['admin', 'leader', 'director', 'boss', 'manager', 'administrator', 'super_admin'].includes(userRole);
     const allowed =
       isAdminOrLeadership ||
+      canView('DASHBOARD_DIEU_HANH') ||
       canView('DASHBOARD_QUAN_TRI') ||
       (canView('SALE_VIEW') && canView('MKT_VIEW')) ||
       isExecutiveDashboardAudience(department, dbRoleCode);
