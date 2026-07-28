@@ -3011,10 +3011,10 @@
           const pd = s.don ? s.cpqc / s.don : 0;
           const pc = s.chot ? s.cpqc / s.chot : 0;
           const pdt = s.don ? s.chot / s.don : 0;
-          const rateClass = rate > 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : 'bg-lightred');
-          const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : 'bg-lightred');
+          const rateClass = getClosingRateCellStyleForDetail(s.mess, s.don, rate);
+          const rateThucTeClass = getClosingRateCellStyleForDetail(s.mess, s.donThucTe, rateThucTe);
           const cpsClass = getCpsCellStyle(pd, selectedMarkets);
-          const cpdsClass = !isFinite(pc) || pc <= 0 ? 'bg-lightred' : (pc > 0.33 ? 'bg-yellow' : '');
+          const cpdsClass = getCpdsCellStyleForDetail(s.cpqc, s.chot, pc);
           return `
             <td>${formatNumber(s.mess)}</td>
             <td>${formatCurrency(s.cpqc)}</td>
@@ -4125,10 +4125,10 @@
         const pd = s.don ? s.cpqc / s.don : 0;
         const pc = s.chot ? s.cpqc / s.chot : 0;
         const pdt = s.don ? s.chot / s.don : 0;
-        const rateClass = rate > 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : 'bg-lightred');
-        const rateThucTeClass = rateThucTe > 0.1 ? 'bg-green' : (rateThucTe > 0.05 ? 'bg-yellow' : 'bg-lightred');
+        const rateClass = getClosingRateCellStyleForDetail(s.mess, s.don, rate);
+        const rateThucTeClass = getClosingRateCellStyleForDetail(s.mess, s.donThucTe, rateThucTe);
         const cpsClass = getCpsCellStyle(pd, selectedMarkets);
-        const cpdsClass = !isFinite(pc) || pc <= 0 ? 'bg-lightred' : (pc > 0.33 ? 'bg-yellow' : '');
+        const cpdsClass = getCpdsCellStyleForDetail(s.cpqc, s.chot, pc);
         return `<tr>
                 <td class="text-center">${index + 1}</td>
                 <td class="text-left">${escapeHtml(s.team)}</td>
@@ -4585,6 +4585,39 @@
       });
       return alerts;
     }
+    /**
+     * Tỉ lệ chốt — tab Báo cáo chi tiết:
+     * - Có đơn, không mess → không màu
+     * - Có mess, không đơn → đỏ
+     * - Còn lại: >10% xanh, >5% vàng, ≤5% đỏ
+     */
+    function getClosingRateCellStyleForDetail(mess, don, rate) {
+      const m = Number(mess) || 0;
+      const d = Number(don) || 0;
+      if (d > 0 && m <= 0) return '';
+      if (m > 0 && d <= 0) return 'bg-lightred';
+      if (m <= 0 && d <= 0) return '';
+      if (rate > 0.1) return 'bg-green';
+      if (rate > 0.05) return 'bg-yellow';
+      return 'bg-lightred';
+    }
+
+    /**
+     * %CP/DS — tab Báo cáo chi tiết:
+     * - Có CPQC, không DS → đỏ
+     * - Có DS, không CPQC → không màu
+     * - Còn lại: >33% vàng
+     */
+    function getCpdsCellStyleForDetail(cpqc, ds, ratio) {
+      const c = Number(cpqc) || 0;
+      const s = Number(ds) || 0;
+      if (c > 0 && s <= 0) return 'bg-lightred';
+      if (s > 0 && c <= 0) return '';
+      if (!isFinite(ratio) || ratio <= 0) return '';
+      if (ratio > 0.33) return 'bg-yellow';
+      return '';
+    }
+
     function getCpsCellStyle(cps, selectedMarkets) {
       const hasAsia = selectedMarkets.some(m => m === 'Châu Á' || MARKET_GROUPS['Châu Á'].includes(m));
       const hasNonAsia = selectedMarkets.some(m => m === 'Ngoài Châu Á' || MARKET_GROUPS['Ngoài Châu Á'].includes(m));
