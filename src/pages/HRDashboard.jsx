@@ -6,7 +6,7 @@ export default function HRDashboard() {
     return (
         <div className="w-full h-[calc(100vh-64px)] bg-gray-50 flex flex-col">
             <iframe
-                src="https://hr-management-self.vercel.app/dashboard"
+                src="https://hrlumi.vercel.app/"
                 title="Hệ thống Quản trị Nhân sự"
                 className="w-full flex-1 border-none"
                 onLoad={() => setLoading(false)}
