@@ -17,6 +17,7 @@ function useBaoCaoCeoAllowed() {
     const isAdminOrLeadership = ['admin', 'leader', 'director', 'boss', 'manager', 'administrator', 'super_admin'].includes(userRole);
     const allowed =
       isAdminOrLeadership ||
+      canView('BAO_CAO_CEO') ||
       (canView('SALE_VIEW') && canView('MKT_VIEW')) ||
       isExecutiveDashboardAudience(department, dbRoleCode);
     return { allowed, loading: permLoading || deptLoading };

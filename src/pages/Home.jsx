@@ -96,7 +96,6 @@ function Home() {
       label: "Dashboard điều hành",
       icon: <BarChart3 className="w-5 h-5" />,
       path: "#",
-      adminOnly: true,
       allowDirectorDept: true,
       subItems: [
         {
@@ -104,7 +103,7 @@ function Home() {
           label: "Dashboard điều hành",
           icon: <BarChart3 className="w-4 h-4" />,
           path: "/dashboard-dieu-hanh",
-          adminOnly: true,
+          permission: 'DASHBOARD_DIEU_HANH',
           allowDirectorDept: true,
         },
         {
@@ -113,13 +112,14 @@ function Home() {
           icon: <Award className="w-4 h-4" />,
           path: "https://redirect.zalo.me/v3/verifyv2/pc?token=P6BqnjfrMGXk3lx3rnrRPsWD_gdV7LDYO0Ft-uiMM6Gt1FsbWXaDF3KEhlRQ45yqPWpm-pTZP0&continue=https%3A%2F%2Fdashboard-lumiquantri.vercel.app%2F",
           isExternal: true,
+          permission: 'DASHBOARD_OKR',
         },
         {
           id: "dashboard-quan-tri",
           label: "Dashboard quản trị",
           icon: <LayoutGrid className="w-4 h-4" />,
           path: "/dashboard-quan-tri",
-          adminOnly: true,
+          permission: 'DASHBOARD_QUAN_TRI',
           allowDirectorDept: true,
         },
         {
@@ -127,7 +127,7 @@ function Home() {
           label: "Báo cáo CEO",
           icon: <BarChart3 className="w-4 h-4" />,
           path: "/bao-cao-ceo",
-          adminOnly: true,
+          permission: 'BAO_CAO_CEO',
           allowDirectorDept: true,
         },
       ],
@@ -803,7 +803,7 @@ function Home() {
           color: "bg-emerald-700",
           path: "/dashboard-dieu-hanh",
           status: "MKT + Vận đơn",
-          adminOnly: true,
+          permission: 'DASHBOARD_DIEU_HANH',
           allowDirectorDept: true,
         },
         {
@@ -812,7 +812,7 @@ function Home() {
           color: "bg-emerald-600",
           path: "/xem-bao-cao-mkt-hn-hcm",
           status: "Lọc chi nhánh",
-          adminOnly: true,
+          permissionAny: ['MKT_VIEW_HN_HCM', 'MKT_VIEW', 'MKT_VIEW_HCM', 'MKT_INPUT', 'MKT_INPUT_HCM', 'DASHBOARD_QUAN_TRI', 'FINANCE_DASHBOARD'],
           allowDirectorDept: true,
         },
         {
@@ -822,7 +822,7 @@ function Home() {
           path: "https://redirect.zalo.me/v3/verifyv2/pc?token=P6BqnjfrMGXk3lx3rnrRPsWD_gdV7LDYO0Ft-uiMM6Gt1FsbWXaDF3KEhlRQ45yqPWpm-pTZP0&continue=https%3A%2F%2Fdashboard-lumiquantri.vercel.app%2F",
           status: "Mở ứng dụng",
           isExternal: true,
-          adminOnly: true,
+          permission: 'DASHBOARD_OKR',
           allowDirectorDept: true,
         },
         {
@@ -831,7 +831,7 @@ function Home() {
           color: "bg-violet-600",
           path: "/dashboard-quan-tri",
           status: "Mở ứng dụng",
-          adminOnly: true,
+          permission: 'DASHBOARD_QUAN_TRI',
           allowDirectorDept: true,
         },
         {
@@ -840,7 +840,7 @@ function Home() {
           color: "bg-slate-900",
           path: "/bao-cao-ceo",
           status: "Tổng hợp CEO",
-          adminOnly: true,
+          permission: 'BAO_CAO_CEO',
           allowDirectorDept: true,
         },
       ],

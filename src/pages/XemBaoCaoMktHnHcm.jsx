@@ -32,7 +32,7 @@ function writeSkipPersonnelScope(storageKey) {
  */
 export default function XemBaoCaoMktHnHcm() {
   const { canView } = usePermissions();
-  const hasAccess = ['MKT_VIEW', 'MKT_VIEW_HCM', 'MKT_INPUT', 'DASHBOARD_QUAN_TRI', 'FINANCE_DASHBOARD'].some(
+  const hasAccess = ['MKT_VIEW_HN_HCM', 'MKT_VIEW', 'MKT_VIEW_HCM', 'MKT_INPUT', 'DASHBOARD_QUAN_TRI', 'FINANCE_DASHBOARD'].some(
     (code) => canView(code)
   );
 

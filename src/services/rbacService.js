@@ -1017,6 +1017,7 @@ export const MODULE_PAGES = {
             { code: 'MKT_INPUT_HCM', name: 'Nhập báo cáo HCM', path: '/bao-cao-marketing-hcm' },
             { code: 'MKT_VIEW', name: 'Xem báo cáo MKT', path: '/xem-bao-cao-mkt' },
             { code: 'MKT_VIEW_HCM', name: 'Xem báo cáo MKT HCM (Đức Anh)', path: '/xem-bao-cao-mkt-hcm' },
+            { code: 'MKT_VIEW_HN_HCM', name: 'Báo cáo MKT (HN + HCM)', path: '/xem-bao-cao-mkt-hn-hcm' },
             { code: 'MKT_ORDERS', name: 'Báo cáo chi tiết đơn (HN)', path: '/bao-cao-chi-tiet' },
             { code: 'MKT_ORDERS_HCM', name: 'Báo cáo chi tiết đơn HCM', path: '/bao-cao-chi-tiet-hcm' },
             { code: 'MKT_PAGES', name: 'Danh sách Page', path: '/danh-sach-page' },
@@ -1126,7 +1127,9 @@ export const MODULE_PAGES = {
             { code: 'ADMIN_TOOLS', name: 'Công cụ quản trị & Chốt ca', path: '/admin-tools' },
             { code: 'CHANGE_LOG', name: 'Lịch sử thay đổi hệ thống', path: '/lich-su-thay-doi' },
             { code: 'DASHBOARD_DIEU_HANH', name: 'Dashboard điều hành', path: '/dashboard-dieu-hanh' },
-            { code: 'DASHBOARD_QUAN_TRI', name: 'Dashboard quản trị (Sale/MKT/CSKH/VH)', path: '/dashboard-quan-tri' }
+            { code: 'DASHBOARD_OKR', name: 'Dashboard OKR', path: 'https://dashboard-lumiquantri.vercel.app/' },
+            { code: 'DASHBOARD_QUAN_TRI', name: 'Dashboard quản trị (Sale/MKT/CSKH/VH)', path: '/dashboard-quan-tri' },
+            { code: 'BAO_CAO_CEO', name: 'Báo cáo CEO', path: '/bao-cao-ceo' }
         ]
     }
 };
