@@ -25,6 +25,7 @@ import {
   findHcmOrdersCrossTableDuplicateGroups,
   formatCrossDupCodeList,
 } from '../utils/hcmOrdersCrossTableDuplicate';
+import { vanDonRowHasBillEvidence } from '../utils/vanDonBillEvidence';
 
 
 import {
@@ -291,17 +292,6 @@ function pickVanDonRowShippingVnd(row) {
   const n =
     typeof raw === 'number' && Number.isFinite(raw) ? raw : parseVietnameseMoneyToNumber(raw);
   return n != null && Number.isFinite(n) ? n : 0;
-}
-
-/** Có bill: ngày up bill / ảnh thanh toán / payment_bill (khớp aggregate phía API). */
-function vanDonRowHasBillEvidence(row) {
-  if (!row) return false;
-  const img = row.payment_image ?? row['Payment Image'] ?? '';
-  if (img != null && String(img).trim() !== '') return true;
-  const up = row.ngayupbill ?? row['Ngày up bill'] ?? '';
-  if (up != null && String(up).trim() !== '') return true;
-  const pb = row.payment_bill ?? row['Payment Bill'] ?? '';
-  return pb != null && String(pb).trim() !== '';
 }
 
 function pickVanDonRowReconciledVnd(row) {

@@ -332,17 +332,7 @@ function pickVanDonNumericDb(val) {
     return Number.isFinite(n) ? n : 0;
 }
 
-/** Có bill trên một dòng DB — khớp ý nghĩa lưới VanDon (ảnh / ngày up / payment_bill). */
-function vanDonRowHasBillEvidenceDb(r) {
-    if (!r || typeof r !== 'object') return false;
-    const img = r.payment_image;
-    if (img != null && String(img).trim() !== '') return true;
-    const up = r.ngayupbill ?? r.ngay_up_bill;
-    if (up != null && String(up).trim() !== '') return true;
-    const pb = r.payment_bill;
-    if (pb != null && String(pb).trim() !== '') return true;
-    return false;
-}
+import { vanDonRowHasBillEvidence as vanDonRowHasBillEvidenceDb } from '../utils/vanDonBillEvidence';
 
 /**
  * «Tiền đã thu» cho thống kê bill: ưu tiên reconciled_vnd, không có thì reconciled_amount (legacy / điền nhầm cột).
@@ -1974,9 +1964,10 @@ export const fetchVanDon = async (options = {}) => {
                 }
 
                 const upBillDbKeyCandidates = ['ngayupbill', 'ngay_up_bill'];
+                const coBillStatusOr = `payment_status.ilike.${orEncodeQuoteValue(escapeIlikePattern('Có bill'))}`;
                 const buildBillOrCandidates = (upKey) => ([
-                    `${upKey}.not.is.null,payment_image.not.is.null,payment_bill.not.is.null`,
-                    `${upKey}.not.is.null,payment_image.not.is.null`,
+                    `${upKey}.not.is.null,payment_image.not.is.null,payment_bill.not.is.null,${coBillStatusOr}`,
+                    `${upKey}.not.is.null,payment_image.not.is.null,${coBillStatusOr}`,
                 ]);
 
                 const runBillPaidAggregates = async (billOr, moneyOr) => {
@@ -2073,7 +2064,7 @@ export const fetchVanDon = async (options = {}) => {
 
                 if (needBillScan) {
                     const BILL_PROBE = 3000;
-                    const billProbeCols = `${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`;
+                    const billProbeCols = `${upBillDbKey},payment_image,payment_bill,payment_status,payment_status_detail,reconciled_vnd,reconciled_amount`;
                     let probeRes = await applyVanDonFilters(
                         supabase
                             .from(sumFromTable)
@@ -2092,7 +2083,7 @@ export const fetchVanDon = async (options = {}) => {
                         probeRes = await applyVanDonFilters(
                             supabase
                                 .from(sumFromTable)
-                                .select(`${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`)
+                                .select(`${upBillDbKey},payment_image,payment_bill,payment_status,payment_status_detail,reconciled_vnd,reconciled_amount`)
                         )
                             .order('order_date', { ascending: false })
                             .range(0, BILL_PROBE - 1);
@@ -2118,7 +2109,7 @@ export const fetchVanDon = async (options = {}) => {
                                     supabase
                                         .from(sumFromTable)
                                         .select(
-                                            `${upBillDbKey},payment_image,payment_bill,reconciled_vnd,reconciled_amount`
+                                            `${upBillDbKey},payment_image,payment_bill,payment_status,payment_status_detail,reconciled_vnd,reconciled_amount`
                                         )
                                 )
                                     .order('order_date', { ascending: false })
