@@ -828,6 +828,19 @@
       display: none !important;
     }
 
+    body.mkt-dual-mode.mkt-all-branches .branch-pane-title {
+      display: block !important;
+    }
+
+    body.mkt-dual-mode.mkt-all-branches .branch-pane-hcm {
+      display: block !important;
+      margin-top: 14px;
+    }
+
+    body.mkt-dual-mode.mkt-all-branches #mkt-hcm-dual-iframe {
+      display: block !important;
+    }
+
     body.mkt-dual-mode .branch-pane-hn .header {
       display: flex;
     }
@@ -998,6 +1011,73 @@
       min-width: 120px;
       height: 100px;
       padding: 5px;
+    }
+
+    /* Bộ lọc Hiệu suất MKT: dropdown tick nhiều lựa chọn */
+    #MarketReport select.mkt-select-source {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+    }
+
+    #MarketReport .mkt-check-filter {
+      position: relative;
+      min-width: 160px;
+    }
+
+    #MarketReport .mkt-check-filter summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 6px 10px;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      background: #fff;
+      font-size: 14px;
+      user-select: none;
+      min-width: 140px;
+    }
+
+    #MarketReport .mkt-check-filter summary::-webkit-details-marker {
+      display: none;
+    }
+
+    #MarketReport .mkt-check-filter[open] summary {
+      border-color: #2d7c2d;
+    }
+
+    #MarketReport .mkt-check-dropdown {
+      position: absolute;
+      z-index: 50;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 220px;
+      max-height: 260px;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #cfd8dc;
+      border-radius: 6px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+      padding: 8px;
+    }
+
+    #MarketReport .mkt-check-dropdown label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 2px;
+      font-size: 13px;
+      font-weight: 400;
+      color: #333;
+      cursor: pointer;
+    }
+
+    #MarketReport .filter-group {
+      position: relative;
     }
 
     #MarketReport button#apply-filter-mkt {
@@ -1265,6 +1345,7 @@
         <h3>Bộ lọc</h3>
         <label for="mkt-branch-select-tab1">Chi nhánh:</label>
         <select id="mkt-branch-select-tab1" title="Hà Nội = detail_reports · HCM = marketing_report_hcm">
+          <option value="">Tất cả chi nhánh</option>
           <option value="hn" selected>Hà Nội</option>
           <option value="hcm">HCM</option>
         </select>
@@ -1506,14 +1587,38 @@
       </div>
       <div class="filter-group"> <label for="end-date-mkt">Đến ngày:</label> <input type="date" id="end-date-mkt">
       </div>
-      <div class="filter-group"> <label for="team-filter-mkt">Team:</label> <select id="team-filter-mkt"
-          multiple></select> </div>
-      <div class="filter-group"> <label for="ca-filter-mkt">Ca:</label> <select id="ca-filter-mkt" multiple></select>
+      <div class="filter-group">
+        <label for="team-filter-mkt">Team:</label>
+        <select id="team-filter-mkt" class="mkt-select-source" multiple></select>
+        <details class="mkt-check-filter" data-mkt-select="team-filter-mkt">
+          <summary>Tất cả</summary>
+          <div class="mkt-check-dropdown"></div>
+        </details>
       </div>
-      <div class="filter-group"> <label for="market-filter-mkt">Thị trường:</label> <select id="market-filter-mkt"
-          multiple></select> </div>
-      <div class="filter-group"> <label for="product-filter-mkt">Sản phẩm:</label> <select id="product-filter-mkt"
-          multiple></select> </div>
+      <div class="filter-group">
+        <label for="ca-filter-mkt">Ca:</label>
+        <select id="ca-filter-mkt" class="mkt-select-source" multiple></select>
+        <details class="mkt-check-filter" data-mkt-select="ca-filter-mkt">
+          <summary>Tất cả</summary>
+          <div class="mkt-check-dropdown"></div>
+        </details>
+      </div>
+      <div class="filter-group">
+        <label for="market-filter-mkt">Thị trường:</label>
+        <select id="market-filter-mkt" class="mkt-select-source" multiple></select>
+        <details class="mkt-check-filter" data-mkt-select="market-filter-mkt">
+          <summary>Tất cả</summary>
+          <div class="mkt-check-dropdown"></div>
+        </details>
+      </div>
+      <div class="filter-group">
+        <label for="product-filter-mkt">Sản phẩm:</label>
+        <select id="product-filter-mkt" class="mkt-select-source" multiple></select>
+        <details class="mkt-check-filter" data-mkt-select="product-filter-mkt">
+          <summary>Tất cả</summary>
+          <div class="mkt-check-dropdown"></div>
+        </details>
+      </div>
       <button id="apply-filter-mkt">Áp dụng</button>
     </div>
 
@@ -1674,10 +1779,11 @@
               <th>Nguyên nhân / Ngưỡng</th>
               <th>Doanh số</th>
               <th>CPQC</th>
+              <th>Giải trình</th>
             </tr>
           </thead>
           <tbody id="alert-table-body">
-            <tr><td colspan="9" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo chi tiết» để tải dữ liệu.</td></tr>
+            <tr><td colspan="10" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo chi tiết» để tải dữ liệu.</td></tr>
           </tbody>
         </table>
       </div>
@@ -1790,6 +1896,30 @@
       }
       initMktFilterDropdowns();
       updateMktFilterDdCounts();
+    }
+
+    function showAllMktBranches() {
+      if (!MKT_DUAL_MODE) return;
+      document.body.classList.add('mkt-all-branches');
+      const hcmPane = document.getElementById('branch-pane-hcm');
+      const iframe = document.getElementById('mkt-hcm-dual-iframe');
+      if (hcmPane) hcmPane.style.removeProperty('display');
+      if (!iframe) return;
+
+      iframe.style.removeProperty('display');
+      if (!iframe.getAttribute('src')) {
+        const qs = new URLSearchParams();
+        qs.set('tableOnly', '1');
+        qs.append('allowedTeams', MKT_HCM_DEFAULT_TEAM);
+        const start = getMktInputValue('start-date-tab1');
+        const end = getMktInputValue('end-date-tab1');
+        if (/^\d{4}-\d{2}-\d{2}$/.test(start)) qs.set('start', start);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(end)) qs.set('end', end);
+        iframe.src = `${MKT_BRANCH_PAGE.hcm}?${qs.toString()}`;
+        iframe.addEventListener('load', syncDualHcmFilters, { once: true });
+      } else {
+        syncDualHcmFilters();
+      }
     }
 
     /** Bộ lọc Sản phẩm/Ca/Team/Thị trường ở thanh ngang dual-mode: đổi sang tick box thả xuống. */
@@ -1969,8 +2099,19 @@
       if (!el) return;
       el.value = currentBranch === 'hcm' ? 'hcm' : 'hn';
       el.addEventListener('change', () => {
+        if (el.value === '') {
+          showAllMktBranches();
+          return;
+        }
         const next = el.value === 'hcm' ? 'hcm' : 'hn';
-        if (next === currentBranch) return;
+        if (next === currentBranch) {
+          document.body.classList.remove('mkt-all-branches');
+          const hcmPane = document.getElementById('branch-pane-hcm');
+          const iframe = document.getElementById('mkt-hcm-dual-iframe');
+          if (hcmPane) hcmPane.style.display = 'none';
+          if (iframe) iframe.style.display = 'none';
+          return;
+        }
         showLoader?.();
         navigateMktBranch(next);
       });
@@ -2848,6 +2989,8 @@
           renderAlertTable();
         });
       }
+      const alertTable = document.getElementById('alert-table');
+      if (alertTable) alertTable.addEventListener('click', onAlertTableClick);
       document.addEventListener('click', (e) => {
         const t = e.target;
         if (!(t instanceof Element)) return;
@@ -4655,7 +4798,7 @@
       const bodyRowsHtml = dataList.map((s, i) => {
         Object.keys(total).forEach(key => total[key] += s[key] || 0);
         const cpds = s.dsSauShip ? s.cpqc / s.dsSauShip : 0, kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0;
-        const cpdsClass = !isFinite(cpds) || cpds <= 0 ? 'bg-lightred' : (cpds > 0.33 ? 'bg-yellow' : '');
+        const cpdsClass = getCpdsCellStyleForDetail(s.cpqc, s.dsSauShip, cpds);
         return `<tr>
                 <td class="text-center">${i + 1}</td>
                 <td class="text-left">${s.team}</td>
@@ -4741,8 +4884,17 @@
       const avgOrderValue = data.soDonThucTe ? data.dsChotThucTe / data.soDonThucTe : 0;
       const closingRateThucTe = data.soMessCmt ? data.soDonThucTe / data.soMessCmt : 0;
 
-      const rateThucTeClass = closingRateThucTe > 0.1 ? 'bg-green' : (closingRateThucTe > 0.05 ? 'bg-yellow' : 'bg-lightred');
-      const costPercentClass = !isFinite(costPercent) || costPercent <= 0 ? 'bg-lightred' : (costPercent > 0.33 ? 'bg-yellow' : '');
+      const rateThucTeClass = (() => {
+        const m = Number(data.soMessCmt) || 0;
+        const d = Number(data.soDonThucTe) || 0;
+        if (m <= 0 && d <= 0) return '';
+        if (d > 0 && m <= 0) return '';
+        if (m > 0 && d <= 0) return 'bg-lightred';
+        if (closingRateThucTe > 0.1) return 'bg-green';
+        if (closingRateThucTe > 0.05) return 'bg-yellow';
+        return 'bg-lightred';
+      })();
+      const costPercentClass = getCpdsCellStyleForDetail(data.cpqc, dsSauHoanHuyThucTe, costPercent);
       const isTotalRow = className.includes('total-row');
       const productCell = isTotalRow ? `<td class="total-label" colspan="2">${productName}</td>` : `<td class="text-left">${productName}</td>`;
       const marketCell = showMarket && !isTotalRow ? `<td class="text-left">${marketName}</td>` : (isTotalRow ? '' : '<td></td>');
@@ -5516,7 +5668,7 @@
 
       if (rows.length === 0) {
         tbody.innerHTML =
-          '<tr><td colspan="9" class="alert-empty">Không có cảnh báo phù hợp bộ lọc.</td></tr>';
+          '<tr><td colspan="10" class="alert-empty">Không có cảnh báo phù hợp bộ lọc.</td></tr>';
         return;
       }
 
@@ -5537,9 +5689,105 @@
             <td>${escapeAlertHtml(a.cause || '')}</td>
             <td>${formatCurrency(a.chot)}</td>
             <td>${formatCurrency(a.cpqc)}</td>
+            ${renderAlertNoteCell(a)}
           </tr>`;
         })
         .join('');
+    }
+
+    // --- Giải trình cho từng cảnh báo (lưu localStorage theo id cảnh báo) ---
+    const MKT_ALERT_NOTES_KEY = 'luminew.mktAlertNotes.v1';
+    let __alertEditingNoteId = null;
+
+    function loadAlertNotes() {
+      try {
+        return JSON.parse(localStorage.getItem(MKT_ALERT_NOTES_KEY) || '{}') || {};
+      } catch {
+        return {};
+      }
+    }
+    function saveAlertNotesMap(map) {
+      try {
+        localStorage.setItem(MKT_ALERT_NOTES_KEY, JSON.stringify(map || {}));
+      } catch (e) {
+        console.error('[mktAlertNotes] save:', e);
+      }
+    }
+    function getAlertNoteText(id) {
+      if (!id) return '';
+      const entry = loadAlertNotes()[id];
+      if (!entry) return '';
+      if (typeof entry === 'string') return entry;
+      return String(entry.text || '');
+    }
+    function setAlertNoteText(id, text) {
+      if (!id) return;
+      const map = loadAlertNotes();
+      const t = String(text || '').trim();
+      if (t) map[id] = { text: t, updatedAt: Date.now() };
+      else delete map[id];
+      saveAlertNotesMap(map);
+    }
+    function renderAlertNoteCell(a) {
+      const id = String(a && a.id ? a.id : '');
+      const idAttr = escapeAlertHtml(id);
+      const text = getAlertNoteText(id);
+      if (__alertEditingNoteId && __alertEditingNoteId === id) {
+        return `<td class="alert-note-cell editing">
+            <textarea id="alert-note-input" class="alert-note-input" rows="3"
+              placeholder="Nhập nội dung giải trình...">${escapeAlertHtml(text)}</textarea>
+            <div class="alert-note-actions">
+              <button type="button" class="alert-note-btn save" data-alert-note-save="${idAttr}">Lưu</button>
+              <button type="button" class="alert-note-btn cancel" data-alert-note-cancel="1">Huỷ</button>
+            </div>
+          </td>`;
+      }
+      if (text) {
+        return `<td class="alert-note-cell has-note">
+            <div class="alert-note-text">${escapeAlertHtml(text).replace(/\n/g, '<br>')}</div>
+            <button type="button" class="alert-note-btn edit" data-alert-note-edit="${idAttr}">Sửa</button>
+          </td>`;
+      }
+      return `<td class="alert-note-cell">
+          <button type="button" class="alert-note-btn add" data-alert-note-edit="${idAttr}">＋ Thêm giải trình</button>
+        </td>`;
+    }
+    function startEditAlertNote(id) {
+      __alertEditingNoteId = String(id || '');
+      renderAlertTable();
+      setTimeout(() => {
+        const ta = document.getElementById('alert-note-input');
+        if (ta) {
+          ta.focus();
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
+      }, 0);
+    }
+    function cancelEditAlertNote() {
+      __alertEditingNoteId = null;
+      renderAlertTable();
+    }
+    function saveEditAlertNote(id) {
+      const ta = document.getElementById('alert-note-input');
+      if (ta) setAlertNoteText(id, ta.value);
+      __alertEditingNoteId = null;
+      renderAlertTable();
+    }
+    function onAlertTableClick(e) {
+      const editBtn = e.target.closest('[data-alert-note-edit]');
+      if (editBtn) {
+        startEditAlertNote(editBtn.getAttribute('data-alert-note-edit'));
+        return;
+      }
+      const saveBtn = e.target.closest('[data-alert-note-save]');
+      if (saveBtn) {
+        saveEditAlertNote(saveBtn.getAttribute('data-alert-note-save'));
+        return;
+      }
+      const cancelBtn = e.target.closest('[data-alert-note-cancel]');
+      if (cancelBtn) {
+        cancelEditAlertNote();
+      }
     }
 
     function safePostMktAlerts(alerts) {

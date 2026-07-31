@@ -3913,7 +3913,7 @@
         const cpds =
             s.dsChot > 0 ? s.cpqc / s.dsChot : s.dsSauShip ? s.cpqc / s.dsSauShip : 0;
         const kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0;
-        const cpdsClass = !isFinite(cpds) || cpds <= 0 ? 'bg-lightred' : (cpds > 0.33 ? 'bg-yellow' : '');
+        const cpdsClass = getCpdsCellStyleForDetail(s.cpqc, s.dsChot > 0 ? s.dsChot : s.dsSauShip, cpds);
         return `<tr>
                 <td class="text-center">${i + 1}</td>
                 <td class="text-left">${s.team}</td>
