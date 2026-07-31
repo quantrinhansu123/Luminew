@@ -47,6 +47,108 @@ const parseMoney = (moneyString) => {
 };
 
 const DON_CHIA_CSKH_PAGE_SIZE = 1000;
+/** Khoảng ngày quá rộng + select * dễ statement timeout (57014) trên order_code_hcm. */
+const DON_CHIA_MAX_RANGE_DAYS = 93;
+
+/** Chỉ cột cần cho lưới / map — tránh select('*') kéo jsonb/log nặng.
+ * Không gồm alias chỉ có ở bảng tạm đối soát (vd. ma_tracking). */
+const DON_CHIA_LIST_COLUMNS = [
+  'id',
+  'order_code',
+  'order_date',
+  'created_at',
+  'customer_name',
+  'customer_phone',
+  'customer_address',
+  'city',
+  'state',
+  'country',
+  'zipcode',
+  'product',
+  'product_name_1',
+  'total_amount_vnd',
+  'payment_type',
+  'payment_method',
+  'payment_method_text',
+  'tracking_code',
+  'marketing_staff',
+  'sale_staff',
+  'team',
+  'delivery_status',
+  'check_result',
+  'note',
+  'cskh',
+  'cskh_status',
+  'delivery_staff',
+  'reconciled_vnd',
+  'reconciled_amount',
+  'shipping_unit',
+  'shipping_carrier',
+  'accountant_confirm',
+  'payment_status',
+  'payment_status_detail',
+  'reason',
+  'page_name',
+];
+
+function parseMissingColumnName(err) {
+  const msg = String(err?.message || err || '');
+  const m =
+    msg.match(/column\s+[\w.]+\.(\w+)\s+does not exist/i) ||
+    msg.match(/Could not find the '(\w+)' column/i);
+  return m?.[1] || null;
+}
+
+function formatLocalYmd(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Luôn có cận trên; tránh gte không lte quét nửa bảng → timeout. */
+function resolveDonChiaDateBounds(startDate, endDate) {
+  const today = formatLocalYmd(new Date());
+  let start = String(startDate || '').trim();
+  let end = String(endDate || '').trim();
+  let adjusted = false;
+  let message = '';
+
+  if (!start && !end) {
+    return { ok: false, start: '', end: '', message: 'Vui lòng chọn Từ ngày / Đến ngày.' };
+  }
+  if (!start) {
+    start = end || today;
+    adjusted = true;
+  }
+  if (!end) {
+    end = today;
+    adjusted = true;
+    message = `Đến ngày trống — dùng hôm nay (${today}) để tránh timeout.`;
+  }
+  if (start > end) {
+    const tmp = start;
+    start = end;
+    end = tmp;
+    adjusted = true;
+    message = 'Đã đảo Từ ngày / Đến ngày vì khoảng không hợp lệ.';
+  }
+
+  const startMs = new Date(`${start}T00:00:00`).getTime();
+  const endMs = new Date(`${end}T00:00:00`).getTime();
+  const days = Math.floor((endMs - startMs) / 86400000) + 1;
+  if (Number.isFinite(days) && days > DON_CHIA_MAX_RANGE_DAYS) {
+    const cappedEnd = new Date(`${start}T00:00:00`);
+    cappedEnd.setDate(cappedEnd.getDate() + DON_CHIA_MAX_RANGE_DAYS - 1);
+    end = formatLocalYmd(cappedEnd);
+    adjusted = true;
+    message =
+      `Khoảng ngày quá rộng (${days} ngày) — giới hạn ${DON_CHIA_MAX_RANGE_DAYS} ngày ` +
+      `(${start} → ${end}) để tránh timeout Supabase. Thu hẹp hoặc tải theo từng đợt.`;
+  }
+
+  return { ok: true, start, end, adjusted, message, days };
+}
 
 /** Mặc định khớp menu Home + rbac (`/don-chia-cskh`). */
 const DEFAULT_DON_CHIA_ACCESS_CODES = ['CSKH_PAID'];
@@ -636,6 +738,8 @@ function DonChiaCSKH({
 
   const getDonChiaOrdersQuery = async (options = {}) => {
     const dateMode = options.dateMode === 'created_at' ? 'created_at' : 'order_date';
+    const boundStart = options.boundStart ?? startDate;
+    const boundEnd = options.boundEnd ?? endDate;
 
     const userJson = localStorage.getItem("user");
     const user = userJson ? JSON.parse(userJson) : null;
@@ -651,7 +755,8 @@ function DonChiaCSKH({
     const roleLower = (role || '').toLowerCase();
     const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
 
-    let query = supabase.from(ordersTableName).select('*');
+    const selectCols = (options.selectCols || DON_CHIA_LIST_COLUMNS).filter(Boolean);
+    let query = supabase.from(ordersTableName).select(selectCols.join(','));
 
     if (!isManager) {
       query = query.not('cskh', 'is', null);
@@ -660,15 +765,15 @@ function DonChiaCSKH({
     }
 
     if (dateMode === 'order_date') {
-      if (startDate && startDate.trim() !== '') {
-        query = query.gte('order_date', startDate);
+      if (boundStart && String(boundStart).trim() !== '') {
+        query = query.gte('order_date', String(boundStart).trim());
       }
-      if (endDate && endDate.trim() !== '') {
-        query = query.lte('order_date', endDate);
+      if (boundEnd && String(boundEnd).trim() !== '') {
+        query = query.lte('order_date', String(boundEnd).trim());
       }
       query = query.order('order_date', { ascending: false });
-    } else if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '') {
-      const { start, end } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+    } else if (boundStart && boundEnd && String(boundStart).trim() !== '' && String(boundEnd).trim() !== '') {
+      const { start, end } = orderRangeToCreatedAtIsoBounds(String(boundStart).trim(), String(boundEnd).trim());
       if (start && end) {
         query = query.is('order_date', null);
         query = query.gte('created_at', start).lte('created_at', end);
@@ -750,18 +855,37 @@ function DonChiaCSKH({
   };
 
   /** Lấy toàn bộ dòng khớp query (lặp range), tránh .limit cố định. */
-  const fetchAllRowsForDonChiaQuery = async (dateMode) => {
+  const fetchAllRowsForDonChiaQuery = async (dateMode, bounds = {}) => {
     const acc = [];
     let from = 0;
     let isManagerFlag = false;
+    let selectCols = [...DON_CHIA_LIST_COLUMNS];
     for (;;) {
-      const { query, isManager } = await getDonChiaOrdersQuery({ dateMode });
-      isManagerFlag = isManager;
-      const { data, error } = await query.range(from, from + DON_CHIA_CSKH_PAGE_SIZE - 1);
-      if (error) throw error;
-      if (!data?.length) break;
-      acc.push(...data);
-      if (data.length < DON_CHIA_CSKH_PAGE_SIZE) break;
+      let pageData = null;
+      for (;;) {
+        const { query, isManager } = await getDonChiaOrdersQuery({
+          dateMode,
+          boundStart: bounds.start,
+          boundEnd: bounds.end,
+          selectCols,
+        });
+        isManagerFlag = isManager;
+        const { data, error } = await query.range(from, from + DON_CHIA_CSKH_PAGE_SIZE - 1);
+        if (!error) {
+          pageData = data;
+          break;
+        }
+        const missing = parseMissingColumnName(error);
+        if (missing && selectCols.includes(missing) && selectCols.length > 3) {
+          console.warn(`[DonChiaCSKH] Bỏ cột không tồn tại trên ${ordersTableName}:`, missing);
+          selectCols = selectCols.filter((c) => c !== missing);
+          continue;
+        }
+        throw error;
+      }
+      if (!pageData?.length) break;
+      acc.push(...pageData);
+      if (pageData.length < DON_CHIA_CSKH_PAGE_SIZE) break;
       from += DON_CHIA_CSKH_PAGE_SIZE;
     }
     return { data: acc, isManager: isManagerFlag };
@@ -771,42 +895,74 @@ function DonChiaCSKH({
   const loadData = async () => {
     setLoading(true);
     try {
+      const bounds = resolveDonChiaDateBounds(startDate, endDate);
+      if (!bounds.ok) {
+        toast.info(bounds.message || 'Vui lòng chọn khoảng ngày.');
+        setAllData([]);
+        return;
+      }
+      if (bounds.adjusted && (bounds.start !== startDate || bounds.end !== endDate)) {
+        if (bounds.message) toast.warning(bounds.message);
+        setStartDate(bounds.start);
+        setEndDate(bounds.end);
+        return;
+      }
+      if (bounds.message && bounds.adjusted) {
+        toast.warning(bounds.message);
+      }
+
       console.log('🔍 [DonChiaCSKH] Loading orders from Supabase...');
-      console.log(`📅 [DonChiaCSKH] Date range: ${startDate || 'ALL'} to ${endDate || 'ALL'}`);
+      console.log(`📅 [DonChiaCSKH] Date range: ${bounds.start} to ${bounds.end}`);
 
       const FETCH_LIMIT = 10000;
       let data;
       let isManager;
+      const dateOpts = { boundStart: bounds.start, boundEnd: bounds.end };
 
       if (unlimitedDataFetch) {
-        const r1 = await fetchAllRowsForDonChiaQuery('order_date');
+        const r1 = await fetchAllRowsForDonChiaQuery('order_date', { start: bounds.start, end: bounds.end });
         data = r1.data;
         isManager = r1.isManager;
-        if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '') {
-          const r2 = await fetchAllRowsForDonChiaQuery('created_at');
-          if (r2.data?.length) {
-            data = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(data, r2.data));
-            console.log(
-              `📅 [DonChiaCSKH] Gộp đơn order_date trống theo created_at: +${r2.data.length} dòng`
-            );
-          }
-        }
-      } else {
-        const { query: query1, isManager: im } = await getDonChiaOrdersQuery({ dateMode: 'order_date' });
-        isManager = im;
-        const res1 = await query1.limit(FETCH_LIMIT);
-        if (res1.error) throw res1.error;
-        data = res1.data;
-
-        if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '') {
-          const { query: query2 } = await getDonChiaOrdersQuery({ dateMode: 'created_at' });
-          const r2 = await query2.limit(FETCH_LIMIT);
-          if (r2.error) throw r2.error;
+        const r2 = await fetchAllRowsForDonChiaQuery('created_at', { start: bounds.start, end: bounds.end });
+        if (r2.data?.length) {
           data = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(data, r2.data));
           console.log(
-            `📅 [DonChiaCSKH] Gộp đơn order_date trống theo created_at: +${(r2.data || []).length} dòng`
+            `📅 [DonChiaCSKH] Gộp đơn order_date trống theo created_at: +${r2.data.length} dòng`
           );
         }
+      } else {
+        let selectCols = [...DON_CHIA_LIST_COLUMNS];
+        let res1;
+        for (;;) {
+          const { query: query1, isManager: im } = await getDonChiaOrdersQuery({
+            dateMode: 'order_date',
+            ...dateOpts,
+            selectCols,
+          });
+          isManager = im;
+          res1 = await query1.limit(FETCH_LIMIT);
+          if (!res1.error) break;
+          const missing = parseMissingColumnName(res1.error);
+          if (missing && selectCols.includes(missing) && selectCols.length > 3) {
+            console.warn(`[DonChiaCSKH] Bỏ cột không tồn tại trên ${ordersTableName}:`, missing);
+            selectCols = selectCols.filter((c) => c !== missing);
+            continue;
+          }
+          throw res1.error;
+        }
+        data = res1.data;
+
+        const { query: query2 } = await getDonChiaOrdersQuery({
+          dateMode: 'created_at',
+          ...dateOpts,
+          selectCols,
+        });
+        const r2 = await query2.limit(FETCH_LIMIT);
+        if (r2.error) throw r2.error;
+        data = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(data, r2.data));
+        console.log(
+          `📅 [DonChiaCSKH] Gộp đơn order_date trống theo created_at: +${(r2.data || []).length} dòng`
+        );
       }
 
       // Fallback: if query returns 0 results and user is non-manager, fetch ALL to verify and debug
@@ -914,10 +1070,19 @@ function DonChiaCSKH({
       
       // User-friendly error message
       const errorMessage = error?.message || 'Lỗi không xác định';
+      const isTimeout =
+        error?.code === '57014' ||
+        /statement timeout|canceling statement/i.test(errorMessage);
       const isRLSError = errorMessage.includes('row-level security') || errorMessage.includes('RLS');
       const isPermissionError = errorMessage.includes('permission') || errorMessage.includes('quyền');
       
-      if (isRLSError || isPermissionError) {
+      if (isTimeout) {
+        alert(
+          `❌ Timeout khi tải dữ liệu (khoảng ngày quá rộng hoặc bảng quá nặng).\n\n` +
+            `Đang lọc: ${startDate || '—'} → ${endDate || '—'}\n\n` +
+            `Hãy thu hẹp khoảng ngày (tối đa ~${DON_CHIA_MAX_RANGE_DAYS} ngày / lần) rồi tải lại.`
+        );
+      } else if (isRLSError || isPermissionError) {
         alert(`❌ Lỗi phân quyền:\n\n${errorMessage}\n\nVui lòng kiểm tra quyền truy cập của bạn hoặc liên hệ Admin.`);
       } else {
         alert(`❌ Lỗi tải dữ liệu CSKH:\n\n${errorMessage}\n\nVui lòng thử lại hoặc liên hệ IT nếu lỗi tiếp tục xảy ra.`);
@@ -1474,7 +1639,7 @@ function DonChiaCSKH({
 
   const normCskh = (s) => String(s ?? '').trim().toLowerCase();
 
-  /** Admin: xóa toàn bộ tên CSKH trên các đơn đang hiển thị sau bộ lọc. */
+  /** Admin: xóa cột CSKH + Trạng thái cskh trên các đơn đang hiển thị sau bộ lọc (để điền lại). */
   const handleClearCskhBulkForTarget = async () => {
     if (!isStrictAdminForCskhClear()) {
       toast.error('Chỉ Admin mới được thao tác này.');
@@ -1482,45 +1647,64 @@ function DonChiaCSKH({
     }
     if (clearingCskhBulk) return;
 
+    const ids = [
+      ...new Set(
+        filteredData
+          .filter((row) => {
+            if (!row.id) return false;
+            const hasCskh = Boolean(normCskh(row['CSKH']));
+            const hasStatus = Boolean(String(row['Trạng thái cskh'] ?? '').trim());
+            return hasCskh || hasStatus;
+          })
+          .map((row) => row.id)
+      ),
+    ];
+
+    if (ids.length === 0) {
+      toast.info('Không có đơn nào trong bộ lọc hiện tại còn dữ liệu cột CSKH / Trạng thái cskh.');
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Xóa hết cột CSKH (tên nhân sự + trạng thái cskh) cho ${ids.length} đơn đang khớp bộ lọc?\n` +
+          'Hai cột sẽ để trống để bạn điền lại. Thao tác không hoàn tác tự động.'
+      )
+    ) {
+      return;
+    }
+
     setClearingCskhBulk(true);
     try {
-      const ids = [
-        ...new Set(
-          filteredData
-            .filter((row) => row.id && normCskh(row['CSKH']))
-            .map((row) => row.id)
-        ),
-      ];
-
-      if (ids.length === 0) {
-        toast.info(
-          'Không có đơn nào trong bộ lọc hiện tại đang có tên ở cột CSKH.'
-        );
-        return;
-      }
-
-      if (
-        !window.confirm(
-          `Xoá tên nhân sự trong cột CSKH cho ${ids.length} đơn đang khớp bộ lọc hiện tại?\nTrường CSKH sẽ để trống. Thao tác không hoàn tác tự động.`
-        )
-      ) {
-        return;
-      }
-
       const chunkSize = 500;
       for (let i = 0; i < ids.length; i += chunkSize) {
         const chunk = ids.slice(i, i + chunkSize);
-        const { error: upErr } = await supabase.from(ordersTableName).update({ cskh: null }).in('id', chunk);
+        const { error: upErr } = await supabase
+          .from(ordersTableName)
+          .update({ cskh: null, cskh_status: null })
+          .in('id', chunk);
         if (upErr) throw upErr;
       }
 
-      toast.success(
-        `Đã xoá tên nhân sự cột CSKH trên ${ids.length} đơn (theo bộ lọc).`
-      );
+      const idSet = new Set(ids);
+      const wipeLocal = (row) => {
+        if (!idSet.has(row.id)) return row;
+        return {
+          ...row,
+          CSKH: '',
+          'Trạng thái cskh': '',
+          cskh_status: '',
+          _cskh_raw: '',
+        };
+      };
+      setAllData((prev) => prev.map(wipeLocal));
+      setAllMappedData((prev) => prev.map(wipeLocal));
+
+      toast.success(`Đã xóa hết cột CSKH trên ${ids.length} đơn (theo bộ lọc).`);
       await loadData();
     } catch (err) {
       console.error('Clear CSKH bulk:', err);
-      toast.error(err?.message || 'Lỗi khi gỡ gán CSKH');
+      toast.error(err?.message || 'Lỗi khi xóa cột CSKH');
     } finally {
       setClearingCskhBulk(false);
     }
@@ -1619,14 +1803,14 @@ function DonChiaCSKH({
                   onClick={handleClearCskhBulkForTarget}
                   disabled={loading || clearingCskhBulk}
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                  title="Chỉ Admin: xóa tên nhân sự trong cột CSKH trên các đơn đang khớp bộ lọc trang"
+                  title="Chỉ Admin: xóa hết cột CSKH + Trạng thái cskh trên các đơn đang khớp bộ lọc (để điền lại)"
                 >
                   {clearingCskhBulk ? (
                     <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
                   ) : (
                     <Trash2 className="w-4 h-4" />
                   )}
-                  {clearingCskhBulk ? 'Đang xử lý...' : 'Xoá tên nhân sự trong cột CSKH theo bộ lọc'}
+                  {clearingCskhBulk ? 'Đang xử lý...' : 'Xóa hết cột CSKH'}
                 </button>
               )}
             </div>

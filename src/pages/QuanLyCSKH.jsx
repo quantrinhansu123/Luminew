@@ -93,14 +93,18 @@ function chunkStringArray(arr, size) {
   return out;
 }
 
-/** Phạm vi nhân sự: chỉ khớp cột Sale (`sale_staff`). */
 function buildCSKHStaffOrFilter(variants) {
   const orParts = [];
   for (const n of variants) {
     const name = String(n ?? '').trim();
     if (!name) continue;
     const pattern = quotePostgrestOrIlikePattern(`%${name}%`);
-    orParts.push(`sale_staff.ilike.${pattern}`);
+    orParts.push(
+      `sale_staff.ilike.${pattern}`,
+      `marketing_staff.ilike.${pattern}`,
+      `delivery_staff.ilike.${pattern}`,
+      `cskh.ilike.${pattern}`
+    );
   }
   return orParts.length ? orParts.join(',') : null;
 }
@@ -175,19 +179,28 @@ async function fetchCSKHOrdersForDateMode({
 
 function rowMatchesCSKHStaffScope(row, variants) {
   if (!variants?.length) return false;
-  const sale = String(row?.sale_staff ?? row?.['Nhân viên Sale'] ?? '')
-    .trim()
-    .toLowerCase();
-  if (!sale) return false;
+  const fields = [
+    row?.sale_staff,
+    row?.marketing_staff,
+    row?.delivery_staff,
+    row?.cskh,
+    row?.['Nhân viên Sale'],
+    row?.['Nhân viên Marketing'],
+    row?.CSKH,
+  ];
+  const haystack = fields
+    .map((v) => String(v ?? '').trim().toLowerCase())
+    .filter(Boolean);
+  if (!haystack.length) return false;
   return variants.some((name) => {
     const needle = String(name ?? '').trim().toLowerCase();
     if (!needle) return false;
-    return sale.includes(needle);
+    return haystack.some((h) => h.includes(needle));
   });
 }
 
 /**
- * Gộp biến thể tên để khớp cột Sale (`sale_staff`) thôi.
+ * Gộp mọi biến thể tên để khớp cột sale_staff / marketing_staff / delivery_staff / cskh.
  * localStorage "username" có thể là username ngắn hoặc tên cũ; bảng users (theo email) có name đầy đủ.
  */
 async function resolveNameVariantsForOrderFilter(userEmail) {
@@ -861,11 +874,11 @@ function QuanLyCSKH({
             variants = personnelNames;
             if (!variants.length) {
               console.warn(
-                '⚠️ [CSKH HCM] selected_personnel / phạm vi nhân sự trống — không có tên để lọc theo Sale.'
+                '⚠️ [CSKH HCM] selected_personnel / phạm vi nhân sự trống — không có tên để lọc (sale/mkt/vận đơn/CSKH).'
               );
             } else {
               console.log(
-                '🔐 [CSKH HCM] Lọc đơn theo Sale (selected_personnel + leader_teams + tên tài khoản):',
+                '🔐 [CSKH HCM] Lọc đơn theo phạm vi nhân sự (selected_personnel + leader_teams + tên tài khoản):',
                 variants.length,
                 'tên'
               );
@@ -883,10 +896,10 @@ function QuanLyCSKH({
           variants = personnelNames;
           if (!variants.length) {
             console.warn(
-              '⚠️ [CSKH] Không có danh sách nhân sự (selected_personnel / leader_teams) và không có tên tài khoản để lọc theo Sale. Trả về rỗng.'
+              '⚠️ [CSKH] Không có danh sách nhân sự (selected_personnel / leader_teams) và không có tên tài khoản để lọc. Trả về rỗng.'
             );
           } else {
-            console.log('🔍 [CSKH] Lọc đơn theo cột Sale (phạm vi nhân sự user):', variants.length, 'tên');
+            console.log('🔍 [CSKH] Lọc đơn theo phạm vi nhân sự user (giống cấu hình Admin):', variants.length, 'tên');
           }
         } else {
           console.log('✅ [CSKH] Admin/Manager: viewing all orders (filters applied client-side)');
@@ -1302,10 +1315,10 @@ function QuanLyCSKH({
     }
   };
 
-  /** Xóa gán CSKH (cskh → null) cho mọi đơn đang có CSKH trong bộ lọc hiện tại. */
+  /** Xóa hết cột CSKH (cskh → null) trên mọi đơn đang có CSKH trong bộ lọc — để điền lại. */
   const handleClearCskhByFilter = async () => {
     if (!isAdmin() && !canEditFromThisList) {
-      toast.error('Bạn không có quyền sửa đơn — không thể xóa gán CSKH.');
+      toast.error('Bạn không có quyền sửa đơn — không thể xóa cột CSKH.');
       return;
     }
     if (clearingCskhByFilter || resyncingCskhFromUsers) return;
@@ -1323,7 +1336,8 @@ function QuanLyCSKH({
     }
     if (
       !window.confirm(
-        `Xóa gán CSKH (để trống) cho ${targets.length} đơn trong bộ lọc hiện tại?\n\nChỉ các đơn đang có tên CSKH mới bị cập nhật. Thao tác không hoàn tác tự động.`
+        `Xóa hết cột CSKH (để trống) cho ${targets.length} đơn trong bộ lọc hiện tại?\n\n` +
+          'Bạn có thể điền lại sau. Thao tác không hoàn tác tự động.'
       )
     ) {
       return;
@@ -1335,17 +1349,20 @@ function QuanLyCSKH({
       const CHUNK = 500;
       for (let i = 0; i < ids.length; i += CHUNK) {
         const chunk = ids.slice(i, i + CHUNK);
-        const { error } = await supabase.from(ordersTableName).update({ cskh: null }).in('id', chunk);
+        const { error } = await supabase
+          .from(ordersTableName)
+          .update({ cskh: null })
+          .in('id', chunk);
         if (error) throw error;
       }
       const idSet = new Set(ids);
       setAllData((prev) =>
         prev.map((item) => (idSet.has(item.id) ? { ...item, CSKH: '' } : item))
       );
-      toast.success(`Đã xóa gán CSKH cho ${ids.length} đơn (theo bộ lọc).`);
+      toast.success(`Đã xóa hết cột CSKH trên ${ids.length} đơn (theo bộ lọc).`);
     } catch (e) {
       console.error('[QuanLyCSKH] clear CSKH by filter:', e);
-      toast.error(e?.message || 'Lỗi khi xóa gán CSKH');
+      toast.error(e?.message || 'Lỗi khi xóa cột CSKH');
     } finally {
       setClearingCskhByFilter(false);
     }
@@ -1649,7 +1666,7 @@ function QuanLyCSKH({
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-3">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg">
                 <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
                 <span className="text-sm text-gray-600">
@@ -1705,18 +1722,17 @@ function QuanLyCSKH({
                       loading ||
                       resyncingCskhFromUsers ||
                       clearingCskhByFilter ||
-                      !filteredData.length ||
-                      filteredRowsWithCskhCount === 0
+                      !filteredData.length
                     }
                     className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                    title={`Xóa gán CSKH (để trống) cho các đơn sau mọi bộ lọc hiện tại. Hiện có ${filteredRowsWithCskhCount} đơn đang có CSKH trong tập lọc.`}
+                    title={`Xóa hết cột CSKH (để trống) theo bộ lọc hiện tại — ${filteredRowsWithCskhCount} đơn đang có CSKH. Sau đó có thể điền lại.`}
                   >
                     {clearingCskhByFilter ? (
                       <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
                     ) : (
                       <Eraser className="w-4 h-4" />
                     )}
-                    {clearingCskhByFilter ? 'Đang xóa...' : 'Xóa gán CSKH (lọc)'}
+                    {clearingCskhByFilter ? 'Đang xóa...' : 'Xóa hết cột CSKH'}
                   </button>
                 </>
               )}
