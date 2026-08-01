@@ -12,6 +12,7 @@ import {
   mergeUniqueRowsById,
   orderRangeToCreatedAtIsoBounds,
   sortOrdersByDisplayDateDesc,
+  calendarMonthDateBounds,
 } from '../utils/dateParsing';
 import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder, orderTrangThaiThuTienIsCoBill } from '../utils/orderTracking';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
@@ -1889,12 +1890,11 @@ function DonChiaCSKH({
                   onChange={(e) => {
                     setFilterMonth(e.target.value);
                     if (e.target.value) {
-                      const year = filterYear;
-                      const month = parseInt(e.target.value);
-                      const start = new Date(year, month - 1, 1);
-                      const end = new Date(year, month, 0);
-                      setStartDate(start.toISOString().split('T')[0]);
-                      setEndDate(end.toISOString().split('T')[0]);
+                      const bounds = calendarMonthDateBounds(filterYear, e.target.value);
+                      if (bounds) {
+                        setStartDate(bounds.start);
+                        setEndDate(bounds.end);
+                      }
                     }
                   }}
                 >
@@ -1915,12 +1915,11 @@ function DonChiaCSKH({
                   onChange={(e) => {
                     setFilterYear(Number(e.target.value));
                     if (filterMonth) {
-                      const year = Number(e.target.value);
-                      const month = parseInt(filterMonth);
-                      const start = new Date(year, month - 1, 1);
-                      const end = new Date(year, month, 0);
-                      setStartDate(start.toISOString().split('T')[0]);
-                      setEndDate(end.toISOString().split('T')[0]);
+                      const bounds = calendarMonthDateBounds(Number(e.target.value), filterMonth);
+                      if (bounds) {
+                        setStartDate(bounds.start);
+                        setEndDate(bounds.end);
+                      }
                     }
                   }}
                 />

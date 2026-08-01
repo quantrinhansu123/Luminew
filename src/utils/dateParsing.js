@@ -90,6 +90,32 @@ export function mergeUniqueRowsById(rowsA, rowsB) {
     return [...map.values(), ...noId];
 }
 
+/** YYYY-MM-DD theo lịch máy local — tránh lệch ngày khi dùng toISOString() (UTC). */
+export function formatLocalYmd(date = new Date()) {
+    const d = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+/**
+ * Cả tháng theo lịch (tháng 1–12): Từ = mùng 1, Đến = ngày cuối tháng.
+ * Không dùng Date#toISOString (UTC+7 sẽ đẩy mùng 1 → 31 tháng trước).
+ */
+export function calendarMonthDateBounds(year, month1to12) {
+    const y = Number(year);
+    const m = Number(month1to12);
+    if (!y || !m || m < 1 || m > 12) return null;
+    const mm = String(m).padStart(2, '0');
+    const lastDay = new Date(y, m, 0).getDate();
+    return {
+        start: `${y}-${mm}-01`,
+        end: `${y}-${mm}-${String(lastDay).padStart(2, '0')}`,
+    };
+}
+
 /** Giảm dần theo ngày “hiển thị”: order_date nếu có, không thì created_at */
 export function sortOrdersByDisplayDateDesc(rows) {
     const key = (row) => {

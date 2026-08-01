@@ -11,7 +11,7 @@ import { logDataChange } from '../services/logging';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
-import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '../utils/dateParsing';
+import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate, formatLocalYmd, calendarMonthDateBounds } from '../utils/dateParsing';
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { totalAmountVndFromLenDonFormula } from '../utils/totalAmountVndFromLenDon';
 import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
@@ -609,17 +609,16 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return formatLocalYmd(d);
   });
-  const [endDate, setEndDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
-  });
+  const [endDate, setEndDate] = useState(() => formatLocalYmd(new Date()));
   const [dateFilterType, setDateFilterType] = useState(() => {
     const saved = localStorage.getItem('danhSachDon_dateFilterType');
     return DANH_SACH_DON_DATE_FILTER_TYPES.some((t) => t.value === saved) ? saved : 'order_date';
   });
-  /** '' = không dùng lọc tháng; '1'..'12' = cả tháng (năm lấy từ startDate / năm hiện tại) */
+  /** '' = không dùng lọc tháng; '1'..'12' = cả tháng */
   const [filterMonth, setFilterMonth] = useState('');
+  const [filterYear, setFilterYear] = useState(() => new Date().getFullYear());
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -3769,16 +3768,12 @@ function DanhSachDon({ dataSource = 'default' }) {
                     setFilterMonth(monthVal);
                     setCurrentPage(1);
                     if (!monthVal) return;
-                    const monthNum = Number(monthVal);
-                    if (!monthNum || monthNum < 1 || monthNum > 12) return;
-                    const yearMatch = String(startDate || '').match(/^(\d{4})-/);
-                    const year = yearMatch ? Number(yearMatch[1]) : new Date().getFullYear();
-                    const lastDay = new Date(year, monthNum, 0).getDate();
-                    const mm = String(monthNum).padStart(2, '0');
-                    setStartDate(`${year}-${mm}-01`);
-                    setEndDate(`${year}-${mm}-${String(lastDay).padStart(2, '0')}`);
+                    const bounds = calendarMonthDateBounds(filterYear, monthVal);
+                    if (!bounds) return;
+                    setStartDate(bounds.start);
+                    setEndDate(bounds.end);
                   }}
-                  title="Đặt Từ ngày = mùng 1, Đến ngày = ngày cuối tháng (theo năm của ô Từ ngày)"
+                  title="Từ ngày = mùng 1, Đến ngày = ngày cuối tháng (lịch địa phương, không lệch UTC)"
                 >
                   <option value="">—</option>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
@@ -3787,6 +3782,27 @@ function DanhSachDon({ dataSource = 'default' }) {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Năm</label>
+                <input
+                  type="number"
+                  min={2020}
+                  max={2100}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white w-[96px]"
+                  value={filterYear}
+                  onChange={(e) => {
+                    const y = Number(e.target.value);
+                    setFilterYear(y);
+                    setCurrentPage(1);
+                    if (!filterMonth || !y) return;
+                    const bounds = calendarMonthDateBounds(y, filterMonth);
+                    if (!bounds) return;
+                    setStartDate(bounds.start);
+                    setEndDate(bounds.end);
+                  }}
+                  title="Năm dùng khi chọn Lọc theo tháng"
+                />
               </div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Từ ngày</label>
