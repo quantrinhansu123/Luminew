@@ -208,30 +208,9 @@ function applyDonChiaNonManagerCskhGate(mappedData, isManager) {
   });
 }
 
-const normDonChiaPersonName = (s) =>
-  String(s ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .replace(/\s+/g, ' ');
-
-/** Phân loại đơn cho KPI / modal: sale_tu_cham | duoc_chia | chua_gan */
-function classifyDonChiaCskhBucket(row) {
-  const cskh = String(getRowValue(row, 'CSKH', 'NV_CSKH') || '').trim();
-  const nvSale = String(getRowValue(row, 'Nhân_viên_Sale', 'Nhân viên Sale') || '').trim();
-  const cskhKey = normDonChiaPersonName(cskh);
-  const saleKey = normDonChiaPersonName(nvSale);
-  if (!cskhKey) return 'chua_gan';
-  if (saleKey && cskhKey === saleKey) return 'sale_tu_cham';
-  return 'duoc_chia';
-}
-
 const DON_CHIA_SUMMARY_MODAL_META = {
-  all: { title: 'Tổng số đơn (Có Bill)', bucket: null },
-  sale_tu_cham: { title: 'Số đơn của CSKH (Sale = CSKH)', bucket: 'sale_tu_cham' },
-  duoc_chia: { title: 'Số đơn được chia (CSKH ≠ Sale)', bucket: 'duoc_chia' },
-  chua_gan: { title: 'Chưa gán CSKH', bucket: 'chua_gan' },
+  all: { title: 'Tổng số đơn (Có Bill)' },
+  __EMPTY__: { title: 'Chưa gán CSKH (cột trống)' },
 };
 
 function applyDonChiaClientTableFilters(data, ctx) {
@@ -394,7 +373,7 @@ function DonChiaCSKH({
   const [isViewing, setIsViewing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [clearingCskhBulk, setClearingCskhBulk] = useState(false);
-  /** Modal danh sách theo KPI thanh tổng: 'all' | 'sale_tu_cham' | 'duoc_chia' | 'chua_gan' | null */
+  /** Modal danh sách theo thống kê CSKH: 'all' | '__EMPTY__' | tên CSKH */
   const [summaryListModalKey, setSummaryListModalKey] = useState(null);
 
   // --- Permission State ---
@@ -1257,16 +1236,11 @@ function DonChiaCSKH({
     });
   }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterCheckResult, filterPersonnel, filterCSKH, filterTrangThai, sortColumn, sortDirection]);
 
-  // Calculate summary statistics + buckets cho modal click
-  // Tổng (Có Bill) = Sale tự chăm + Được chia (CSKH ≠ Sale) + Chưa gán CSKH
+  // Thống kê theo cột CSKH (mỗi tên CSKH → số đơn + tổng tiền)
   const summary = useMemo(() => {
     const seenCodes = new Set();
-    const buckets = {
-      all: [],
-      sale_tu_cham: [],
-      duoc_chia: [],
-      chua_gan: [],
-    };
+    const allRows = [];
+    const byCskhMap = new Map();
     let totalTongTien = 0;
 
     filteredData.forEach((row, idx) => {
@@ -1275,41 +1249,69 @@ function DonChiaCSKH({
       if (seenCodes.has(dedupeKey)) return;
       seenCodes.add(dedupeKey);
 
-      buckets.all.push(row);
-      const bucket = classifyDonChiaCskhBucket(row);
-      buckets[bucket].push(row);
+      allRows.push(row);
+      const money = parseMoney(getRowValue(row, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ', 'Tổng_tiền_VND'));
+      totalTongTien += money;
 
-      totalTongTien += parseMoney(getRowValue(row, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ', 'Tổng_tiền_VND'));
+      const cskhName = String(getRowValue(row, 'CSKH', 'NV_CSKH') || '').trim();
+      const key = cskhName || '__EMPTY__';
+      if (!byCskhMap.has(key)) {
+        byCskhMap.set(key, {
+          key,
+          name: cskhName || '(Trống)',
+          isEmpty: !cskhName,
+          count: 0,
+          money: 0,
+          rows: [],
+        });
+      }
+      const bucket = byCskhMap.get(key);
+      bucket.count += 1;
+      bucket.money += money;
+      bucket.rows.push(row);
     });
 
-    const soDonSaleTuCham = buckets.sale_tu_cham.length;
-    const soDonDuocChia = buckets.duoc_chia.length;
-    const soDonChuaGan = buckets.chua_gan.length;
-    const totalDon = buckets.all.length;
-    const sumParts = soDonSaleTuCham + soDonDuocChia + soDonChuaGan;
+    const byCskh = [...byCskhMap.values()].sort((a, b) => {
+      if (a.isEmpty !== b.isEmpty) return a.isEmpty ? 1 : -1;
+      if (b.count !== a.count) return b.count - a.count;
+      return String(a.name).localeCompare(String(b.name), 'vi');
+    });
+
+    const soDonDaGan = byCskh.filter((r) => !r.isEmpty).reduce((s, r) => s + r.count, 0);
+    const soDonChuaGan = byCskh.find((r) => r.isEmpty)?.count || 0;
 
     return {
-      totalDon,
+      totalDon: allRows.length,
       totalTongTien,
-      soDonSaleTuCham,
-      soDonDuocChia,
+      soDonDaGan,
       soDonChuaGan,
-      soDonDaGanCskh: soDonSaleTuCham + soDonDuocChia,
-      sumParts,
-      soDonCSKH: soDonSaleTuCham,
-      buckets,
+      byCskh,
+      allRows,
+      byCskhMap,
     };
   }, [filteredData]);
 
   const summaryModalRows = useMemo(() => {
-    if (!summaryListModalKey || !summary?.buckets) return [];
-    return summary.buckets[summaryListModalKey] || [];
+    if (!summaryListModalKey || !summary) return [];
+    if (summaryListModalKey === 'all') return summary.allRows || [];
+    const hit = summary.byCskhMap?.get(summaryListModalKey);
+    return hit?.rows || [];
   }, [summaryListModalKey, summary]);
 
   const openSummaryListModal = (key) => {
-    if (!DON_CHIA_SUMMARY_MODAL_META[key]) return;
-    setSummaryListModalKey(key);
+    if (key === 'all' || key === '__EMPTY__' || summary?.byCskhMap?.has(key)) {
+      setSummaryListModalKey(key);
+    }
   };
+
+  const summaryModalTitle = useMemo(() => {
+    if (!summaryListModalKey) return 'Danh sách đơn';
+    if (DON_CHIA_SUMMARY_MODAL_META[summaryListModalKey]?.title) {
+      return DON_CHIA_SUMMARY_MODAL_META[summaryListModalKey].title;
+    }
+    const hit = summary?.byCskhMap?.get(summaryListModalKey);
+    return hit ? `Đơn của CSKH: ${hit.name}` : 'Danh sách đơn';
+  }, [summaryListModalKey, summary]);
 
   // Pagination (rowsPerPage === 0: hiển thị toàn bộ kết quả sau lọc)
   const totalPages =
@@ -2356,65 +2358,93 @@ function DonChiaCSKH({
           </div>
         </div>
 
-        {/* Tổng = Số đơn của CSKH + Số đơn được chia + Chưa gán — click số → modal danh sách */}
-        <div className="bg-green-600 text-white rounded-lg shadow-sm p-4 mb-6">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <button
-              type="button"
-              onClick={() => openSummaryListModal('all')}
-              className="text-center rounded-lg px-2 py-1 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/60"
-              title="Xem danh sách tổng đơn Có Bill"
-            >
-              <div className="text-sm font-semibold mb-1">Tổng số đơn (Có Bill)</div>
-              <div className="text-2xl font-bold underline decoration-white/50 underline-offset-4">
-                {summary.totalDon.toLocaleString('vi-VN')}
-              </div>
-              <div className="text-[11px] opacity-90 mt-1">
-                {summary.sumParts === summary.totalDon
-                  ? `✓ ${summary.soDonSaleTuCham} + ${summary.soDonDuocChia} + ${summary.soDonChuaGan}`
-                  : `⚠ lệch tổng phụ ${summary.sumParts}`}
-              </div>
-            </button>
-            <div className="text-center md:col-span-1">
-              <div className="text-sm font-semibold mb-1">Tổng tiền VNĐ</div>
-              <div className="text-xl font-bold leading-tight">{summary.totalTongTien.toLocaleString('vi-VN')} ₫</div>
+        {/* Thống kê theo cột CSKH */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
+          <div className="bg-green-600 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="font-semibold">Thống kê theo cột CSKH</div>
+            <div className="text-sm opacity-95 flex flex-wrap gap-x-4 gap-y-1">
+              <button
+                type="button"
+                onClick={() => openSummaryListModal('all')}
+                className="underline underline-offset-2 hover:opacity-90"
+                title="Xem tất cả đơn Có Bill"
+              >
+                Tổng: {summary.totalDon.toLocaleString('vi-VN')} đơn
+              </button>
+              <span>Đã gán: {summary.soDonDaGan.toLocaleString('vi-VN')}</span>
+              <button
+                type="button"
+                onClick={() => openSummaryListModal('__EMPTY__')}
+                className="underline underline-offset-2 hover:opacity-90"
+                title="Xem đơn CSKH trống"
+              >
+                Trống: {summary.soDonChuaGan.toLocaleString('vi-VN')}
+              </button>
+              <span>{summary.totalTongTien.toLocaleString('vi-VN')} ₫</span>
             </div>
-            <button
-              type="button"
-              onClick={() => openSummaryListModal('sale_tu_cham')}
-              className="text-center rounded-lg px-2 py-1 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/60"
-              title="Xem đơn Sale = CSKH"
-            >
-              <div className="text-sm font-semibold mb-1">Số đơn của CSKH</div>
-              <div className="text-2xl font-bold underline decoration-white/50 underline-offset-4">
-                {summary.soDonSaleTuCham.toLocaleString('vi-VN')}
-              </div>
-              <div className="text-[11px] opacity-90 mt-1">Sale = CSKH</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => openSummaryListModal('duoc_chia')}
-              className="text-center rounded-lg px-2 py-1 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/60"
-              title="Xem đơn CSKH ≠ Sale"
-            >
-              <div className="text-sm font-semibold mb-1">Số đơn được chia</div>
-              <div className="text-2xl font-bold underline decoration-white/50 underline-offset-4">
-                {summary.soDonDuocChia.toLocaleString('vi-VN')}
-              </div>
-              <div className="text-[11px] opacity-90 mt-1">CSKH ≠ Sale</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => openSummaryListModal('chua_gan')}
-              className="text-center rounded-lg px-2 py-1 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/60"
-              title="Xem đơn CSKH trống"
-            >
-              <div className="text-sm font-semibold mb-1">Chưa gán CSKH</div>
-              <div className="text-2xl font-bold underline decoration-white/50 underline-offset-4">
-                {summary.soDonChuaGan.toLocaleString('vi-VN')}
-              </div>
-              <div className="text-[11px] opacity-90 mt-1">CSKH trống</div>
-            </button>
+          </div>
+          <div className="overflow-x-auto max-h-[320px]">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">#</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">CSKH</th>
+                  <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Số đơn</th>
+                  <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Tổng tiền VNĐ</th>
+                  <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">%</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {summary.byCskh.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
+                      Không có dữ liệu để thống kê
+                    </td>
+                  </tr>
+                ) : (
+                  summary.byCskh.map((row, idx) => {
+                    const pct =
+                      summary.totalDon > 0 ? ((row.count / summary.totalDon) * 100).toFixed(1) : '0.0';
+                    return (
+                      <tr
+                        key={row.key}
+                        className={`hover:bg-green-50 cursor-pointer ${row.isEmpty ? 'bg-amber-50/60' : ''}`}
+                        onClick={() => openSummaryListModal(row.key)}
+                        title="Xem danh sách đơn của CSKH này"
+                      >
+                        <td className="px-4 py-2 text-gray-500">{idx + 1}</td>
+                        <td className={`px-4 py-2 font-medium ${row.isEmpty ? 'text-amber-700 italic' : 'text-gray-800'}`}>
+                          {row.name}
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-green-700 underline decoration-green-300">
+                          {row.count.toLocaleString('vi-VN')}
+                        </td>
+                        <td className="px-4 py-2 text-right text-gray-700">
+                          {row.money.toLocaleString('vi-VN')} ₫
+                        </td>
+                        <td className="px-4 py-2 text-right text-gray-500">{pct}%</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              {summary.byCskh.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-50 font-bold border-t border-gray-200">
+                    <td className="px-4 py-2" colSpan={2}>
+                      Tổng
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {summary.totalDon.toLocaleString('vi-VN')}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {summary.totalTongTien.toLocaleString('vi-VN')} ₫
+                    </td>
+                    <td className="px-4 py-2 text-right">100%</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
           </div>
         </div>
 
@@ -2635,7 +2665,7 @@ function DonChiaCSKH({
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
               <div>
                 <h2 className="text-lg font-bold text-gray-800">
-                  {DON_CHIA_SUMMARY_MODAL_META[summaryListModalKey]?.title || 'Danh sách đơn'}
+                  {summaryModalTitle}
                 </h2>
                 <p className="text-sm text-gray-500">
                   {summaryModalRows.length.toLocaleString('vi-VN')} đơn · theo bộ lọc đang áp dụng trên trang
