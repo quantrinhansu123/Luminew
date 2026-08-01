@@ -1953,16 +1953,31 @@ const AdminTools = () => {
                 counter[name] = {};
             });
 
-            // Chế độ thường: giữ cân bằng theo đơn CSKH đã gán (khác Sale).
-            // Chế độ full: bắt đầu từ 0 để chia đều lại toàn bộ.
+            const bumpCounter = (staffName, monthKey) => {
+                if (!staffName || !monthKey || !counter[staffName]) return;
+                counter[staffName][monthKey] = (counter[staffName][monthKey] || 0) + 1;
+            };
+
+            const pickLeastLoadedStaff = (monthKey) => {
+                let selectedName = null;
+                let minVal = Infinity;
+                staffList.forEach((name) => {
+                    const val = counter[name][monthKey] || 0;
+                    if (val < minVal) {
+                        minVal = val;
+                        selectedName = name;
+                    }
+                });
+                return selectedName;
+            };
+
+            // Chế độ thường: seed counter = mọi đơn đã có CSKH (kể cả Sale tự chăm) để chia phần còn lại đều.
+            // Chế độ full: bắt đầu từ 0, chia đều lại toàn bộ.
             if (!evenDistributeAll) {
                 orders?.forEach((order) => {
                     const cskhCanon = findStaffCanonical(order.cskh);
-                    const saleCanon = findStaffCanonical(order.sale_staff);
                     const monthKey = getMonthKey(order.order_date) || selectedMonth;
-                    if (cskhCanon && cskhCanon !== saleCanon && monthKey) {
-                        counter[cskhCanon][monthKey] = (counter[cskhCanon][monthKey] || 0) + 1;
-                    }
+                    if (cskhCanon && monthKey) bumpCounter(cskhCanon, monthKey);
                 });
             }
 
@@ -1970,16 +1985,20 @@ const AdminTools = () => {
             const updates = [];
 
             if (evenDistributeAll) {
+                // Chia đều toàn bộ — không giữ Sale → chính họ
                 waitingRows.push(...eligibleOrders);
             } else {
                 eligibleOrders.forEach((order) => {
                     const saleCanon = findStaffCanonical(order.sale_staff);
-                    if (saleCanon) {
+                    const monthKey = getMonthKey(order.order_date) || selectedMonth;
+                    if (saleCanon && monthKey) {
+                        // Sale thuộc CSKH → về chính họ, nhưng vẫn đếm vào counter để không lệch
                         updates.push({
                             order_code: order.order_code,
                             id: order.id,
                             cskh: saleCanon,
                         });
+                        bumpCounter(saleCanon, monthKey);
                     } else {
                         waitingRows.push(order);
                     }
@@ -1995,23 +2014,14 @@ const AdminTools = () => {
                     return;
                 }
 
-                let selectedName = null;
-                let minVal = Infinity;
-                staffList.forEach((name) => {
-                    const val = counter[name][monthKey] || 0;
-                    if (val < minVal) {
-                        minVal = val;
-                        selectedName = name;
-                    }
-                });
-
+                const selectedName = pickLeastLoadedStaff(monthKey);
                 if (selectedName) {
                     updates.push({
                         order_code: order.order_code,
                         id: order.id,
                         cskh: selectedName,
                     });
-                    counter[selectedName][monthKey] = (counter[selectedName][monthKey] || 0) + 1;
+                    bumpCounter(selectedName, monthKey);
                 }
             });
 
@@ -2133,19 +2143,18 @@ const AdminTools = () => {
         });
     };
 
-    /** HCM: chỉ điền đơn Có Bill đang trống CSKH (không ghi đè đơn đã có CSKH). */
+    /** HCM: chia đều lại toàn bộ đơn Có Bill trong tháng (ghi đè CSKH, bỏ Sale tự chăm). */
     const handlePhanBoDonHangHcmFull = async () => {
         if (
             !window.confirm(
-                `Chia nốt CSKH trống — HCM (tháng ${selectedMonth})?\n\n` +
+                `Chia đều CSKH — HCM (tháng ${selectedMonth})?\n\n` +
                     (() => {
                         const b = monthKeyToOrderDateBounds(selectedMonth);
                         return b ? `· order_date từ ${b.start} đến ${b.end}\n` : '';
                     })() +
                     '· Bảng order_code_hcm, đơn Có Bill\n' +
-                    '· Chỉ gán đơn đang trống CSKH\n' +
-                    '· Không ghi đè đơn đã có CSKH\n' +
-                    '· Sale thuộc CSKH → về chính họ; còn lại chia đều\n\n' +
+                    '· Chia đều cho mọi nhân sự CSKH HCM (lệch tối đa 1 đơn)\n' +
+                    '· Ghi đè CSKH đã có; bỏ rule Sale → chính họ\n\n' +
                     'Thao tác không hoàn tác tự động.'
             )
         ) {
@@ -2154,7 +2163,7 @@ const AdminTools = () => {
         await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, {
             requireCoBillPayment: true,
             team: 'HCM',
-            evenDistributeAll: false,
+            evenDistributeAll: true,
         });
     };
 
@@ -3997,7 +4006,7 @@ const AdminTools = () => {
                                             onClick={handlePhanBoDonHangHcmFull}
                                             disabled={autoAssignLoading}
                                             className="flex-1 bg-cyan-700 hover:bg-cyan-800 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                                            title="HCM: chỉ điền đơn Có Bill đang trống CSKH — không ghi đè đơn đã có CSKH"
+                                            title="HCM: chia đều toàn bộ đơn Có Bill trong tháng — ghi đè CSKH, bỏ Sale tự chăm"
                                         >
                                             {autoAssignLoading ? (
                                                 <>
@@ -4007,7 +4016,7 @@ const AdminTools = () => {
                                             ) : (
                                                 <>
                                                     <Users className="w-5 h-5 shrink-0" />
-                                                    Chia nốt CSKH trống — HCM
+                                                    Chia đều CSKH — HCM
                                                 </>
                                             )}
                                         </button>
