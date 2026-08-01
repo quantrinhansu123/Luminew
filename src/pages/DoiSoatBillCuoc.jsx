@@ -321,6 +321,67 @@ async function fetchScopedOrderCodesSet(supabaseClient, orderCodes, isHcmScope, 
   return out;
 }
 
+/**
+ * Map mã đơn → bảng đích để upsert.
+ * HN: ưu tiên `orders`, không có thì lấy `order_code_hcm` (đơn HCM).
+ * HCM: ưu tiên `order_code_hcm`, không có thì `orders` team HCM.
+ * Tránh báo «không tìm thấy» khi đơn chỉ nằm ở bảng còn lại.
+ */
+async function resolveOrderCodeTargetTables(supabaseClient, orderCodes, isHcmScope) {
+  const list = [...new Set((orderCodes || []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+  const targetByCode = new Map();
+  if (list.length === 0) {
+    return { targetByCode, missing: [], inOrders: new Set(), inHcm: new Set() };
+  }
+
+  const [inOrdersAll, inHcm, scopedOrdersForHcm] = await Promise.all([
+    fetchExistingOrderCodesSet(supabaseClient, list, 'orders'),
+    fetchExistingOrderCodesSet(supabaseClient, list, 'order_code_hcm'),
+    isHcmScope
+      ? fetchScopedOrderCodesSet(supabaseClient, list, true, 'orders')
+      : Promise.resolve(new Set()),
+  ]);
+
+  const missing = [];
+  for (const oc of list) {
+    if (isHcmScope) {
+      if (inHcm.has(oc)) targetByCode.set(oc, 'order_code_hcm');
+      else if (scopedOrdersForHcm.has(oc)) targetByCode.set(oc, 'orders');
+      else missing.push(oc);
+    } else if (inOrdersAll.has(oc)) {
+      targetByCode.set(oc, 'orders');
+    } else if (inHcm.has(oc)) {
+      targetByCode.set(oc, 'order_code_hcm');
+    } else {
+      missing.push(oc);
+    }
+  }
+
+  return { targetByCode, missing, inOrders: inOrdersAll, inHcm };
+}
+
+async function upsertOrdersByTargetTable(supabaseClient, rows, targetByCode) {
+  const byTable = new Map();
+  for (const row of rows || []) {
+    const code = String(row?.order_code ?? '').trim();
+    if (!code) continue;
+    const table = targetByCode.get(code);
+    if (!table) continue;
+    if (!byTable.has(table)) byTable.set(table, []);
+    byTable.get(table).push(row);
+  }
+  let updateCount = 0;
+  for (const [table, tableRows] of byTable) {
+    for (let i = 0; i < tableRows.length; i += 50) {
+      const chunk = tableRows.slice(i, i + 50);
+      const { error } = await supabaseClient.from(table).upsert(chunk, { onConflict: 'order_code' });
+      if (error) throw error;
+      updateCount += chunk.length;
+    }
+  }
+  return updateCount;
+}
+
 function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const isHcmScope = dataScope === 'hcm';
   const { canView } = usePermissions();
@@ -2207,12 +2268,16 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         return;
       }
 
-      // 4. Kiểm tra sự tồn tại trên hệ thống (orders)
-      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, allOrderCodes, ordersTableName);
-      const scopedOrderCodes = await fetchScopedOrderCodesSet(supabase, allOrderCodes, isHcmScope, ordersTableName);
-      const validOrderCodes = new Set([...existingOrderCodes].filter((c) => scopedOrderCodes.has(c)));
-      const missingInOrders = allOrderCodes.filter((c) => !validOrderCodes.has(c));
+      // 4. Kiểm tra sự tồn tại: HN + HCM (đơn chỉ có trên order_code_hcm vẫn đồng bộ được)
+      const { targetByCode, missing: missingInOrders } = await resolveOrderCodeTargetTables(
+        supabase,
+        allOrderCodes,
+        isHcmScope
+      );
+      const validOrderCodes = new Set(targetByCode.keys());
       const foundCount = validOrderCodes.size;
+      const hcmOnlyCount = [...validOrderCodes].filter((c) => targetByCode.get(c) === 'order_code_hcm').length;
+      const ordersOnlyCount = [...validOrderCodes].filter((c) => targetByCode.get(c) === 'orders').length;
 
       // 5. Chuẩn bị Modal xác nhận
       const errorList = [];
@@ -2224,7 +2289,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       }
       if (missingInOrders.length > 0) {
         errorList.push({ 
-          label: 'Mã đơn hàng không tồn tại trong CSDL orders', 
+          label: 'Mã đơn hàng không tìm thấy trên hệ thống (không có ở orders lẫn order_code_hcm)', 
           items: missingInOrders 
         });
       }
@@ -2236,12 +2301,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
           total: allOrderCodes.length, // Số mã đơn duy nhất
           found: foundCount,
           missing: missingInOrders.length,
-          rawRows: billData.length // Số dòng gốc từ Excel/DB
+          rawRows: billData.length, // Số dòng gốc từ Excel/DB
+          hcmOnlyCount,
+          ordersOnlyCount,
         },
         errorList,
         onConfirm: async () => {
           setShowSyncConfirmModal(false);
-          await executeSyncBillBatch(finalUpdateMap, allOrderCodes, validOrderCodes, missingInOrders);
+          await executeSyncBillBatch(finalUpdateMap, allOrderCodes, validOrderCodes, missingInOrders, targetByCode);
         }
       });
       setShowSyncConfirmModal(true);
@@ -2254,7 +2321,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   };
 
   /** Thực thi đồng bộ Bill theo lô */
-  const executeSyncBillBatch = async (finalUpdateMap, allOrderCodes, existingOrderCodes, missingInOrders) => {
+  const executeSyncBillBatch = async (finalUpdateMap, allOrderCodes, existingOrderCodes, missingInOrders, targetByCode) => {
     setSyncing(true);
     try {
       let updateCount = 0;
@@ -2301,29 +2368,24 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         if (historyError) throw historyError;
       }
 
-      const chunks = chunkArray(ordersToUpdate, 50);
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        const { error: updateError } = await supabase.from(ordersTableName).upsert(chunk, { onConflict: 'order_code' });
+      const resolvedTargets =
+        targetByCode instanceof Map && targetByCode.size > 0
+          ? targetByCode
+          : new Map(ordersToUpdate.map((r) => [r.order_code, ordersTableName]));
 
-        if (updateError) {
-          throw updateError;
-        }
-
-        updateCount += chunk.length;
-        chunk.forEach(item => {
-          syncLogRows.push({
-            sync_batch_id: syncBatchId,
-            synced_at: syncTime,
-            order_code: item.order_code,
-            shipping_cost: null,
-            total_vnd: null,
-            revenue_actual: item.reconciled_vnd ?? null,
-            order_count_actual: null,
-          });
+      updateCount = await upsertOrdersByTargetTable(supabase, ordersToUpdate, resolvedTargets);
+      setSyncProgress((prev) => ({ ...prev, current: updateCount }));
+      ordersToUpdate.forEach((item) => {
+        syncLogRows.push({
+          sync_batch_id: syncBatchId,
+          synced_at: syncTime,
+          order_code: item.order_code,
+          shipping_cost: null,
+          total_vnd: null,
+          revenue_actual: item.reconciled_vnd ?? null,
+          order_count_actual: null,
         });
-        setSyncProgress(prev => ({ ...prev, current: updateCount }));
-      }
+      });
 
       if (syncLogRows.length > 0) {
         const { error: syncResultsError } = await supabase.from('bill_sync_results').insert(syncLogRows);
@@ -2402,11 +2464,13 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       ]);
       
       const orderCodeList = [...allOrderCodes];
-      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, orderCodeList, ordersTableName);
-      const scopedOrderCodes = await fetchScopedOrderCodesSet(supabase, orderCodeList, isHcmScope, ordersTableName);
-
-      const missingOrderCodes = orderCodeList.filter(oc => !existingOrderCodes.has(oc) || !scopedOrderCodes.has(oc));
-      const validOrderCodes = orderCodeList.filter(oc => existingOrderCodes.has(oc) && scopedOrderCodes.has(oc));
+      const { targetByCode, missing: missingOrderCodes } = await resolveOrderCodeTargetTables(
+        supabase,
+        orderCodeList,
+        isHcmScope
+      );
+      const validOrderCodes = [...targetByCode.keys()];
+      const hcmOnlyCount = validOrderCodes.filter((c) => targetByCode.get(c) === 'order_code_hcm').length;
 
       // HIỂN THỊ MODAL BÁO CÁO TRƯỚC KHI ĐỒNG BỘ
       setSyncConfirmData({
@@ -2415,12 +2479,13 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         stats: {
           total: orderCodeList.length,
           found: validOrderCodes.length,
-          missing: missingOrderCodes.length
+          missing: missingOrderCodes.length,
+          hcmOnlyCount,
         },
-        errorList: missingOrderCodes.length > 0 ? [{ label: 'Mã đơn hàng không tìm thấy trên hệ thống', items: missingOrderCodes }] : [],
+        errorList: missingOrderCodes.length > 0 ? [{ label: 'Mã đơn hàng không tìm thấy trên hệ thống (không có ở orders lẫn order_code_hcm)', items: missingOrderCodes }] : [],
         onConfirm: async () => {
           setShowSyncConfirmModal(false);
-          await executeSyncCuocBatch(validOrderCodes, shippingCostMap, orderCountMap, missingOrderCodes, orderCodeList.length);
+          await executeSyncCuocBatch(validOrderCodes, shippingCostMap, orderCountMap, missingOrderCodes, orderCodeList.length, targetByCode);
         }
       });
       setShowSyncConfirmModal(true);
@@ -2431,7 +2496,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   };
 
   /** Thực thi đồng bộ Cước theo lô */
-  const executeSyncCuocBatch = async (validOrderCodes, shippingCostMap, orderCountMap, missingOrderCodes, totalInputCount) => {
+  const executeSyncCuocBatch = async (validOrderCodes, shippingCostMap, orderCountMap, missingOrderCodes, totalInputCount, targetByCode) => {
     setSyncing(true);
     try {
       let updateCount = 0;
@@ -2478,32 +2543,24 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         if (historyError) throw historyError;
       }
 
-      const chunks = chunkArray(ordersToUpdate, 50);
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
+      const resolvedTargets =
+        targetByCode instanceof Map && targetByCode.size > 0
+          ? targetByCode
+          : new Map(validOrderCodes.map((oc) => [oc, ordersTableName]));
 
-        const { error: updateError } = await supabase
-          .from(ordersTableName)
-          .upsert(chunk, { onConflict: 'order_code' });
-
-        if (updateError) {
-          throw updateError;
-        }
-
-        updateCount += chunk.length;
-        chunk.forEach(item => {
-          syncLogRows.push({
-            sync_batch_id: syncBatchId,
-            synced_at: syncTime,
-            order_code: item.order_code,
-            shipping_cost: item.shipping_cost ?? null,
-            total_vnd: null,
-            revenue_actual: null,
-            order_count_actual: item.order_count_actual ?? null,
-          });
+      updateCount = await upsertOrdersByTargetTable(supabase, ordersToUpdate, resolvedTargets);
+      setSyncProgress((prev) => ({ ...prev, current: updateCount }));
+      ordersToUpdate.forEach((item) => {
+        syncLogRows.push({
+          sync_batch_id: syncBatchId,
+          synced_at: syncTime,
+          order_code: item.order_code,
+          shipping_cost: item.shipping_cost ?? null,
+          total_vnd: null,
+          revenue_actual: null,
+          order_count_actual: item.order_count_actual ?? null,
         });
-        setSyncProgress(prev => ({ ...prev, current: updateCount }));
-      }
+      });
 
       if (syncLogRows.length > 0) {
         const { error: syncResultsError } = await supabase.from('bill_sync_results').insert(syncLogRows);
@@ -6423,7 +6480,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 <div className="flex gap-3">
                   <span className="text-xl">💡</span>
                   <p className="text-xs text-yellow-800 leading-relaxed font-medium">
-                    Hệ thống sẽ cập nhật dữ liệu cho <strong className="text-yellow-900 font-bold">{syncConfirmData.stats.found} đơn hàng</strong> đã khớp được mã. Các đơn hàng không tìm thấy sẽ được giữ nguyên trạng thái cũ.
+                    Hệ thống sẽ cập nhật dữ liệu cho <strong className="text-yellow-900 font-bold">{syncConfirmData.stats.found} đơn hàng</strong> đã khớp được mã
+                    {(syncConfirmData.stats.hcmOnlyCount > 0 || syncConfirmData.stats.ordersOnlyCount > 0) && (
+                      <>
+                        {' '}
+                        (gồm cả đơn trên <strong>orders</strong> và <strong>order_code_hcm</strong>)
+                      </>
+                    )}
+                    . Các đơn hàng không tìm thấy sẽ được giữ nguyên trạng thái cũ.
                   </p>
                 </div>
               </div>
