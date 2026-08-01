@@ -1229,37 +1229,62 @@ function DonChiaCSKH({
   }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterCheckResult, filterPersonnel, filterCSKH, filterTrangThai, sortColumn, sortDirection]);
 
   // Calculate summary statistics
+  // Tổng (Có Bill) = Sale tự chăm + Được chia (CSKH ≠ Sale) + Chưa gán CSKH
   const summary = useMemo(() => {
     const seenCodes = new Set();
     let totalDon = 0;
     let totalTongTien = 0;
-    let soDonCSKH = 0;
-    let soDonDuocChia = 0;
+    let soDonSaleTuCham = 0; // CSKH === Sale
+    let soDonDuocChia = 0; // có CSKH và CSKH !== Sale
+    let soDonChuaGan = 0; // CSKH trống
 
-    filteredData.forEach(row => {
+    const normName = (s) =>
+      String(s ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .replace(/\s+/g, ' ');
+
+    filteredData.forEach((row, idx) => {
+      // Dedup theo mã đơn; thiếu mã thì dùng id / index để không bỏ sót khỏi tổng
       const maDonHang = String(getRowValue(row, 'Mã_đơn_hàng', 'Mã đơn hàng') || '').trim();
+      const dedupeKey = maDonHang || String(row.id || `row-${idx}`);
+      if (seenCodes.has(dedupeKey)) return;
+      seenCodes.add(dedupeKey);
+      totalDon++;
 
-      if (maDonHang && !seenCodes.has(maDonHang)) {
-        seenCodes.add(maDonHang);
-        totalDon++;
+      const tongTien = parseMoney(getRowValue(row, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ', 'Tổng_tiền_VND'));
+      totalTongTien += tongTien;
 
-        const tongTien = parseMoney(getRowValue(row, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ', 'Tổng_tiền_VND'));
-        totalTongTien += tongTien;
+      const cskh = String(getRowValue(row, 'CSKH', 'NV_CSKH') || '').trim();
+      const nvSale = String(getRowValue(row, 'Nhân_viên_Sale', 'Nhân viên Sale') || '').trim();
+      const cskhKey = normName(cskh);
+      const saleKey = normName(nvSale);
 
-        const cskh = String(getRowValue(row, 'CSKH', 'NV_CSKH') || '').trim();
-        const nvSale = String(getRowValue(row, 'Nhân_viên_Sale', 'Nhân viên Sale') || '').trim();
-
-        if (cskh && nvSale && cskh === nvSale) {
-          soDonCSKH++;
-        }
-
-        if (cskh && cskh !== nvSale) {
-          soDonDuocChia++;
-        }
+      if (!cskhKey) {
+        soDonChuaGan++;
+      } else if (saleKey && cskhKey === saleKey) {
+        soDonSaleTuCham++;
+      } else {
+        soDonDuocChia++;
       }
     });
 
-    return { totalDon, totalTongTien, soDonCSKH, soDonDuocChia };
+    const soDonDaGanCskh = soDonSaleTuCham + soDonDuocChia;
+    const sumParts = soDonSaleTuCham + soDonDuocChia + soDonChuaGan;
+
+    return {
+      totalDon,
+      totalTongTien,
+      soDonSaleTuCham,
+      soDonDuocChia,
+      soDonChuaGan,
+      soDonDaGanCskh,
+      sumParts,
+      // alias
+      soDonCSKH: soDonSaleTuCham,
+    };
   }, [filteredData]);
 
   // Pagination (rowsPerPage === 0: hiển thị toàn bộ kết quả sau lọc)
@@ -2309,24 +2334,36 @@ function DonChiaCSKH({
           </div>
         </div>
 
-        {/* Summary Statistics Bar */}
+        {/* Tổng = Số đơn của CSKH + Số đơn được chia + Chưa gán */}
         <div className="bg-green-600 text-white rounded-lg shadow-sm p-4 mb-6">
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="text-center">
               <div className="text-sm font-semibold mb-1">Tổng số đơn (Có Bill)</div>
-              <div className="text-2xl font-bold">{summary.totalDon.toLocaleString('vi-VN')} đơn</div>
+              <div className="text-2xl font-bold">{summary.totalDon.toLocaleString('vi-VN')}</div>
+              <div className="text-[11px] opacity-90 mt-1">
+                {summary.sumParts === summary.totalDon
+                  ? `✓ ${summary.soDonSaleTuCham} + ${summary.soDonDuocChia} + ${summary.soDonChuaGan}`
+                  : `⚠ lệch tổng phụ ${summary.sumParts}`}
+              </div>
             </div>
-            <div className="text-center">
+            <div className="text-center md:col-span-1">
               <div className="text-sm font-semibold mb-1">Tổng tiền VNĐ</div>
-              <div className="text-2xl font-bold">{summary.totalTongTien.toLocaleString('vi-VN')} ₫</div>
+              <div className="text-xl font-bold leading-tight">{summary.totalTongTien.toLocaleString('vi-VN')} ₫</div>
             </div>
             <div className="text-center">
-              <div className="text-sm font-semibold mb-1">Số đơn của CSKH (Sale = CSKH)</div>
-              <div className="text-2xl font-bold">{summary.soDonCSKH.toLocaleString('vi-VN')} đơn</div>
+              <div className="text-sm font-semibold mb-1">Số đơn của CSKH</div>
+              <div className="text-2xl font-bold">{summary.soDonSaleTuCham.toLocaleString('vi-VN')}</div>
+              <div className="text-[11px] opacity-90 mt-1">Sale = CSKH</div>
             </div>
             <div className="text-center">
-              <div className="text-sm font-semibold mb-1">Số đơn được chia (CSKH ≠ Sale)</div>
-              <div className="text-2xl font-bold">{summary.soDonDuocChia.toLocaleString('vi-VN')} đơn</div>
+              <div className="text-sm font-semibold mb-1">Số đơn được chia</div>
+              <div className="text-2xl font-bold">{summary.soDonDuocChia.toLocaleString('vi-VN')}</div>
+              <div className="text-[11px] opacity-90 mt-1">CSKH ≠ Sale</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm font-semibold mb-1">Chưa gán CSKH</div>
+              <div className="text-2xl font-bold">{summary.soDonChuaGan.toLocaleString('vi-VN')}</div>
+              <div className="text-[11px] opacity-90 mt-1">CSKH trống</div>
             </div>
           </div>
         </div>
