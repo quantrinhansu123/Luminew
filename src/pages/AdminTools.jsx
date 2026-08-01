@@ -9,6 +9,10 @@ import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
 import { supabase } from '../supabase/config';
 import { resolveTrangThaiThuTienFromOrder, orderTrangThaiThuTienIsCoBill } from '../utils/orderTracking';
+import {
+    mergeUniqueRowsById,
+    orderRangeToCreatedAtIsoBounds,
+} from '../utils/dateParsing';
 import * as ApiService from '../services/api';
 import { runChiaDonVanDon } from '../services/chiaDonVanDon';
 
@@ -54,34 +58,69 @@ const CSKH_ORDER_TABLE_HCM = 'order_code_hcm';
 const CSKH_PHAN_BO_PAGE_SIZE = 1000;
 
 /**
- * Lấy hết đơn trong khoảng order_date (phân trang — tránh cắt mặc định ~1000 của PostgREST).
- * Bảng HCM (`order_code_hcm`): không lọc team (khớp trang Đơn chia HCM).
- * Bảng HN (`orders`): lọc team chính xác.
+ * Lấy hết đơn trong tháng (phân trang — tránh cắt ~1000 của PostgREST).
+ * 1) order_date trong [start, end]
+ * 2) order_date trống + created_at trong tháng (khớp trang Đơn chia)
+ * HCM (`order_code_hcm`): không lọc team. HN (`orders`): lọc team.
  */
 async function fetchAllOrdersForCskhPhanBo(supabaseClient, ordersTable, { teamFilter, startDateStr, endDateStr }) {
     const isHcmTable = ordersTable === CSKH_ORDER_TABLE_HCM;
-    const all = [];
-    let from = 0;
-    for (;;) {
-        let q = supabaseClient
-            .from(ordersTable)
-            .select('*')
-            .gte('order_date', startDateStr)
-            .lte('order_date', endDateStr)
-            .order('order_date', { ascending: true })
-            .order('order_code', { ascending: true })
-            .range(from, from + CSKH_PHAN_BO_PAGE_SIZE - 1);
-        if (!isHcmTable && teamFilter) {
-            q = q.eq('team', teamFilter);
+
+    const fetchPaged = async (buildQuery) => {
+        const all = [];
+        let from = 0;
+        for (;;) {
+            const { data, error } = await buildQuery()
+                .range(from, from + CSKH_PHAN_BO_PAGE_SIZE - 1);
+            if (error) throw error;
+            const chunk = data || [];
+            all.push(...chunk);
+            if (chunk.length < CSKH_PHAN_BO_PAGE_SIZE) break;
+            from += CSKH_PHAN_BO_PAGE_SIZE;
         }
-        const { data, error } = await q;
-        if (error) throw error;
-        const chunk = data || [];
-        all.push(...chunk);
-        if (chunk.length < CSKH_PHAN_BO_PAGE_SIZE) break;
-        from += CSKH_PHAN_BO_PAGE_SIZE;
+        return all;
+    };
+
+    const applyTeam = (q) => {
+        if (!isHcmTable && teamFilter) return q.eq('team', teamFilter);
+        return q;
+    };
+
+    const byOrderDate = await fetchPaged(() =>
+        applyTeam(
+            supabaseClient
+                .from(ordersTable)
+                .select('*')
+                .gte('order_date', startDateStr)
+                .lte('order_date', endDateStr)
+                .order('order_date', { ascending: true })
+                .order('order_code', { ascending: true })
+        )
+    );
+
+    let byCreatedAt = [];
+    const { start: createdFrom, end: createdTo } = orderRangeToCreatedAtIsoBounds(startDateStr, endDateStr);
+    if (createdFrom && createdTo) {
+        byCreatedAt = await fetchPaged(() =>
+            applyTeam(
+                supabaseClient
+                    .from(ordersTable)
+                    .select('*')
+                    .is('order_date', null)
+                    .gte('created_at', createdFrom)
+                    .lte('created_at', createdTo)
+                    .order('created_at', { ascending: true })
+                    .order('order_code', { ascending: true })
+            )
+        );
     }
-    return all;
+
+    const merged = mergeUniqueRowsById(byOrderDate, byCreatedAt);
+    console.log(
+        `📦 [Chia đơn CSKH] fetch ${ordersTable}: order_date=${byOrderDate.length}, ` +
+            `created_at(null order_date)=${byCreatedAt.length}, gộp=${merged.length}`
+    );
+    return merged;
 }
 
 /** Map tableId (card) → tên bảng Supabase thật. */
@@ -1976,33 +2015,57 @@ const AdminTools = () => {
                 }
             });
 
+            const succeededCodes = new Set();
             if (updates.length > 0) {
                 const CHUNK_SIZE = 50;
+                let failCount = 0;
+                const failSamples = [];
                 for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
                     const chunk = updates.slice(i, i + CHUNK_SIZE);
-                    const updatePromises = chunk.map((update) => {
-                        let q = supabase.from(ordersTable).update({ cskh: update.cskh });
-                        if (update.id != null) q = q.eq('id', update.id);
-                        else q = q.eq('order_code', update.order_code);
-                        return q;
+                    const results = await Promise.all(
+                        chunk.map((update) => {
+                            let q = supabase.from(ordersTable).update({ cskh: update.cskh });
+                            if (update.id != null) q = q.eq('id', update.id);
+                            else q = q.eq('order_code', update.order_code);
+                            return q.select('id, order_code');
+                        })
+                    );
+                    results.forEach((r, idx) => {
+                        const code = String(chunk[idx]?.order_code || '').trim();
+                        const returned = Array.isArray(r.data) ? r.data.length : 0;
+                        if (r.error || returned === 0) {
+                            failCount += 1;
+                            if (failSamples.length < 5) {
+                                failSamples.push(
+                                    `${code || '?'}: ${r.error?.message || '0 dòng cập nhật (RLS/id?)'}`
+                                );
+                            }
+                            return;
+                        }
+                        if (code) succeededCodes.add(code);
                     });
-                    await Promise.all(updatePromises);
+                }
+                if (failCount > 0) {
+                    console.error('[Chia đơn CSKH] Một số update lỗi:', failSamples);
+                    toast.warning(`Có ${failCount}/${updates.length} đơn cập nhật CSKH thất bại.`);
                 }
             }
 
-            const assignedCodes = new Set(updates.map((u) => String(u.order_code || '').trim()).filter(Boolean));
             const stillEmpty = (orders || []).filter((o) => {
                 const code = String(o.order_code || '').trim();
                 if (!code) return false;
-                if (assignedCodes.has(code)) return false;
+                if (succeededCodes.has(code)) return false;
                 return !String(o.cskh || '').trim();
             }).length;
+            const successCount = succeededCodes.size;
 
             const perStaff = {};
             staffList.forEach((n) => {
                 perStaff[n] = 0;
             });
             updates.forEach((u) => {
+                const code = String(u.order_code || '').trim();
+                if (!succeededCodes.has(code)) return;
                 if (u.cskh && perStaff[u.cskh] !== undefined) perStaff[u.cskh] += 1;
             });
             const perStaffLines = staffList.map((n) => `  · ${n}: ${perStaff[n]}`).join('\n');
@@ -2014,11 +2077,13 @@ const AdminTools = () => {
 
             const modeHint = evenDistributeAll
                 ? '\n- Chế độ: CHIA ĐƠN FULL (chia đều toàn bộ, bỏ rule Sale CSKH → về chính họ; ghi đè CSKH cũ).'
-                : '';
+                : '\n- Chế độ: chỉ gán đơn đang trống CSKH (không ghi đè đơn đã có CSKH).';
 
             const saleSelfCount = evenDistributeAll
                 ? 0
                 : updates.filter((u) => {
+                      const code = String(u.order_code || '').trim();
+                      if (!succeededCodes.has(code)) return false;
                       const o = orders?.find((x) => x.order_code === u.order_code);
                       return findStaffCanonical(o?.sale_staff) === u.cskh;
                   }).length;
@@ -2027,21 +2092,21 @@ const AdminTools = () => {
                 `✅ Phân bổ đơn hàng thành công! (${teamFilter})${tableHint}${modeHint}\n\n` +
                 `- Tháng: ${selectedMonth} (order_date ${startDateStr} → ${endDateStr})\n` +
                 `- Đơn Có Bill trong phạm vi: ${orders?.length || 0}\n` +
-                `- Tổng đơn đã gán/cập nhật CSKH: ${updates.length}\n` +
+                `- Tổng đơn đã gán/cập nhật CSKH: ${successCount}\n` +
                 (evenDistributeAll
-                    ? `- Đơn chia đều: ${updates.length}\n`
+                    ? `- Đơn chia đều (thành công): ${successCount}\n`
                     : `- Đơn Sale tự chăm: ${saleSelfCount}\n` +
-                      `- Đơn được chia mới: ${updates.length - saleSelfCount}\n`) +
+                      `- Đơn được chia mới: ${successCount - saleSelfCount}\n`) +
                 (stillEmpty > 0 ? `- ⚠ Còn CSKH trống sau chia: ${stillEmpty}\n` : `- Còn CSKH trống sau chia: 0\n`) +
                 (skippedNoMonth > 0 ? `- Bỏ qua (thiếu ngày): ${skippedNoMonth}\n` : '') +
                 `- Nhân sự CSKH (${teamFilter}): ${staffList.length} người\n` +
-                (updates.length ? `\nPhân bổ lần này:\n${perStaffLines}` : '');
+                (successCount ? `\nPhân bổ lần này:\n${perStaffLines}` : '');
 
             setAutoAssignResult({ success: true, message });
             toast.success(
                 stillEmpty > 0
-                    ? `Đã phân bổ ${updates.length} đơn; còn ${stillEmpty} đơn trống CSKH.`
-                    : `Đã phân bổ ${updates.length} đơn hàng!`
+                    ? `Đã phân bổ ${successCount} đơn; còn ${stillEmpty} đơn trống CSKH.`
+                    : `Đã phân bổ ${successCount} đơn hàng!`
             );
         } catch (error) {
             console.error('Error in runPhanBoCskhOrders:', error);
@@ -2068,18 +2133,19 @@ const AdminTools = () => {
         });
     };
 
-    /** HCM: chia đều toàn bộ đơn Có Bill trong tháng — bỏ giữ đơn về đúng CSKH (Sale tự chăm). */
+    /** HCM: chỉ điền đơn Có Bill đang trống CSKH (không ghi đè đơn đã có CSKH). */
     const handlePhanBoDonHangHcmFull = async () => {
         if (
             !window.confirm(
-                `Chia đơn FULL — HCM (tháng ${selectedMonth})?\n\n` +
+                `Chia nốt CSKH trống — HCM (tháng ${selectedMonth})?\n\n` +
                     (() => {
                         const b = monthKeyToOrderDateBounds(selectedMonth);
                         return b ? `· order_date từ ${b.start} đến ${b.end}\n` : '';
                     })() +
                     '· Bảng order_code_hcm, đơn Có Bill\n' +
-                    '· Bỏ logic “Sale thuộc CSKH → về chính họ”\n' +
-                    '· Chia đều lại toàn bộ (ghi đè CSKH đã có)\n\n' +
+                    '· Chỉ gán đơn đang trống CSKH\n' +
+                    '· Không ghi đè đơn đã có CSKH\n' +
+                    '· Sale thuộc CSKH → về chính họ; còn lại chia đều\n\n' +
                     'Thao tác không hoàn tác tự động.'
             )
         ) {
@@ -2088,7 +2154,7 @@ const AdminTools = () => {
         await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, {
             requireCoBillPayment: true,
             team: 'HCM',
-            evenDistributeAll: true,
+            evenDistributeAll: false,
         });
     };
 
@@ -3931,7 +3997,7 @@ const AdminTools = () => {
                                             onClick={handlePhanBoDonHangHcmFull}
                                             disabled={autoAssignLoading}
                                             className="flex-1 bg-cyan-700 hover:bg-cyan-800 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                                            title="HCM: chia đều toàn bộ đơn Có Bill trong tháng đã chọn — bỏ rule Sale CSKH về chính họ, ghi đè CSKH cũ"
+                                            title="HCM: chỉ điền đơn Có Bill đang trống CSKH — không ghi đè đơn đã có CSKH"
                                         >
                                             {autoAssignLoading ? (
                                                 <>
@@ -3941,7 +4007,7 @@ const AdminTools = () => {
                                             ) : (
                                                 <>
                                                     <Users className="w-5 h-5 shrink-0" />
-                                                    Chia đơn full — HCM
+                                                    Chia nốt CSKH trống — HCM
                                                 </>
                                             )}
                                         </button>

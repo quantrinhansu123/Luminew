@@ -2097,14 +2097,16 @@
       if (!MKT_DUAL_MODE) return;
       const el = document.getElementById('mkt-branch-select-tab1');
       if (!el) return;
-      el.value = currentBranch === 'hcm' ? 'hcm' : 'hn';
+      const actualCurrentBranch = currentBranch === 'hcm' ? 'hcm' : 'hn';
+      el.value = currentBranch === 'all' ? '' : actualCurrentBranch;
+      if (currentBranch === 'all') showAllMktBranches();
       el.addEventListener('change', () => {
         if (el.value === '') {
           showAllMktBranches();
           return;
         }
         const next = el.value === 'hcm' ? 'hcm' : 'hn';
-        if (next === currentBranch) {
+        if (next === actualCurrentBranch) {
           document.body.classList.remove('mkt-all-branches');
           const hcmPane = document.getElementById('branch-pane-hcm');
           const iframe = document.getElementById('mkt-hcm-dual-iframe');
@@ -2967,10 +2969,10 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      wireMktBranchSelect('hn');
       setupEventListeners();
       setDefaultDates();
       initMktDualMode();
+      wireMktBranchSelect(MKT_DUAL_MODE ? 'all' : 'hn');
       showDefaultMktTab();
       restoreMktActiveTabFromShared();
       const alertFilter = document.getElementById('alert-severity-filter');
