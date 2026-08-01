@@ -224,7 +224,7 @@ function AppShell() {
                     key="don-chia-cskh-hcm"
                     ordersTableName="order_code_hcm"
                     pageTitle="ĐƠN CHIA CSKH (HCM)"
-                    pageSubtitle="Dữ liệu từ order_code_hcm"
+                    pageSubtitle="order_code_hcm — chỉ đơn Có Bill (điều kiện chia)"
                     accessPermissionCodes={['CSKH_PAID_HCM']}
                     unlimitedDataFetch
                     defaultRowsPerPage={0}

@@ -4,12 +4,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
-import AdminTableViewport from '../components/admin/AdminTableViewport';
 import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
 import { supabase } from '../supabase/config';
-import { resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
+import { resolveTrangThaiThuTienFromOrder, orderTrangThaiThuTienIsCoBill } from '../utils/orderTracking';
 import * as ApiService from '../services/api';
 import { runChiaDonVanDon } from '../services/chiaDonVanDon';
 
@@ -172,21 +171,9 @@ const getSupabaseFetchHint = (err) => {
     return ' Kiểm tra mạng/VPN, cấu hình .env (VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY), dự án Supabase có bị pause không, rồi thử lại.';
 };
 
-function normalizeVietnamesePaymentLabel(s) {
-    return String(s ?? '')
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/\p{M}/gu, '')
-        .replace(/\s+/g, ' ');
-}
-
-/** Trạng thái thanh toán: ưu tiên payment_status_detail, fallback payment_status — khớp "Có Bill" (không phân biệt hoa thường/dấu). */
+/** Trạng thái thanh toán: ưu tiên payment_status_detail, fallback payment_status — khớp "Có Bill". */
 function orderTrangThaiThanhToanIsCoBill(order) {
-    return (
-        normalizeVietnamesePaymentLabel(resolveTrangThaiThuTienFromOrder(order)) ===
-        normalizeVietnamesePaymentLabel('Có Bill')
-    );
+    return orderTrangThaiThuTienIsCoBill(order);
 }
 
 /** So sánh chuỗi branch/team (giữ dấu — khớp "Hà Nội", "HCM"). */
@@ -1717,7 +1704,13 @@ const AdminTools = () => {
 
     async function runPhanBoCskhOrders(
         ordersTable,
-        { requireCoBillPayment = false, team, manageGlobalLoading = true } = {}
+        {
+            requireCoBillPayment = false,
+            team,
+            manageGlobalLoading = true,
+            /** true: chia đều mọi đơn (kể cả đã có CSKH), bỏ rule Sale CSKH → về chính họ */
+            evenDistributeAll = false,
+        } = {}
     ) {
         if (manageGlobalLoading) {
             setAutoAssignLoading(true);
@@ -1816,10 +1809,12 @@ const AdminTools = () => {
                 }
             }
 
-            const eligibleOrders = orders?.filter(order => {
-                const hasCSKH = order.cskh && order.cskh.toString().trim() !== '';
-                return !hasCSKH;
-            }) || [];
+            const eligibleOrders = evenDistributeAll
+                ? (orders || []).filter((order) => order?.order_code)
+                : (orders?.filter((order) => {
+                      const hasCSKH = order.cskh && order.cskh.toString().trim() !== '';
+                      return !hasCSKH;
+                  }) || []);
 
             const getMonthKey = (orderDate) => {
                 if (!orderDate) return null;
@@ -1835,31 +1830,40 @@ const AdminTools = () => {
                 counter[name] = {};
             });
 
-            orders?.forEach(order => {
-                const cskh = order.cskh?.toString().trim();
-                const sale = order.sale_staff?.toString().trim();
-                const monthKey = getMonthKey(order.order_date);
+            // Chế độ thường: giữ cân bằng theo đơn CSKH đã gán (khác Sale).
+            // Chế độ full: bắt đầu từ 0 để chia đều lại toàn bộ.
+            if (!evenDistributeAll) {
+                orders?.forEach(order => {
+                    const cskh = order.cskh?.toString().trim();
+                    const sale = order.sale_staff?.toString().trim();
+                    const monthKey = getMonthKey(order.order_date);
 
-                if (cskh && staffList.includes(cskh) && cskh !== sale && monthKey) {
-                    counter[cskh][monthKey] = (counter[cskh][monthKey] || 0) + 1;
-                }
-            });
+                    if (cskh && staffList.includes(cskh) && cskh !== sale && monthKey) {
+                        counter[cskh][monthKey] = (counter[cskh][monthKey] || 0) + 1;
+                    }
+                });
+            }
 
             const waitingRows = [];
             const updates = [];
 
-            eligibleOrders.forEach(order => {
-                const sale = order.sale_staff?.toString().trim();
+            if (evenDistributeAll) {
+                // Bỏ rule "Sale thuộc CSKH → về chính họ": mọi đơn vào hàng chờ chia đều.
+                waitingRows.push(...eligibleOrders);
+            } else {
+                eligibleOrders.forEach(order => {
+                    const sale = order.sale_staff?.toString().trim();
 
-                if (sale && staffList.includes(sale)) {
-                    updates.push({
-                        order_code: order.order_code,
-                        cskh: sale
-                    });
-                } else {
-                    waitingRows.push(order);
-                }
-            });
+                    if (sale && staffList.includes(sale)) {
+                        updates.push({
+                            order_code: order.order_code,
+                            cskh: sale
+                        });
+                    } else {
+                        waitingRows.push(order);
+                    }
+                });
+            }
 
             waitingRows.forEach(order => {
                 const monthKey = getMonthKey(order.order_date);
@@ -1902,17 +1906,37 @@ const AdminTools = () => {
                 }
             }
 
+            const perStaff = {};
+            staffList.forEach((n) => { perStaff[n] = 0; });
+            updates.forEach((u) => {
+                if (u.cskh && perStaff[u.cskh] !== undefined) perStaff[u.cskh] += 1;
+            });
+            const perStaffLines = staffList
+                .map((n) => `  · ${n}: ${perStaff[n]}`)
+                .join('\n');
+
             const tableHint =
                 ordersTable === CSKH_ORDER_TABLE_HCM
                     ? '\n- Nguồn: bảng order_code_hcm; chỉ đơn có Trạng thái thu tiền = \"Có Bill\" (ưu tiên payment_status_detail).'
                     : '\n- Nguồn: bảng orders; chỉ đơn có Trạng thái thu tiền = \"Có Bill\" (ưu tiên payment_status_detail).';
 
+            const modeHint = evenDistributeAll
+                ? '\n- Chế độ: CHIA ĐƠN FULL (chia đều toàn bộ, bỏ rule Sale CSKH → về chính họ; ghi đè CSKH cũ).'
+                : '';
+
+            const saleSelfCount = evenDistributeAll
+                ? 0
+                : updates.filter(u => orders?.find(o => o.order_code === u.order_code)?.sale_staff === u.cskh).length;
+
             const message =
-                `✅ Phân bổ đơn hàng thành công! (${teamFilter})${tableHint}\n\n` +
+                `✅ Phân bổ đơn hàng thành công! (${teamFilter})${tableHint}${modeHint}\n\n` +
                 `- Tổng đơn đã xử lý: ${updates.length}\n` +
-                `- Đơn Sale tự chăm: ${updates.filter(u => orders?.find(o => o.order_code === u.order_code)?.sale_staff === u.cskh).length}\n` +
-                `- Đơn được chia mới: ${updates.length - updates.filter(u => orders?.find(o => o.order_code === u.order_code)?.sale_staff === u.cskh).length}\n` +
-                `- Nhân sự CSKH (${teamFilter}): ${staffList.length} người`;
+                (evenDistributeAll
+                    ? `- Đơn chia đều: ${updates.length}\n`
+                    : `- Đơn Sale tự chăm: ${saleSelfCount}\n` +
+                      `- Đơn được chia mới: ${updates.length - saleSelfCount}\n`) +
+                `- Nhân sự CSKH (${teamFilter}): ${staffList.length} người\n` +
+                (evenDistributeAll && updates.length ? `\nPhân bổ:\n${perStaffLines}` : '');
 
             setAutoAssignResult({ success: true, message });
             toast.success(`Đã phân bổ ${updates.length} đơn hàng!`);
@@ -1938,6 +1962,26 @@ const AdminTools = () => {
         await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, {
             requireCoBillPayment: true,
             team: 'HCM',
+        });
+    };
+
+    /** HCM: chia đều toàn bộ đơn Có Bill trong tháng — bỏ giữ đơn về đúng CSKH (Sale tự chăm). */
+    const handlePhanBoDonHangHcmFull = async () => {
+        if (
+            !window.confirm(
+                `Chia đơn FULL — HCM (tháng ${selectedMonth})?\n\n` +
+                    '· Bảng order_code_hcm, đơn Có Bill\n' +
+                    '· Bỏ logic “Sale thuộc CSKH → về chính họ”\n' +
+                    '· Chia đều lại toàn bộ (ghi đè CSKH đã có)\n\n' +
+                    'Thao tác không hoàn tác tự động.'
+            )
+        ) {
+            return;
+        }
+        await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, {
+            requireCoBillPayment: true,
+            team: 'HCM',
+            evenDistributeAll: true,
         });
     };
 
@@ -3179,8 +3223,8 @@ const AdminTools = () => {
                                 </p>
 
                                 <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-                                    <AdminTableViewport className="max-h-[500px]">
-                                        <table className="w-full text-sm text-left min-w-[640px]">
+                                    <div className="max-h-[500px] overflow-y-auto">
+                                        <table className="w-full text-sm text-left">
                                             <thead className="bg-gray-50 text-gray-700 font-semibold sticky top-0 z-10">
                                                 <tr>
                                                     <th className="px-4 py-3 border-b w-16 text-center">STT</th>
@@ -3255,7 +3299,7 @@ const AdminTools = () => {
                                                 )}
                                             </tbody>
                                         </table>
-                                    </AdminTableViewport>
+                                    </div>
 
                                     {/* Add Product Footer */}
                                     <div className="bg-gray-50 p-3 border-t flex gap-2">
@@ -3347,9 +3391,8 @@ const AdminTools = () => {
                                 <p className="text-sm text-gray-500">Các thị trường (Khu vực) chính cần theo dõi trong báo cáo.</p>
 
                                 <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-                                    <AdminTableViewport>
-                                    <table className="w-full text-sm text-left min-w-[480px]">
-                                        <thead className="bg-gray-50 text-gray-700 font-semibold sticky top-0 z-10">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-gray-50 text-gray-700 font-semibold sticky top-0">
                                             <tr>
                                                 <th className="px-4 py-3 border-b w-16 text-center">STT</th>
                                                 <th className="px-4 py-3 border-b">Tên Thị trường</th>
@@ -3382,7 +3425,6 @@ const AdminTools = () => {
                                                 ))}
                                         </tbody>
                                     </table>
-                                    </AdminTableViewport>
 
                                     {/* Add Market Footer */}
                                     <div className="bg-gray-50 p-3 border-t flex gap-2">
@@ -3503,9 +3545,9 @@ const AdminTools = () => {
                                         </div>
                                     </div>
 
-                                    <AdminTableViewport>
-                                        <table className="w-full min-w-[720px]">
-                                            <thead className="bg-gray-100 sticky top-0 z-10">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead className="bg-gray-100">
                                                 <tr>
                                                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">
                                                         Loại tiền tệ
@@ -3656,7 +3698,7 @@ const AdminTools = () => {
                                                 )}
                                             </tbody>
                                         </table>
-                                    </AdminTableViewport>
+                                    </div>
 
                                     {/* Info Box */}
                                     <div className="p-4 bg-blue-50 border-t border-gray-200">
@@ -3763,6 +3805,28 @@ const AdminTools = () => {
                                                 <>
                                                     <Users className="w-5 h-5 shrink-0" />
                                                     Phân bổ — HCM (order_code_hcm)
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+                                        <div className="hidden sm:block flex-1" aria-hidden />
+                                        <button
+                                            type="button"
+                                            onClick={handlePhanBoDonHangHcmFull}
+                                            disabled={autoAssignLoading}
+                                            className="flex-1 bg-cyan-700 hover:bg-cyan-800 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                            title="HCM: chia đều toàn bộ đơn Có Bill trong tháng đã chọn — bỏ rule Sale CSKH về chính họ, ghi đè CSKH cũ"
+                                        >
+                                            {autoAssignLoading ? (
+                                                <>
+                                                    <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
+                                                    Đang xử lý...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Users className="w-5 h-5 shrink-0" />
+                                                    Chia đơn full — HCM
                                                 </>
                                             )}
                                         </button>
@@ -4178,7 +4242,7 @@ const AdminTools = () => {
                             }
 
                             return (
-                                <div>
+                                <div className="overflow-x-auto">
                                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                                         <div className="text-sm text-gray-600">
                                             Hiển thị {filteredAccounts.length} / {authAccounts.length} tài khoản
@@ -4225,10 +4289,9 @@ const AdminTools = () => {
                                             </button>
                                         </div>
                                     </div>
-                                    <AdminTableViewport>
                                     <table className="min-w-full border-collapse border border-gray-300">
                                         <thead>
-                                            <tr className="bg-gray-100 sticky top-0 z-10">
+                                            <tr className="bg-gray-100">
                                                 <th className="border border-gray-300 px-4 py-3 text-center font-semibold">
                                                     <input
                                                         type="checkbox"
@@ -4453,8 +4516,7 @@ const AdminTools = () => {
                                         ))}
                                     </tbody>
                                 </table>
-                                    </AdminTableViewport>
-                                </div>
+                            </div>
                             );
                         })()}
 
@@ -4601,8 +4663,8 @@ const AdminTools = () => {
                         {/* Login History Modal */}
                         {showLoginHistory && (
                             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col">
-                                    <div className="flex justify-between items-center mb-4 shrink-0">
+                                <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+                                    <div className="flex justify-between items-center mb-4">
                                         <h3 className="text-xl font-bold text-gray-800">Lịch sử đăng nhập</h3>
                                         <button
                                             onClick={() => setShowLoginHistory(false)}
@@ -4615,10 +4677,10 @@ const AdminTools = () => {
                                     {loginHistory.length === 0 ? (
                                         <p className="text-gray-500 text-center py-8">Chưa có lịch sử đăng nhập</p>
                                     ) : (
-                                        <AdminTableViewport className="max-h-[min(55vh,520px)]">
+                                        <div className="overflow-x-auto">
                                             <table className="min-w-full border-collapse border border-gray-300">
                                                 <thead>
-                                                    <tr className="bg-gray-100 sticky top-0 z-10">
+                                                    <tr className="bg-gray-100">
                                                         <th className="border border-gray-300 px-4 py-2 text-left font-semibold">Thời gian</th>
                                                         <th className="border border-gray-300 px-4 py-2 text-left font-semibold">Trạng thái</th>
                                                         <th className="border border-gray-300 px-4 py-2 text-left font-semibold">IP</th>
@@ -4649,7 +4711,7 @@ const AdminTools = () => {
                                                     ))}
                                                 </tbody>
                                             </table>
-                                        </AdminTableViewport>
+                                        </div>
                                     )}
                                 </div>
                             </div>

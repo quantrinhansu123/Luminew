@@ -13,7 +13,7 @@ import {
   orderRangeToCreatedAtIsoBounds,
   sortOrdersByDisplayDateDesc,
 } from '../utils/dateParsing';
-import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
+import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder, orderTrangThaiThuTienIsCoBill } from '../utils/orderTracking';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
 
 // Helper Functions
@@ -296,7 +296,7 @@ function applyDonChiaClientTableFilters(data, ctx) {
 function DonChiaCSKH({
   ordersTableName = 'orders',
   pageTitle = 'ĐƠN CHIA CSKH',
-  pageSubtitle = 'Dữ liệu từ Supabase',
+  pageSubtitle = 'Chỉ đơn Có Bill (điều kiện chia)',
   accessPermissionCodes = DEFAULT_DON_CHIA_ACCESS_CODES,
   /** HCM: tải hết đơn từ server (lặp range), không giới hạn 10k dòng */
   unlimitedDataFetch = false,
@@ -1014,47 +1014,39 @@ function DonChiaCSKH({
 
       const mappedData = (data || []).map((item) => mapDonChiaOrderToFriendly(item));
 
-      const filteredData = applyDonChiaNonManagerCskhGate(mappedData, isManager);
+      // Khớp Admin Tools «Chia đơn»: chỉ đơn Trạng thái thu tiền = Có Bill
+      const coBillMapped = mappedData.filter((row) => orderTrangThaiThuTienIsCoBill(row));
+      const skippedNotCoBill = mappedData.length - coBillMapped.length;
+      if (skippedNotCoBill > 0) {
+        console.log(
+          `📋 [DonChiaCSKH] Lọc Có Bill: giữ ${coBillMapped.length}/${mappedData.length} (bỏ ${skippedNotCoBill} đơn không phải Có Bill)`
+        );
+      }
 
-      // Lưu mappedData để lấy unique CSKH từ tất cả dữ liệu (không chỉ đơn đã filter)
-      setAllMappedData(mappedData);
+      const filteredData = applyDonChiaNonManagerCskhGate(coBillMapped, isManager);
+
+      setAllMappedData(coBillMapped);
       setAllData(filteredData);
-      console.log(`✅ [DonChiaCSKH] Loaded ${mappedData.length} orders from DB`);
+      console.log(`✅ [DonChiaCSKH] Loaded ${coBillMapped.length} orders Có Bill (raw ${mappedData.length})`);
       console.log(`🔍 [DonChiaCSKH] After CSKH filter: ${filteredData.length} orders`);
-      
-      // Debug chi tiết
-      if (mappedData.length > 0) {
-        const withCSKH = mappedData.filter(row => {
+
+      if (coBillMapped.length > 0) {
+        const withCSKH = coBillMapped.filter((row) => {
           const cskh = row['CSKH'];
           return cskh && String(cskh).trim() !== '';
         });
-        const withoutCSKH = mappedData.filter(row => {
+        const withoutCSKH = coBillMapped.filter((row) => {
           const cskh = row['CSKH'];
           return !cskh || String(cskh).trim() === '';
         });
-        
-        console.log(`📊 [DonChiaCSKH] Breakdown:`);
+
+        console.log(`📊 [DonChiaCSKH] Breakdown (Có Bill):`);
         console.log(`   - Có CSKH: ${withCSKH.length}`);
         console.log(`   - Không có CSKH: ${withoutCSKH.length}`);
-        
-        if (withCSKH.length > 0) {
-          console.log(`   - Sample có CSKH:`, {
-            order_code: withCSKH[0]['Mã đơn hàng'],
-            cskh: withCSKH[0]['CSKH'],
-            cskh_raw: withCSKH[0]['_cskh_raw']
-          });
-        }
-        if (withoutCSKH.length > 0) {
-          console.log(`   - Sample không có CSKH:`, {
-            order_code: withoutCSKH[0]['Mã đơn hàng'],
-            cskh: withoutCSKH[0]['CSKH'],
-            cskh_raw: withoutCSKH[0]['_cskh_raw']
-          });
-        }
       }
-      
-      if (filteredData.length === 0 && mappedData.length > 0) {
-        console.warn(`⚠️ [DonChiaCSKH] Có ${mappedData.length} đơn từ DB nhưng tất cả đều bị filter do CSKH trống!`);
+
+      if (filteredData.length === 0 && coBillMapped.length > 0) {
+        console.warn(`⚠️ [DonChiaCSKH] Có ${coBillMapped.length} đơn Có Bill nhưng tất cả đều bị filter do CSKH trống!`);
       }
 
     } catch (error) {
@@ -2321,7 +2313,7 @@ function DonChiaCSKH({
         <div className="bg-green-600 text-white rounded-lg shadow-sm p-4 mb-6">
           <div className="grid grid-cols-4 gap-4">
             <div className="text-center">
-              <div className="text-sm font-semibold mb-1">Tổng số đơn</div>
+              <div className="text-sm font-semibold mb-1">Tổng số đơn (Có Bill)</div>
               <div className="text-2xl font-bold">{summary.totalDon.toLocaleString('vi-VN')} đơn</div>
             </div>
             <div className="text-center">
@@ -2329,11 +2321,11 @@ function DonChiaCSKH({
               <div className="text-2xl font-bold">{summary.totalTongTien.toLocaleString('vi-VN')} ₫</div>
             </div>
             <div className="text-center">
-              <div className="text-sm font-semibold mb-1">Số đơn của CSKH</div>
+              <div className="text-sm font-semibold mb-1">Số đơn của CSKH (Sale = CSKH)</div>
               <div className="text-2xl font-bold">{summary.soDonCSKH.toLocaleString('vi-VN')} đơn</div>
             </div>
             <div className="text-center">
-              <div className="text-sm font-semibold mb-1">Số đơn được chia</div>
+              <div className="text-sm font-semibold mb-1">Số đơn được chia (CSKH ≠ Sale)</div>
               <div className="text-2xl font-bold">{summary.soDonDuocChia.toLocaleString('vi-VN')} đơn</div>
             </div>
           </div>

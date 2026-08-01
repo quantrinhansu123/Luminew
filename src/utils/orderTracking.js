@@ -39,3 +39,22 @@ export function resolveTrangThaiThuTienFromOrder(item) {
   if (d) return d;
   return item.payment_status != null ? String(item.payment_status).trim() : '';
 }
+
+/** Chuẩn hoá nhãn TT thu tiền để so khớp (hoa thường / dấu / khoảng trắng). */
+export function normalizeVietnamesePaymentLabel(s) {
+  return String(s ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ');
+}
+
+/** Đơn đủ điều kiện chia CSKH: Trạng thái thu tiền = "Có Bill" (khớp Admin Tools). */
+export function orderTrangThaiThuTienIsCoBill(orderOrRow) {
+  if (!orderOrRow || typeof orderOrRow !== 'object') return false;
+  const label =
+    resolveTrangThaiThuTienFromOrder(orderOrRow) ||
+    String(orderOrRow['Trạng thái thu tiền'] ?? '').trim();
+  return normalizeVietnamesePaymentLabel(label) === normalizeVietnamesePaymentLabel('Có Bill');
+}
