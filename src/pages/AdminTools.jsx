@@ -176,6 +176,21 @@ function orderTrangThaiThanhToanIsCoBill(order) {
     return orderTrangThaiThuTienIsCoBill(order);
 }
 
+/** Tháng YYYY-MM → [from, to] ngày local (vd. 2026-01 → 2026-01-01 .. 2026-01-31). Không dùng toISOString (lệch UTC). */
+function monthKeyToOrderDateBounds(monthKey) {
+    const m = String(monthKey || '').trim().match(/^(\d{4})-(\d{2})$/);
+    if (!m) return null;
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    if (!year || month < 1 || month > 12) return null;
+    const lastDay = new Date(year, month, 0).getDate();
+    const mm = String(month).padStart(2, '0');
+    return {
+        start: `${year}-${mm}-01`,
+        end: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
+    };
+}
+
 /** So sánh chuỗi branch/team (giữ dấu — khớp "Hà Nội", "HCM"). */
 function normalizeDeptBranchCompare(str) {
     return String(str ?? '')
@@ -1732,19 +1747,25 @@ const AdminTools = () => {
                 );
             }
 
-            // Parse selectedMonth để filter đơn hàng
-            const [year, month] = selectedMonth.split('-').map(Number);
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0, 23, 59, 59);
+            // Parse selectedMonth → ngày đầu/cuối tháng theo lịch (vd. 2026-01 = 01/01–31/01)
+            const dateBounds = monthKeyToOrderDateBounds(selectedMonth);
+            if (!dateBounds) {
+                throw new Error(`Tháng không hợp lệ: "${selectedMonth}". Chọn dạng YYYY-MM.`);
+            }
+            const { start: startDateStr, end: endDateStr } = dateBounds;
 
             const { data: ordersRaw, error: ordersError } = await supabase
                 .from(ordersTable)
                 .select('*')
                 .eq('team', teamFilter)
-                .gte('order_date', startDate.toISOString().split('T')[0])
-                .lte('order_date', endDate.toISOString().split('T')[0]);
+                .gte('order_date', startDateStr)
+                .lte('order_date', endDateStr);
 
             if (ordersError) throw ordersError;
+
+            console.log(
+                `📅 [Chia đơn CSKH] Tháng ${selectedMonth} → order_date ${startDateStr} .. ${endDateStr} (${ordersTable}, team=${teamFilter})`
+            );
 
             let orders = ordersRaw;
             if (requireCoBillPayment) {
@@ -1818,11 +1839,14 @@ const AdminTools = () => {
 
             const getMonthKey = (orderDate) => {
                 if (!orderDate) return null;
+                const s = String(orderDate).trim();
+                const m = s.match(/^(\d{4})-(\d{2})/);
+                if (m) return `${m[1]}-${m[2]}`;
                 const date = new Date(orderDate);
                 if (isNaN(date.getTime())) return null;
                 const y = date.getFullYear();
-                const m = String(date.getMonth() + 1).padStart(2, '0');
-                return `${y}-${m}`;
+                const mo = String(date.getMonth() + 1).padStart(2, '0');
+                return `${y}-${mo}`;
             };
 
             const counter = {};
@@ -1930,6 +1954,7 @@ const AdminTools = () => {
 
             const message =
                 `✅ Phân bổ đơn hàng thành công! (${teamFilter})${tableHint}${modeHint}\n\n` +
+                `- Tháng: ${selectedMonth} (order_date ${startDateStr} → ${endDateStr})\n` +
                 `- Tổng đơn đã xử lý: ${updates.length}\n` +
                 (evenDistributeAll
                     ? `- Đơn chia đều: ${updates.length}\n`
@@ -1970,6 +1995,10 @@ const AdminTools = () => {
         if (
             !window.confirm(
                 `Chia đơn FULL — HCM (tháng ${selectedMonth})?\n\n` +
+                    (() => {
+                        const b = monthKeyToOrderDateBounds(selectedMonth);
+                        return b ? `· order_date từ ${b.start} đến ${b.end}\n` : '';
+                    })() +
                     '· Bảng order_code_hcm, đơn Có Bill\n' +
                     '· Bỏ logic “Sale thuộc CSKH → về chính họ”\n' +
                     '· Chia đều lại toàn bộ (ghi đè CSKH đã có)\n\n' +
@@ -3754,7 +3783,15 @@ const AdminTools = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Tháng (Ngày lên đơn)</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Tháng (Ngày lên đơn)
+                                        {monthKeyToOrderDateBounds(selectedMonth) && (
+                                            <span className="ml-2 font-normal text-gray-500">
+                                                → {monthKeyToOrderDateBounds(selectedMonth).start} …{' '}
+                                                {monthKeyToOrderDateBounds(selectedMonth).end}
+                                            </span>
+                                        )}
+                                    </label>
                                     <input
                                         type="month"
                                         value={selectedMonth}
