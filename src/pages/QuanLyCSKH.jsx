@@ -1,4 +1,4 @@
-import { Edit, Eraser, Eye, RefreshCw, Search, Settings, Trash2, UserCog, X } from 'lucide-react';
+import { Edit, Eye, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -49,6 +49,7 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Tên mặt hàng 2": item.product_name_2 ?? item.item_name_2 ?? '',
     "Số lượng mặt hàng 2": item.quantity_2 ?? item.item_qty_2 ?? '',
     "Tổng tiền VNĐ": item.total_amount_vnd,
+    "Phí ship": item.shipping_cost ?? item.shipping_fee ?? 0,
     "Loại tiền": item.payment_type,
     "Hình thức thanh toán": item.payment_method_text || item.payment_method,
     "Mã Tracking": tracking,
@@ -99,11 +100,11 @@ function buildCSKHStaffOrFilter(variants) {
     const name = String(n ?? '').trim();
     if (!name) continue;
     const pattern = quotePostgrestOrIlikePattern(`%${name}%`);
+    // Không lọc theo cột cskh — tránh trùng đơn / lệch tổng tiền khi cùng tên vừa Sale vừa CSKH
     orParts.push(
       `sale_staff.ilike.${pattern}`,
       `marketing_staff.ilike.${pattern}`,
-      `delivery_staff.ilike.${pattern}`,
-      `cskh.ilike.${pattern}`
+      `delivery_staff.ilike.${pattern}`
     );
   }
   return orParts.length ? orParts.join(',') : null;
@@ -179,14 +180,13 @@ async function fetchCSKHOrdersForDateMode({
 
 function rowMatchesCSKHStaffScope(row, variants) {
   if (!variants?.length) return false;
+  // Không khớp theo cột CSKH — phạm vi nhân sự chỉ Sale / MKT / Vận đơn
   const fields = [
     row?.sale_staff,
     row?.marketing_staff,
     row?.delivery_staff,
-    row?.cskh,
     row?.['Nhân viên Sale'],
     row?.['Nhân viên Marketing'],
-    row?.CSKH,
   ];
   const haystack = fields
     .map((v) => String(v ?? '').trim().toLowerCase())
@@ -199,8 +199,33 @@ function rowMatchesCSKHStaffScope(row, variants) {
   });
 }
 
+/** Gộp trùng theo mã đơn (ưu tiên) / id — tránh tổng tiền bị nhân đôi. */
+function dedupeFriendlyOrdersByMaDon(rows) {
+  const map = new Map();
+  const extras = [];
+  for (const row of rows || []) {
+    const code = String(row['Mã đơn hàng'] ?? row.order_code ?? '').trim();
+    const key = code || (row?.id != null ? `id:${row.id}` : '');
+    if (!key) {
+      extras.push(row);
+      continue;
+    }
+    if (!map.has(key)) map.set(key, row);
+  }
+  return [...map.values(), ...extras];
+}
+
+function sumTongTienVnd(rows) {
+  let sum = 0;
+  for (const row of rows || []) {
+    const amount = parseFloat(String(row['Tổng tiền VNĐ'] || 0).replace(/[^\d.-]/g, '')) || 0;
+    sum += amount;
+  }
+  return sum;
+}
+
 /**
- * Gộp mọi biến thể tên để khớp cột sale_staff / marketing_staff / delivery_staff / cskh.
+ * Gộp mọi biến thể tên để khớp cột sale_staff / marketing_staff / delivery_staff.
  * localStorage "username" có thể là username ngắn hoặc tên cũ; bảng users (theo email) có name đầy đủ.
  */
 async function resolveNameVariantsForOrderFilter(userEmail) {
@@ -255,45 +280,6 @@ function parseSelectedPersonnelRawLocal(raw) {
   return [];
 }
 
-/** Chuẩn hóa tên để so khớp Sale / CSKH / users (bỏ dấu, thường, gộp khoảng trắng). */
-function normNameKey(s) {
-  return String(s ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ');
-}
-
-function userDepartmentIsCSKHDept(dept) {
-  const d = String(dept ?? '').trim().toLowerCase();
-  if (!d) return false;
-  return d === 'cskh' || d.includes('cskh');
-}
-
-/**
- * users (chỉ bộ phận CSKH): mỗi name/username chuẩn hóa → tên hiển thị chuẩn (ưu tiên users.name).
- */
-function buildCskhUserAliasToCanonicalName(usersRows) {
-  const map = new Map();
-  for (const u of usersRows || []) {
-    const canonical = String(u.name || u.username || '').trim();
-    if (!canonical) continue;
-    for (const raw of [u.name, u.username]) {
-      const k = normNameKey(raw);
-      if (!k) continue;
-      if (!map.has(k)) map.set(k, canonical);
-    }
-  }
-  return map;
-}
-
-function canonicalCskhNameForSaleStaff(saleStaff, aliasToCanonical) {
-  const k = normNameKey(saleStaff);
-  if (!k) return null;
-  return aliasToCanonical.get(k) ?? null;
-}
-
 
 /** Cùng logic lọc/sắp với bảng (sau khi đã có đủ dòng từ server). */
 function applyCSKHClientFilters(data, ctx) {
@@ -307,7 +293,6 @@ function applyCSKHClientFilters(data, ctx) {
     filterCheckResult,
     filterSale,
     filterMKT,
-    filterCSKH,
     sortColumn,
     sortDirection,
   } = ctx;
@@ -396,17 +381,6 @@ function applyCSKHClientFilters(data, ctx) {
     });
   }
 
-  if (filterCSKH.length > 0) {
-    rows = rows.filter((row) => {
-      const cskh = row['CSKH'];
-      const cskhStr = cskh != null && cskh !== '' ? String(cskh).trim() : '';
-      if (filterCSKH.includes('(Trống)')) {
-        if (!cskhStr) return true;
-      }
-      return filterCSKH.includes(cskhStr);
-    });
-  }
-
   if (sortColumn) {
     rows.sort((a, b) => {
       const aVal = a[sortColumn] || '';
@@ -455,9 +429,8 @@ function QuanLyCSKH({
   const [filterCheckResult, setFilterCheckResult] = useState([]);
   const [filterSale, setFilterSale] = useState([]); // Filter by NV Sale (multi-select checkbox)
   const [filterMKT, setFilterMKT] = useState([]); // Filter by MKT (multi-select checkbox)
-  /** `null` = quản lý/full: tùy chọn lọc Sale/MKT/CSKH lấy từ dữ liệu; mảng = chỉ danh sách nhân sự user (getSelectedPersonnel + fallback). */
+  /** `null` = quản lý/full: tùy chọn lọc Sale/MKT lấy từ dữ liệu; mảng = chỉ danh sách nhân sự user (getSelectedPersonnel + fallback). */
   const [personnelScopeForFilters, setPersonnelScopeForFilters] = useState(null);
-  const [filterCSKH, setFilterCSKH] = useState([]);
   const [showMarketFilter, setShowMarketFilter] = useState(false);
   const [showProductFilter, setShowProductFilter] = useState(false);
   const [showStatusFilter, setShowStatusFilter] = useState(false);
@@ -466,7 +439,6 @@ function QuanLyCSKH({
   const [showQuickFilter, setShowQuickFilter] = useState(false);
   const [showSaleFilter, setShowSaleFilter] = useState(false);
   const [showMKTFilter, setShowMKTFilter] = useState(false);
-  const [showCSKHFilter, setShowCSKHFilter] = useState(false);
 
   const closeAllFilterDropdowns = () => {
     setShowMarketFilter(false);
@@ -477,7 +449,6 @@ function QuanLyCSKH({
     setShowQuickFilter(false);
     setShowSaleFilter(false);
     setShowMKTFilter(false);
-    setShowCSKHFilter(false);
   };
 
   // Date state - default to last 3 days
@@ -509,12 +480,9 @@ function QuanLyCSKH({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewing, setIsViewing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [resyncingCskhFromUsers, setResyncingCskhFromUsers] = useState(false);
-  const [clearingCskhByFilter, setClearingCskhByFilter] = useState(false);
 
   // List of columns that should be hidden/removed (no longer needed)
   const REMOVED_COLUMNS = [
-    'Phí ship',
     'Tiền Hàng',
     'Phí Chung',
     'Phí bay',
@@ -540,6 +508,7 @@ function QuanLyCSKH({
     'Trạng thái thu tiền',
     'Ngày đối soát bill',
     'Ngày đối soát cước',
+    'Phí ship',
     'Tổng tiền VNĐ',
   ];
 
@@ -708,7 +677,7 @@ function QuanLyCSKH({
     // 2. Other/Dynamic Cols: Alphabetic sort
     // 3. End Cols: Pinned ones (Status, Total)
 
-    const pinnedEndColumns = ['Trạng thái giao hàng', 'Tổng tiền VNĐ'];
+    const pinnedEndColumns = ['Phí ship', 'Trạng thái giao hàng', 'Tổng tiền VNĐ'];
 
     const startDefaults = defaultColumns
       .filter(col => !pinnedEndColumns.includes(col) && allKeys.has(col));
@@ -790,7 +759,7 @@ function QuanLyCSKH({
       });
 
       // Cột vận hành: luôn hiện (localStorage cũ có thể đã tắt nhầm)
-      const alwaysShowCols = ['Mã đơn hàng', 'Mã Tracking', 'Kết quả Check'];
+      const alwaysShowCols = ['Mã đơn hàng', 'Mã Tracking', 'Kết quả Check', 'Phí ship'];
       alwaysShowCols.forEach((col) => {
         if (updated[col] !== true) {
           updated[col] = true;
@@ -970,7 +939,9 @@ function QuanLyCSKH({
       }
 
       const merged = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(d1, d2));
-      const mappedData = merged.map((item) => mapOrderRowToFriendlyCSKH(item));
+      const mappedData = dedupeFriendlyOrdersByMaDon(
+        merged.map((item) => mapOrderRowToFriendlyCSKH(item))
+      );
 
       const scopeForUi = bypassStaffFilter
         ? null
@@ -1072,7 +1043,7 @@ function QuanLyCSKH({
     return sorted;
   }, [allData]);
 
-  // NV Sale / MKT / CSKH: quản lý → mọi giá trị có trong dữ liệu; nhân viên → chỉ danh sách nhân sự trong user (selected_personnel…)
+  // NV Sale / MKT: quản lý → mọi giá trị có trong dữ liệu; nhân viên → chỉ danh sách nhân sự trong user (selected_personnel…)
   const uniqueSale = useMemo(() => {
     let hasEmpty = false;
     allData.forEach((row) => {
@@ -1117,42 +1088,6 @@ function QuanLyCSKH({
     }
     const sorted = [...new Set(personnelScopeForFilters.map((s) => String(s).trim()).filter(Boolean))].sort();
     return [...trang, ...sorted];
-  }, [allData, personnelScopeForFilters]);
-
-  const uniqueCSKHForFilter = useMemo(() => {
-    let hasEmpty = false;
-    allData.forEach((row) => {
-      const c = row['CSKH'];
-      if (c != null && String(c).trim()) {
-        /* noop */
-      } else {
-        hasEmpty = true;
-      }
-    });
-    const trang = hasEmpty ? ['(Trống)'] : [];
-    if (personnelScopeForFilters === null) {
-      const set = new Set();
-      allData.forEach((row) => {
-        const c = row['CSKH'];
-        if (c != null && String(c).trim()) set.add(String(c).trim());
-      });
-      return [...trang, ...Array.from(set).sort()];
-    }
-    const scopeList = personnelScopeForFilters.map((s) => String(s).trim()).filter(Boolean);
-    const fromOrders = new Set();
-    allData.forEach((row) => {
-      const raw = row['CSKH'];
-      const t = raw != null ? String(raw).trim() : '';
-      if (!t) return;
-      const tl = t.toLowerCase();
-      const hit = scopeList.some((sc) => {
-        const s = sc.toLowerCase();
-        if (!s) return false;
-        return tl === s || tl.includes(s) || s.includes(tl);
-      });
-      if (hit) fromOrders.add(t);
-    });
-    return [...trang, ...Array.from(fromOrders).sort()];
   }, [allData, personnelScopeForFilters]);
 
   // Handle quick filter
@@ -1222,151 +1157,12 @@ function QuanLyCSKH({
       filterCheckResult,
       filterSale,
       filterMKT,
-      filterCSKH,
       sortColumn,
       sortDirection,
     });
-  }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterPaymentThuTien, filterCheckResult, filterSale, filterMKT, filterCSKH, sortColumn, sortDirection]);
+  }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterPaymentThuTien, filterCheckResult, filterSale, filterMKT, sortColumn, sortDirection]);
 
-  const filteredRowsWithCskhCount = useMemo(
-    () => filteredData.filter((row) => String(row['CSKH'] ?? '').trim() !== '').length,
-    [filteredData]
-  );
-
-  /**
-   * Chỉ các dòng đang hiển thị sau bộ lọc: Nếu Nhân viên Sale khớp user bộ phận CSKH
-   * nhưng cột CSKH khác tên chuẩn (users.name) → cập nhật cskh = tên chuẩn.
-   */
-  const handleResyncCskhToSaleCanonical = async () => {
-    if (!isAdmin() && !canEditFromThisList) {
-      toast.error('Bạn không có quyền sửa đơn — không thể đồng bộ CSKH.');
-      return;
-    }
-    if (resyncingCskhFromUsers) return;
-    if (!filteredData.length) {
-      toast.info('Không có đơn nào trong bộ lọc hiện tại.');
-      return;
-    }
-
-    setResyncingCskhFromUsers(true);
-    try {
-      const { data: usersRows, error: usersErr } = await supabase
-        .from('users')
-        .select('name, username, department')
-        .not('email', 'is', null);
-      if (usersErr) throw usersErr;
-
-      const cskhUsers = (usersRows || []).filter((u) => userDepartmentIsCSKHDept(u.department));
-      const aliasToCanonical = buildCskhUserAliasToCanonicalName(cskhUsers);
-
-      const updates = [];
-      for (const row of filteredData) {
-        const id = row.id;
-        if (!id) continue;
-        const sale = String(row['Nhân viên Sale'] ?? '').trim();
-        const cskhCur = String(row['CSKH'] ?? '').trim();
-        const canonical = canonicalCskhNameForSaleStaff(sale, aliasToCanonical);
-        if (!canonical) continue;
-        if (normNameKey(cskhCur) === normNameKey(canonical)) continue;
-        updates.push({ id, cskh: canonical });
-      }
-
-      if (!updates.length) {
-        toast.info(
-          'Không có đơn cần sửa: không có Sale thuộc user bộ phận CSKH trong bộ lọc, hoặc cột CSKH đã khớp tên chuẩn (users.name).'
-        );
-        return;
-      }
-
-      if (
-        !window.confirm(
-          `Trong bộ lọc hiện tại có ${updates.length} đơn: Nhân viên Sale là nhân sự bộ phận CSKH nhưng cột CSKH khác tên chuẩn trong bảng users.\n\nCập nhật cột CSKH = tên đầy đủ (users.name) cho các đơn này?`
-        )
-      ) {
-        return;
-      }
-
-      const CHUNK = 40;
-      for (let i = 0; i < updates.length; i += CHUNK) {
-        const chunk = updates.slice(i, i + CHUNK);
-        const results = await Promise.all(
-          chunk.map((u) =>
-            supabase.from(ordersTableName).update({ cskh: u.cskh }).eq('id', u.id)
-          )
-        );
-        const failed = results.find((r) => r.error);
-        if (failed?.error) throw failed.error;
-      }
-
-      const idToCskh = new Map(updates.map((u) => [u.id, u.cskh]));
-      setAllData((prev) =>
-        prev.map((item) => {
-          const next = idToCskh.get(item.id);
-          return next !== undefined ? { ...item, CSKH: next } : item;
-        })
-      );
-
-      toast.success(`Đã đồng bộ CSKH (theo users.name) cho ${updates.length} đơn.`);
-    } catch (e) {
-      console.error('[QuanLyCSKH] resync CSKH:', e);
-      toast.error(e?.message || 'Lỗi khi đồng bộ CSKH');
-    } finally {
-      setResyncingCskhFromUsers(false);
-    }
-  };
-
-  /** Xóa hết cột CSKH (cskh → null) trên mọi đơn đang có CSKH trong bộ lọc — để điền lại. */
-  const handleClearCskhByFilter = async () => {
-    if (!isAdmin() && !canEditFromThisList) {
-      toast.error('Bạn không có quyền sửa đơn — không thể xóa cột CSKH.');
-      return;
-    }
-    if (clearingCskhByFilter || resyncingCskhFromUsers) return;
-    if (!filteredData.length) {
-      toast.info('Không có đơn nào trong bộ lọc hiện tại.');
-      return;
-    }
-    const targets = filteredData.filter((row) => {
-      const v = String(row['CSKH'] ?? '').trim();
-      return v !== '' && row.id;
-    });
-    if (!targets.length) {
-      toast.info('Trong bộ lọc không có đơn nào đang có CSKH để xóa.');
-      return;
-    }
-    if (
-      !window.confirm(
-        `Xóa hết cột CSKH (để trống) cho ${targets.length} đơn trong bộ lọc hiện tại?\n\n` +
-          'Bạn có thể điền lại sau. Thao tác không hoàn tác tự động.'
-      )
-    ) {
-      return;
-    }
-
-    setClearingCskhByFilter(true);
-    try {
-      const ids = targets.map((r) => r.id);
-      const CHUNK = 500;
-      for (let i = 0; i < ids.length; i += CHUNK) {
-        const chunk = ids.slice(i, i + CHUNK);
-        const { error } = await supabase
-          .from(ordersTableName)
-          .update({ cskh: null })
-          .in('id', chunk);
-        if (error) throw error;
-      }
-      const idSet = new Set(ids);
-      setAllData((prev) =>
-        prev.map((item) => (idSet.has(item.id) ? { ...item, CSKH: '' } : item))
-      );
-      toast.success(`Đã xóa hết cột CSKH trên ${ids.length} đơn (theo bộ lọc).`);
-    } catch (e) {
-      console.error('[QuanLyCSKH] clear CSKH by filter:', e);
-      toast.error(e?.message || 'Lỗi khi xóa cột CSKH');
-    } finally {
-      setClearingCskhByFilter(false);
-    }
-  };
+  const filteredTongTien = useMemo(() => sumTongTienVnd(filteredData), [filteredData]);
 
   // Format date
   const formatDate = (dateString) => {
@@ -1676,10 +1472,13 @@ function QuanLyCSKH({
               <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg border border-green-200">
                 <span className="text-sm font-semibold text-green-700">Tổng tiền:</span>
                 <span className="text-sm text-green-600 font-bold">
-                  {filteredData.reduce((sum, row) => {
-                    const amount = parseFloat(String(row["Tổng tiền VNĐ"] || 0).replace(/[^\d.-]/g, '')) || 0;
-                    return sum + amount;
-                  }, 0).toLocaleString('vi-VN')} ₫
+                  {filteredTongTien.toLocaleString('vi-VN')} ₫
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-lg border border-blue-200">
+                <span className="text-sm font-semibold text-blue-700">Tổng đơn:</span>
+                <span className="text-sm text-blue-600 font-bold">
+                  {filteredData.length.toLocaleString('vi-VN')}
                 </span>
               </div>
               <button
@@ -1694,48 +1493,6 @@ function QuanLyCSKH({
                 )}
                 {loading ? 'Đang tải...' : 'Tải lại'}
               </button>
-              {(isAdmin() || canEditFromThisList) && (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleResyncCskhToSaleCanonical}
-                    disabled={
-                      loading ||
-                      resyncingCskhFromUsers ||
-                      clearingCskhByFilter ||
-                      !filteredData.length
-                    }
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                    title="Chỉ các đơn sau bộ lọc: Sale thuộc user bộ phận CSKH nhưng CSKH sai tên → ghi lại theo users.name"
-                  >
-                    {resyncingCskhFromUsers ? (
-                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-                    ) : (
-                      <UserCog className="w-4 h-4" />
-                    )}
-                    {resyncingCskhFromUsers ? 'Đang xử lý...' : 'Phát hiện & sửa CSKH'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleClearCskhByFilter}
-                    disabled={
-                      loading ||
-                      resyncingCskhFromUsers ||
-                      clearingCskhByFilter ||
-                      !filteredData.length
-                    }
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                    title={`Xóa hết cột CSKH (để trống) theo bộ lọc hiện tại — ${filteredRowsWithCskhCount} đơn đang có CSKH. Sau đó có thể điền lại.`}
-                  >
-                    {clearingCskhByFilter ? (
-                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-                    ) : (
-                      <Eraser className="w-4 h-4" />
-                    )}
-                    {clearingCskhByFilter ? 'Đang xóa...' : 'Xóa hết cột CSKH'}
-                  </button>
-                </>
-              )}
             </div>
           </div>
         </div>
@@ -1805,7 +1562,6 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
-                      setShowCSKHFilter(false);
                       setShowMarketFilter(true);
                     }
                   }}
@@ -1887,7 +1643,6 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
-                      setShowCSKHFilter(false);
                       setShowProductFilter(true);
                     }
                   }}
@@ -1969,7 +1724,6 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
-                      setShowCSKHFilter(false);
                       setShowStatusFilter(true);
                     }
                   }}
@@ -2051,7 +1805,6 @@ function QuanLyCSKH({
                       setShowCheckResultFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
-                      setShowCSKHFilter(false);
                       setShowPaymentThuTienFilter(true);
                     }
                   }}
@@ -2133,7 +1886,6 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
-                      setShowCSKHFilter(false);
                       setShowCheckResultFilter(true);
                     }
                   }}
@@ -2215,7 +1967,6 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowQuickFilter(false);
                       setShowMKTFilter(false);
-                      setShowCSKHFilter(false);
                       setShowSaleFilter(true);
                     }
                   }}
@@ -2302,7 +2053,6 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowQuickFilter(false);
                       setShowSaleFilter(false);
-                      setShowCSKHFilter(false);
                       setShowMKTFilter(true);
                     }
                   }}
@@ -2369,89 +2119,6 @@ function QuanLyCSKH({
               </div>
             </div>
 
-            {/* CSKH (cột đơn) — tùy chọn theo danh sách nhân sự user khi không phải quản lý */}
-            <div className="min-w-[200px] relative z-50">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc theo CSKH</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (showCSKHFilter) setShowCSKHFilter(false);
-                    else {
-                      setShowMarketFilter(false);
-                      setShowProductFilter(false);
-                      setShowStatusFilter(false);
-                      setShowCheckResultFilter(false);
-                      setShowPaymentThuTienFilter(false);
-                      setShowQuickFilter(false);
-                      setShowSaleFilter(false);
-                      setShowMKTFilter(false);
-                      setShowCSKHFilter(true);
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterCSKH.length === 0
-                      ? 'Tất cả'
-                      : filterCSKH.length === 1
-                        ? filterCSKH[0]
-                        : `Đã chọn ${filterCSKH.length}`}
-                  </span>
-                  <span className="ml-2">{showCSKHFilter ? '▲' : '▼'}</span>
-                </button>
-
-                {showCSKHFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn CSKH:</span>
-                        <div className="flex gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => setFilterCSKH([...uniqueCSKHForFilter])}
-                            className="text-xs text-green-600 hover:text-green-800"
-                          >
-                            Chọn tất cả
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFilterCSKH([])}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Bỏ chọn tất cả
-                          </button>
-                        </div>
-                      </div>
-                      {uniqueCSKHForFilter.map((name) => {
-                        const isChecked = filterCSKH.includes(name);
-                        return (
-                          <label
-                            key={name}
-                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFilterCSKH([...filterCSKH, name]);
-                                } else {
-                                  setFilterCSKH(filterCSKH.filter((n) => n !== name));
-                                }
-                              }}
-                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{name}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
             {/* Quick Filter - checkbox (một mốc thời gian tại một thời điểm) */}
             <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc nhanh</label>
@@ -2468,7 +2135,6 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
-                      setShowCSKHFilter(false);
                       setShowQuickFilter(true);
                     }
                   }}
@@ -2548,8 +2214,7 @@ function QuanLyCSKH({
             showCheckResultFilter ||
             showQuickFilter ||
             showSaleFilter ||
-            showMKTFilter ||
-            showCSKHFilter) && (
+            showMKTFilter) && (
             <div
               className="fixed inset-0 z-40"
               aria-hidden
