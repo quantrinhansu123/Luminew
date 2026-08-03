@@ -110,19 +110,25 @@ export function getLastNDaysRangeLocal(nDays = DEFAULT_FILTER_DAYS) {
 
 /**
  * Mặc định bộ lọc: `n` ngày kết thúc tại ngày báo cáo mới nhất trong `sales_reports` (Supabase).
+ * `teamIn`: nếu có — chỉ xét các team đó (vd. CSKH-HCM / HCM-CSKH) thay vì cả bảng.
  * Trả về null nếu bảng trống hoặc không parse được ngày.
  */
 export async function fetchLatestSalesReportNDayRange(
   signal,
   nDays = DEFAULT_FILTER_DAYS,
-  tableName = 'sales_reports'
+  tableName = 'sales_reports',
+  teamIn = null
 ) {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  const { data, error } = await supabase
+  let q = supabase
     .from(tableName)
     .select('date')
     .order('date', { ascending: false })
     .limit(1);
+  if (Array.isArray(teamIn) && teamIn.length > 0) {
+    q = q.in('team', teamIn);
+  }
+  const { data, error } = await q;
 
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : data;
@@ -169,12 +175,14 @@ export function normalizeReportTeamSpaces(s) {
 /**
  * Khóa ổn định để lọc / gộp checkbox Team:
  * - Gom khoảng trắng quanh dấu `-` (HCM - Sale ≈ HCM-Sale).
+ * - `_` coi như `-` (HCM_CSKH ≈ HCM-CSKH).
  * - HCM-CSKH ≈ CSKH-HCM.
  * - Không gộp team thiếu gạch (HCM Sale) với HCM-Sale.
  */
 export function canonicalTeamKeyForFilter(s) {
   let t = normalizeReportTeamSpaces(s);
   t = normalizeViAscii(t);
+  t = t.replace(/_/g, '-');
   t = t.replace(/\s*-\s*/g, '-');
   t = t.replace(/\s+/g, ' ').trim();
   const parts = t.split('-').map((p) => p.trim()).filter(Boolean);
@@ -590,17 +598,23 @@ export function mapLumidataSalesReportRow(item) {
 
 /**
  * Phân trang Supabase (nhanh hơn nhiều so với N lần gọi lumidataapi).
- * Không lọc team ở đây — lọc `sale`/`cskh` ở client (team HCM thường không chứa chữ "sale").
+ * Không lọc team ở đây trừ khi truyền `teamIn` — lọc `sale`/`cskh` ở client (team HCM thường không chứa chữ "sale").
+ * @param {string[] | null} [teamIn] — nếu có: `.in('team', teamIn)` trên từng trang.
  */
 export async function fetchSalesReportsFromSupabase(
   startDateStr,
   endDateStr,
   signal,
-  tableName = 'sales_reports'
+  tableName = 'sales_reports',
+  teamIn = null
 ) {
   if (!startDateStr || !endDateStr) return [];
 
   const PAGE = 1000;
+  const teams =
+    Array.isArray(teamIn) && teamIn.length > 0
+      ? teamIn.map((t) => String(t).trim()).filter(Boolean)
+      : null;
 
   async function paginate(buildChunk) {
     const acc = [];
@@ -619,15 +633,18 @@ export async function fetchSalesReportsFromSupabase(
     return acc;
   }
 
+  const applyTeam = (q) => (teams ? q.in('team', teams) : q);
+
   const buildStrict = (from) =>
-    supabase
-      .from(tableName)
-      .select(SALES_REPORTS_SELECT)
-      .gte('date', startDateStr)
-      .lte('date', endDateStr)
-      .order('date', { ascending: false })
-      .order('id', { ascending: true })
-      .range(from, from + PAGE - 1);
+    applyTeam(
+      supabase
+        .from(tableName)
+        .select(SALES_REPORTS_SELECT)
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
+        .order('date', { ascending: false })
+        .order('id', { ascending: true })
+    ).range(from, from + PAGE - 1);
 
   let rows;
   try {
@@ -640,13 +657,14 @@ export async function fetchSalesReportsFromSupabase(
       e?.message || e
     );
     const buildLoose = (from) =>
-      supabase
-        .from(tableName)
-        .select('*')
-        .gte('date', startDateStr)
-        .lte('date', endDateStr)
-        .order('date', { ascending: false })
-        .range(from, from + PAGE - 1);
+      applyTeam(
+        supabase
+          .from(tableName)
+          .select('*')
+          .gte('date', startDateStr)
+          .lte('date', endDateStr)
+          .order('date', { ascending: false })
+      ).range(from, from + PAGE - 1);
     rows = await paginate(buildLoose);
   }
 
@@ -706,10 +724,17 @@ export async function fetchSalesReportsMapped(
   startDateStr,
   endDateStr,
   signal,
-  tableName = 'sales_reports'
+  tableName = 'sales_reports',
+  teamIn = null
 ) {
   try {
-    return await fetchSalesReportsFromSupabase(startDateStr, endDateStr, signal, tableName);
+    return await fetchSalesReportsFromSupabase(
+      startDateStr,
+      endDateStr,
+      signal,
+      tableName,
+      teamIn
+    );
   } catch (e) {
     if (e?.name === 'AbortError') throw e;
     if (String(tableName || '').trim() !== 'sales_reports') {

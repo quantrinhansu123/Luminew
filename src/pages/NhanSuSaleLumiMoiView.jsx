@@ -151,6 +151,12 @@ function teamToggleSelection(selectedList, val) {
   return [...(selectedList || []).filter((s) => canonicalTeamKeyForFilter(s) !== k), val];
 }
 
+/** Team chuẩn trên trang xem / danh sách CSKH HCM — chỉ đúng nhãn này. */
+const HCM_CSKH_DISPLAY_TEAMS = ['CSKH-HCM'];
+
+/** Cửa sổ ngày mặc định trang xem báo cáo CSKH HCM (khớp danh sách báo cáo tay HCM). */
+const HCM_CSKH_DEFAULT_FILTER_DAYS = 180;
+
 export default function NhanSuSaleLumiMoiView({
   reportTableName = 'sales_reports',
   thuCongTableName = 'Báo cáo sale',
@@ -191,6 +197,14 @@ export default function NhanSuSaleLumiMoiView({
     !pageAccessCodes || !Array.isArray(pageAccessCodes) || pageAccessCodes.length === 0
       ? true
       : pageAccessCodes.some((c) => canView(c));
+
+  /** /xem-bao-cao-cskh-hcm: teamInFilter chứa CSKH-HCM (và biến thể). */
+  const isHcmCskhReportPage = useMemo(() => {
+    if (!Array.isArray(teamInFilter) || teamInFilter.length === 0) return false;
+    return teamInFilter.some((t) => canonicalTeamKeyForFilter(t) === 'cskh-hcm');
+  }, [teamInFilter]);
+
+  const defaultFilterDays = isHcmCskhReportPage ? HCM_CSKH_DEFAULT_FILTER_DAYS : 3;
 
   /** Admin / Finance: không lọc theo selected_personnel */
   const isAdmin = useMemo(() => {
@@ -326,12 +340,12 @@ export default function NhanSuSaleLumiMoiView({
   }, [isAdmin]);
 
   const setDefaultDates = useCallback(() => {
-    const { startDateStr, endDateStr } = getLastNDaysRangeLocal(3);
+    const { startDateStr, endDateStr } = getLastNDaysRangeLocal(defaultFilterDays);
     setStartDate(startDateStr);
     setEndDate(endDateStr);
-  }, []);
+  }, [defaultFilterDays]);
 
-  /** Mặc định Từ/Đến ngày: ưu tiên Dashboard quản trị / query; sau đó 3 ngày theo Supabase hoặc máy. */
+  /** Mặc định Từ/Đến ngày: ưu tiên Dashboard quản trị / query; sau đó N ngày theo Supabase hoặc máy. */
   useEffect(() => {
     let cancelled = false;
     const ac = new AbortController();
@@ -360,16 +374,24 @@ export default function NhanSuSaleLumiMoiView({
 
     (async () => {
       try {
-        const range = await fetchLatestSalesReportNDayRange(ac.signal, 3, reportTableName);
+        const teamInForLatest = isHcmCskhReportPage ? HCM_CSKH_DISPLAY_TEAMS : null;
+        const range = await fetchLatestSalesReportNDayRange(
+          ac.signal,
+          defaultFilterDays,
+          reportTableName,
+          teamInForLatest
+        );
         if (cancelled) return;
         if (range?.startDateStr && range?.endDateStr) {
           setStartDate(range.startDateStr);
           setEndDate(range.endDateStr);
           return;
         }
-        /* sale_report_hcm: không có dòng / không đọc max(date) — cửa sổ 3 ngày gần nhất thường trống; mở ~120 ngày. */
-        if (reportTableName === 'sale_report_hcm') {
-          const wide = getLastNDaysRangeLocal(120);
+        /* sale_report_hcm / CSKH HCM: không có dòng / không đọc max(date) — mở cửa sổ rộng. */
+        if (reportTableName === 'sale_report_hcm' || isHcmCskhReportPage) {
+          const wide = getLastNDaysRangeLocal(
+            isHcmCskhReportPage ? HCM_CSKH_DEFAULT_FILTER_DAYS : 120
+          );
           if (!cancelled) {
             setStartDate(wide.startDateStr);
             setEndDate(wide.endDateStr);
@@ -378,11 +400,13 @@ export default function NhanSuSaleLumiMoiView({
         }
       } catch (e) {
         if (e?.name === 'AbortError') return;
-        console.warn('[NhanSuSaleLumiMoi] default 3 days from Supabase:', e);
+        console.warn('[NhanSuSaleLumiMoi] default days from Supabase:', e);
       }
       if (!cancelled) {
-        if (reportTableName === 'sale_report_hcm') {
-          const wide = getLastNDaysRangeLocal(120);
+        if (reportTableName === 'sale_report_hcm' || isHcmCskhReportPage) {
+          const wide = getLastNDaysRangeLocal(
+            isHcmCskhReportPage ? HCM_CSKH_DEFAULT_FILTER_DAYS : 120
+          );
           setStartDate(wide.startDateStr);
           setEndDate(wide.endDateStr);
         } else {
@@ -394,7 +418,15 @@ export default function NhanSuSaleLumiMoiView({
       cancelled = true;
       ac.abort();
     };
-  }, [setDefaultDates, reportTableName, dashboardFromQ, dashboardToQ, inIframe]);
+  }, [
+    setDefaultDates,
+    reportTableName,
+    dashboardFromQ,
+    dashboardToQ,
+    inIframe,
+    isHcmCskhReportPage,
+    defaultFilterDays,
+  ]);
 
   useEffect(() => {
     if (!inIframe) return undefined;
@@ -469,7 +501,13 @@ export default function NhanSuSaleLumiMoiView({
       setLoading(true);
       try {
         const [mappedRaw, emp, emailNameRows] = await Promise.all([
-          fetchSalesReportsMapped(startDate, endDate, ac.signal, reportTableName),
+          fetchSalesReportsMapped(
+            startDate,
+            endDate,
+            ac.signal,
+            reportTableName,
+            isHcmCskhReportPage ? HCM_CSKH_DISPLAY_TEAMS : null
+          ),
           fetchEmployeeDataForRestrict(),
           fetchUsersEmailNameForDisplayMap(),
         ]);
@@ -481,6 +519,16 @@ export default function NhanSuSaleLumiMoiView({
         ) {
           mapped = mappedRaw.filter((r) => matchesHcmXemBaoCaoSaleTeam(r.team));
         } else if (!hcmXemBaoCaoSaleTeamFilter) {
+        if (isHcmCskhReportPage) {
+          /* Chỉ đúng nhãn CSKH-HCM — không gộp HCM-CSKH / HCM_CSKH. */
+          const allow = new Set(
+            (Array.isArray(teamInFilter) && teamInFilter.length > 0
+              ? teamInFilter
+              : HCM_CSKH_DISPLAY_TEAMS
+            ).map((t) => String(t).trim())
+          );
+          mapped = mappedRaw.filter((r) => allow.has(String(r.team ?? '').trim()));
+        } else {
         const inSet =
           Array.isArray(teamInFilter) && teamInFilter.length > 0
             ? new Set(teamInFilter.map((t) => canonicalTeamKeyForFilter(t)))
@@ -499,6 +547,7 @@ export default function NhanSuSaleLumiMoiView({
               mapped = mappedRaw.filter((r) => !String(r.team || '').toLowerCase().includes('cskh'));
             }
           }
+        }
         }
         }
         if (excludeReportTeamsContainingHcm) {
@@ -534,6 +583,7 @@ export default function NhanSuSaleLumiMoiView({
     excludeReportTeamsContainingHcm,
     loadRequestId,
     reportTableName,
+    isHcmCskhReportPage,
   ]);
 
   /** Phân quyền + bộ lọc + iframe — chạy khi có dữ liệu hoặc đổi id (không gọi lại API). */
