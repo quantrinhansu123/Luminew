@@ -393,16 +393,71 @@ function applyCSKHClientFilters(data, ctx) {
   return rows;
 }
 
+/** Chuẩn hóa tên NV để khớp sale_staff ↔ users.name. */
+function normalizeSalePersonName(s) {
+  return String(s ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+/**
+ * Tên NV Sale có team đúng `teamExact` trên bảng users (name + username).
+ * @returns {Promise<Set<string>>} tập tên đã normalize
+ */
+async function fetchSaleStaffNameKeysByTeamExact(teamExact) {
+  const team = String(teamExact || '').trim();
+  if (!team) return new Set();
+  const keys = new Set();
+  const PAGE = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('name, username, team')
+      .eq('team', team)
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    for (const u of chunk) {
+      const n = normalizeSalePersonName(u.name);
+      const un = normalizeSalePersonName(u.username);
+      if (n) keys.add(n);
+      if (un) keys.add(un);
+    }
+    if (chunk.length < PAGE) break;
+    from += chunk.length;
+  }
+  return keys;
+}
+
+/** Đơn có Nhân viên Sale khớp một trong các tên team đã cho. */
+function orderSaleStaffMatchesTeamNames(row, nameKeys) {
+  if (!nameKeys || nameKeys.size === 0) return false;
+  const sale = normalizeSalePersonName(row?.sale_staff ?? row?.['Nhân viên Sale']);
+  if (!sale) return false;
+  if (nameKeys.has(sale)) return true;
+  for (const key of nameKeys) {
+    if (!key || key.length < 2) continue;
+    if (sale.includes(key) || key.includes(sale)) return true;
+  }
+  return false;
+}
+
 function QuanLyCSKH({
   ordersTableName = 'orders',
   pageTitle = 'QUẢN LÝ CSKH',
   pageSubtitle = 'Dữ liệu từ F3',
   accessPermissionCodes = ['CSKH_LIST'],
+  /** Nếu có: chỉ giữ đơn có Nhân viên Sale thuộc users.team đúng nhãn này (vd. CSKH-HCM). */
+  saleStaffTeamExact = null,
 } = {}) {
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   const navigate = useNavigate();
   const { canView, canEdit, role } = usePermissions();
   const isHcmOrders = ordersTableName === 'order_code_hcm';
+  const saleTeamExact = String(saleStaffTeamExact || '').trim();
+  const restrictBySaleTeam = Boolean(saleTeamExact);
 
   const canAccessPage = useMemo(
     () => accessPermissionCodes.some((code) => canView(code)),
@@ -939,8 +994,28 @@ function QuanLyCSKH({
       }
 
       const merged = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(d1, d2));
+      let rowsForMap = merged;
+
+      if (restrictBySaleTeam) {
+        const saleNameKeys = await fetchSaleStaffNameKeysByTeamExact(saleTeamExact);
+        if (saleNameKeys.size === 0) {
+          console.warn(
+            `[CSKH] Không có user nào team="${saleTeamExact}" — danh sách đơn trống.`
+          );
+          rowsForMap = [];
+        } else {
+          const before = rowsForMap.length;
+          rowsForMap = rowsForMap.filter((row) =>
+            orderSaleStaffMatchesTeamNames(row, saleNameKeys)
+          );
+          console.log(
+            `🔐 [CSKH] Chỉ đơn sale_staff ∈ users.team="${saleTeamExact}": ${rowsForMap.length}/${before} (có ${saleNameKeys.size} tên NV)`
+          );
+        }
+      }
+
       const mappedData = dedupeFriendlyOrdersByMaDon(
-        merged.map((item) => mapOrderRowToFriendlyCSKH(item))
+        rowsForMap.map((item) => mapOrderRowToFriendlyCSKH(item))
       );
 
       const scopeForUi = bypassStaffFilter
@@ -980,7 +1055,7 @@ function QuanLyCSKH({
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, role, ordersTableName]);
+  }, [startDate, endDate, role, ordersTableName, restrictBySaleTeam, saleTeamExact]);
 
   useEffect(() => {
     loadData();

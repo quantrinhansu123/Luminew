@@ -220,8 +220,9 @@ function AppShell() {
                   <QuanLyCSKH
                     ordersTableName="order_code_hcm"
                     pageTitle="QUẢN LÝ CSKH HCM"
-                    pageSubtitle="Dữ liệu từ order_code_hcm"
+                    pageSubtitle="order_code_hcm — chỉ đơn Nhân viên Sale team CSKH-HCM"
                     accessPermissionCodes={['CSKH_LIST_HCM']}
+                    saleStaffTeamExact="CSKH-HCM"
                   />
                 </ProtectedRoute>
               }
