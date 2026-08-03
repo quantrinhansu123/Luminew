@@ -1081,6 +1081,7 @@ export const MODULE_PAGES = {
         pages: [
             { code: 'CSKH_LIST', name: 'Danh sách đơn', path: '/quan-ly-cskh' },
             { code: 'CSKH_LIST_HCM', name: 'Danh sách đơn CSKH HCM', path: '/quan-ly-cskh-hcm' },
+            { code: 'CSKH_STATS_HCM', name: 'Thống kê KH-HCM', path: '/thong-ke-kh-hcm' },
             { code: 'CSKH_PAID', name: 'Đơn đã thu tiền/cần CS', path: '/don-chia-cskh' },
             { code: 'CSKH_PAID_HCM', name: 'Đơn đã thu tiền/cần CS (HCM)', path: '/don-chia-cskh-hcm' },
             { code: 'CSKH_NEW_ORDER', name: 'Nhập đơn mới (CSKH)', path: '/nhap-don' },

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -57,7 +58,8 @@ import NhapBaoCaoSale from './pages/NhapBaoCaoSale';
 import NhapDonMoi from './pages/NhapDonMoi';
 import Profile from './pages/Profile';
 import QuanLyCSKH from './pages/QuanLyCSKH';
-import ReportDashboard from './pages/ReportDashboard';
+import ThongKeKhachHangCSKHHcm from './pages/ThongKeKhachHangCSKHHcm';
+const ReportDashboard = lazy(() => import('./pages/ReportDashboard'));
 import BangDoiSoatDayFFM, { BangDoiSoatDayFFMHcm } from './pages/BangDoiSoatDayFFM';
 import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
@@ -105,7 +107,16 @@ function AppShell() {
             <Route path="/trang-chu" element={<ProtectedRoute><Home /></ProtectedRoute>} />
             <Route path="/bao-cao-chi-tiet" element={<ProtectedRoute><BaoCaoChiTiet /></ProtectedRoute>} />
             <Route path="/bao-cao-chi-tiet-hcm" element={<ProtectedRoute><BaoCaoChiTietHcm /></ProtectedRoute>} />
-            <Route path="/bang-bao-cao" element={<ProtectedRoute><ReportDashboard /></ProtectedRoute>} />
+            <Route
+              path="/bang-bao-cao"
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={<div className="p-8 text-center text-gray-500">Đang tải...</div>}>
+                    <ReportDashboard />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
             <Route path="/bao-cao-kpi" element={<ProtectedRoute><KPIReport /></ProtectedRoute>} />
             <Route path="/hieu-qua-mkt" element={<ProtectedRoute><HieuQuaMarketing /></ProtectedRoute>} />
             <Route path="/bao-cao-marketing" element={<ProtectedRoute><BaoCaoMarketing /></ProtectedRoute>} />
@@ -212,6 +223,14 @@ function AppShell() {
                     pageSubtitle="Dữ liệu từ order_code_hcm"
                     accessPermissionCodes={['CSKH_LIST_HCM']}
                   />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/thong-ke-kh-hcm"
+              element={
+                <ProtectedRoute>
+                  <ThongKeKhachHangCSKHHcm />
                 </ProtectedRoute>
               }
             />
