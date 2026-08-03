@@ -105,6 +105,8 @@ export default function DanhSachBaoCaoTayCSKH({
     salesReportTeamIn = null,
     pageAccessCodes = null,
     pageTitleSuffix = '',
+    /** Bảng báo cáo: HCM dùng `sale_report_hcm` (cùng nguồn nhập tay CSKH HCM). */
+    reportTableName = null,
 } = {}) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
@@ -129,6 +131,8 @@ export default function DanhSachBaoCaoTayCSKH({
             salesReportTeamIn.some((t) => /hcm/i.test(String(t || ''))),
         [salesReportTeamIn]
     );
+    const reportTable = String(reportTableName || '').trim() || (isHcmManualPage ? 'sale_report_hcm' : 'sales_reports');
+    const ordersTableForRecalc = isHcmManualPage || reportTable === 'sale_report_hcm' ? 'order_code_hcm' : 'orders';
     /** Team dùng khi nút đồng bộ (HCM: gồm biến thể cũ; HN: cùng danh sách hiển thị). */
     const syncSourceTeams = useMemo(() => {
         if (isHcmManualPage) return CSKH_MANUAL_REPORT_HCM_SYNC_SOURCE_TEAMS;
@@ -396,7 +400,7 @@ export default function DanhSachBaoCaoTayCSKH({
                         const to = Math.min(from + pageSize - 1, maxRecordsToLoad - 1);
 
                         let reportsQuery = supabase
-                            .from('sales_reports')
+                            .from(reportTable)
                             .select('product, market, name')
                             .order('created_at', { ascending: false })
                             .range(from, to);
@@ -444,7 +448,7 @@ export default function DanhSachBaoCaoTayCSKH({
         if (selectedPersonnelNames !== undefined) {
             loadAvailableOptions();
         }
-    }, [selectedPersonnelNames, isAdmin, effectiveTeamFilter, useTeamInQuery]);
+    }, [selectedPersonnelNames, isAdmin, effectiveTeamFilter, useTeamInQuery, reportTable]);
 
     // Load options for edit form
     useEffect(() => {
@@ -459,7 +463,7 @@ export default function DanhSachBaoCaoTayCSKH({
                 const products = productsData?.map(p => p.name) || [];
 
                 let marketsQ = supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .select('market')
                     .not('market', 'is', null)
                     .limit(1000);
@@ -482,7 +486,7 @@ export default function DanhSachBaoCaoTayCSKH({
                 const branches = [...new Set(branchesData?.map(b => b.branch).filter(Boolean))].sort();
 
                 let shiftsQ = supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .select('shift')
                     .not('shift', 'is', null)
                     .limit(2000);
@@ -509,9 +513,9 @@ export default function DanhSachBaoCaoTayCSKH({
         };
 
         loadEditOptions();
-    }, [isAdmin, effectiveTeamFilter, useTeamInQuery]);
+    }, [isAdmin, effectiveTeamFilter, useTeamInQuery, reportTable]);
 
-    // Fetch Data trực tiếp từ bảng sales_reports
+    // Fetch Data trực tiếp từ bảng báo cáo (sales_reports / sale_report_hcm)
     const fetchData = useCallback(async () => {
         if (!filters.startDate || !filters.endDate) return;
         setLoading(true);
@@ -524,7 +528,7 @@ export default function DanhSachBaoCaoTayCSKH({
 
             const data = await fetchAllSalesReportRows(() => {
                 let query = supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .select('*')
                     .gte('date', filters.startDate)
                     .lte('date', filters.endDate)
@@ -598,7 +602,7 @@ export default function DanhSachBaoCaoTayCSKH({
         } finally {
             setLoading(false);
         }
-    }, [filters.startDate, filters.endDate, filters.products, filters.markets, filters.personnel, selectedPersonnelNames, hrEmailMap, useTeamInQuery, effectiveTeamFilter, isAdmin]);
+    }, [filters.startDate, filters.endDate, filters.products, filters.markets, filters.personnel, selectedPersonnelNames, hrEmailMap, useTeamInQuery, effectiveTeamFilter, isAdmin, reportTable]);
 
     useEffect(() => {
         if (filters.startDate && filters.endDate) {
@@ -721,7 +725,7 @@ export default function DanhSachBaoCaoTayCSKH({
         const scopeLabel = `Team ∈ { ${teamFilterLabel} }`;
         if (
             !window.confirm(
-                `Tính lại sales_reports (${scopeLabel}) từ bảng đơn Supabase — cùng luồng Admin Tools / cài đặt:\n\n` +
+                `Tính lại ${reportTable} (${scopeLabel}) từ bảng đơn Supabase (${ordersTableForRecalc}) — cùng luồng Admin Tools / cài đặt:\n\n` +
                     '• Cập nhật số đơn, doanh số, đơn hủy, đơn go (có tracking, không hủy).\n' +
                     '• Tự thêm dòng «Hết ca» nếu thiếu key (ngày + nhân viên sale + SP + thị trường).\n\n' +
                     `Khoảng ngày: ${filters.startDate} → ${filters.endDate}\n\nChạy?`
@@ -738,6 +742,8 @@ export default function DanhSachBaoCaoTayCSKH({
                 createMissingForHetCa: true,
                 reportsTeamIn: effectiveTeamFilter,
                 defaultTeamForNewRows: effectiveTeamFilter[0] ?? null,
+                reportsTable: reportTable,
+                ordersTable: ordersTableForRecalc,
             });
             const n = result.upserted ?? 0;
             const created = result.createdMissing ?? 0;
@@ -762,7 +768,7 @@ export default function DanhSachBaoCaoTayCSKH({
         setDeletingId(reportId);
         try {
             const { error } = await supabase
-                .from('sales_reports')
+                .from(reportTable)
                 .delete()
                 .eq('id', reportId);
 
@@ -806,7 +812,7 @@ export default function DanhSachBaoCaoTayCSKH({
         }
         setDeletingBulk(true);
         try {
-            const { error } = await supabase.from('sales_reports').delete().in('id', ids);
+            const { error } = await supabase.from(reportTable).delete().in('id', ids);
             if (error) throw error;
             setSelectedReportIds(new Set());
             alert(`Đã xóa ${ids.length} báo cáo.`);
@@ -883,7 +889,7 @@ export default function DanhSachBaoCaoTayCSKH({
             const BATCH = 500;
             for (let i = 0; i < toDelete.length; i += BATCH) {
                 const batch = toDelete.slice(i, i + BATCH);
-                const { error } = await supabase.from('sales_reports').delete().in('id', batch);
+                const { error } = await supabase.from(reportTable).delete().in('id', batch);
                 if (error) throw error;
             }
             setSelectedReportIds((prev) => {
@@ -938,7 +944,7 @@ export default function DanhSachBaoCaoTayCSKH({
         try {
             let updated = 0;
             for (const r of targets) {
-                const { error } = await supabase.from('sales_reports').update({ shift: 'Hết ca' }).eq('id', r.id);
+                const { error } = await supabase.from(reportTable).update({ shift: 'Hết ca' }).eq('id', r.id);
                 if (error) throw error;
                 updated += 1;
             }
@@ -1045,7 +1051,7 @@ export default function DanhSachBaoCaoTayCSKH({
         try {
             const rows = await fetchAllSalesReportRows(() => {
                 let q = supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .select('id, name, team, branch')
                     .order('id', { ascending: true });
                 if (syncSourceTeams.length > 0) {
@@ -1055,7 +1061,7 @@ export default function DanhSachBaoCaoTayCSKH({
             });
 
             if (!rows.length) {
-                alert(`Không có dòng sales_reports với team ∈ [${teamsLabel}].`);
+                alert(`Không có dòng ${reportTable} với team ∈ [${teamsLabel}].`);
                 return;
             }
 
@@ -1100,7 +1106,7 @@ export default function DanhSachBaoCaoTayCSKH({
                     continue;
                 }
                 const { error: upErr } = await supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .update({
                         team: newTeam || null,
                         branch: newBranch || null,
@@ -1170,7 +1176,7 @@ export default function DanhSachBaoCaoTayCSKH({
         setSaving(true);
         try {
             const { error } = await supabase
-                .from('sales_reports')
+                .from(reportTable)
                 .update({
                     date: editForm.date,
                     shift: editForm.shift,
@@ -1349,7 +1355,7 @@ export default function DanhSachBaoCaoTayCSKH({
                             <h2 style={{ marginBottom: '4px' }}>DANH SÁCH BÁO CÁO TAY CSKH{pageTitleSuffix}</h2>
                             <p className="text-sm text-gray-600 m-0">
                                 <>
-                                    Chỉ dữ liệu <strong>sales_reports.team</strong> ∈ {teamFilterLabel}.
+                                    Chỉ dữ liệu <strong>{reportTable}.team</strong> ∈ {teamFilterLabel}.
                                 </>
                             </p>
                         </div>
