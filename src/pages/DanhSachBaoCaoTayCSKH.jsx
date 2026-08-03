@@ -33,8 +33,35 @@ const filterOptionsBySearch = (list, q) => {
 /** HN: team trong `sales_reports` / `users` cho báo cáo tay CSKH Hà Nội (đồng bộ /xem-bao-cao-cskh). */
 export const CSKH_MANUAL_REPORT_HN_TEAMS = ['CSKH-HN'];
 
-/** HCM: chỉ các team này trong sales_reports (khớp cột `team`). */
-export const CSKH_MANUAL_REPORT_HCM_TEAMS = ['HCM-Sale Đêm', 'CSKH-HCM', 'HCM'];
+/** HCM: chỉ hiển thị team chuẩn `CSKH-HCM` trên danh sách / xem báo cáo. */
+export const CSKH_MANUAL_REPORT_HCM_TEAMS = ['CSKH-HCM'];
+
+/**
+ * Nguồn đồng bộ «Chỉnh team & chi nhánh»: gồm biến thể cũ trên DB
+ * (HCM-CSKH / HCM_CSKH) để ghi lại thành team chuẩn từ users.
+ */
+export const CSKH_MANUAL_REPORT_HCM_SYNC_SOURCE_TEAMS = [
+    'CSKH-HCM',
+    'HCM-CSKH',
+    'HCM_CSKH',
+];
+
+const SALES_REPORTS_PAGE_SIZE = 1000;
+
+/** PostgREST ~1000 dòng/request — lấy hết trang theo filter team (không cắt). */
+async function fetchAllSalesReportRows(buildQuery) {
+    const all = [];
+    for (let page = 0; ; page += 1) {
+        const from = page * SALES_REPORTS_PAGE_SIZE;
+        const to = from + SALES_REPORTS_PAGE_SIZE - 1;
+        const { data, error } = await buildQuery().range(from, to);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < SALES_REPORTS_PAGE_SIZE) break;
+    }
+    return all;
+}
 
 /**
  * Trùng: cùng ngày + người + SP + TT + team — KHÔNG tính cột Ca.
@@ -96,6 +123,17 @@ export default function DanhSachBaoCaoTayCSKH({
         [salesReportTeamIn]
     );
     const teamFilterLabel = useMemo(() => effectiveTeamFilter.join(', '), [effectiveTeamFilter]);
+    const isHcmManualPage = useMemo(
+        () =>
+            Array.isArray(salesReportTeamIn) &&
+            salesReportTeamIn.some((t) => /hcm/i.test(String(t || ''))),
+        [salesReportTeamIn]
+    );
+    /** Team dùng khi nút đồng bộ (HCM: gồm biến thể cũ; HN: cùng danh sách hiển thị). */
+    const syncSourceTeams = useMemo(() => {
+        if (isHcmManualPage) return CSKH_MANUAL_REPORT_HCM_SYNC_SOURCE_TEAMS;
+        return effectiveTeamFilter;
+    }, [isHcmManualPage, effectiveTeamFilter]);
 
     // Get user email and name for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
@@ -281,25 +319,26 @@ export default function DanhSachBaoCaoTayCSKH({
         loadSelectedPersonnel();
     }, [userEmail, isAdmin]);
 
-    // Initialize Dates - Default to last 3 days (only if user hasn't changed filter)
+    // Initialize Dates — HN: 3 ngày; HCM: 180 ngày (dữ liệu sales_reports HCM thường cách xa ngày hiện tại)
     useEffect(() => {
         if (!userChangedFilter && !filters.startDate && !filters.endDate) {
             const today = new Date();
-            const threeDaysAgo = new Date();
-            threeDaysAgo.setDate(today.getDate() - 2); // 3 ngày: hôm nay, hôm qua, hôm kia
+            const start = new Date();
+            start.setDate(today.getDate() - (isHcmManualPage ? 179 : 2));
 
-            setFilters(prev => ({
+            setFilters((prev) => ({
                 ...prev,
-                startDate: formatLocalDateYMD(threeDaysAgo),
-                endDate: formatLocalDateYMD(today)
+                startDate: formatLocalDateYMD(start),
+                endDate: formatLocalDateYMD(today),
             }));
 
-            console.log('📅 [DanhSachBaoCaoTayCSKH] Khởi tạo filters với 3 ngày gần nhất:', {
-                startDate: formatLocalDateYMD(threeDaysAgo),
-                endDate: formatLocalDateYMD(today)
+            console.log('📅 [DanhSachBaoCaoTayCSKH] Khởi tạo filters:', {
+                startDate: formatLocalDateYMD(start),
+                endDate: formatLocalDateYMD(today),
+                isHcmManualPage,
             });
         }
-    }, []); // Chỉ chạy một lần khi mount
+    }, [isHcmManualPage]); // HCM vs HN có khoảng mặc định khác nhau
 
     // Load available options for filters
     useEffect(() => {
@@ -477,65 +516,65 @@ export default function DanhSachBaoCaoTayCSKH({
         if (!filters.startDate || !filters.endDate) return;
         setLoading(true);
         try {
-            let query = supabase
-                .from('sales_reports')
-                .select('*')
-                .gte('date', filters.startDate)
-                .lte('date', filters.endDate)
-                .order('created_at', { ascending: false });
-            if (useTeamInQuery) {
-                query = query.in('team', effectiveTeamFilter);
-            }
-
             // Helper function to normalize name (remove extra spaces)
             const normalizeNameForQuery = (str) => {
                 if (!str) return '';
                 return String(str).trim().replace(/\s+/g, ' ');
             };
 
-            // Filter theo selected_personnel (leader CSKH) — admin không bị giới hạn
-            if (!isAdmin && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                const orConditions = selectedPersonnelNames
-                    .filter(name => name && name.trim().length > 0)
-                    .map(name => {
-                        const normalizedName = normalizeNameForQuery(name);
-                        return `name.ilike.%${normalizedName}%`;
-                    });
-
-                if (orConditions.length > 0) {
-                    query = query.or(orConditions.join(','));
-                } else {
-                    query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+            const data = await fetchAllSalesReportRows(() => {
+                let query = supabase
+                    .from('sales_reports')
+                    .select('*')
+                    .gte('date', filters.startDate)
+                    .lte('date', filters.endDate)
+                    .order('created_at', { ascending: false });
+                if (useTeamInQuery) {
+                    query = query.in('team', effectiveTeamFilter);
                 }
-            }
 
-            // Filter theo nhân sự (nếu có filter)
-            if (filters.personnel && filters.personnel.length > 0) {
-                const personnelConditions = filters.personnel
-                    .filter(name => name && name.trim().length > 0)
-                    .map(name => {
-                        const normalizedName = normalizeNameForQuery(name);
-                        return `name.ilike.%${normalizedName}%`;
-                    });
+                // Filter theo selected_personnel (leader CSKH) — admin không bị giới hạn
+                if (!isAdmin && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+                    const orConditions = selectedPersonnelNames
+                        .filter(name => name && name.trim().length > 0)
+                        .map(name => {
+                            const normalizedName = normalizeNameForQuery(name);
+                            return `name.ilike.%${normalizedName}%`;
+                        });
 
-                if (personnelConditions.length > 0) {
-                    query = query.or(personnelConditions.join(','));
+                    if (orConditions.length > 0) {
+                        query = query.or(orConditions.join(','));
+                    } else {
+                        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+                    }
                 }
-            }
 
-            // Filter theo sản phẩm
-            if (filters.products && filters.products.length > 0) {
-                query = query.in('product', filters.products);
-            }
+                // Filter theo nhân sự (nếu có filter)
+                if (filters.personnel && filters.personnel.length > 0) {
+                    const personnelConditions = filters.personnel
+                        .filter(name => name && name.trim().length > 0)
+                        .map(name => {
+                            const normalizedName = normalizeNameForQuery(name);
+                            return `name.ilike.%${normalizedName}%`;
+                        });
 
-            // Filter theo thị trường
-            if (filters.markets && filters.markets.length > 0) {
-                query = query.in('market', filters.markets);
-            }
+                    if (personnelConditions.length > 0) {
+                        query = query.or(personnelConditions.join(','));
+                    }
+                }
 
-            const { data, error } = await query;
+                // Filter theo sản phẩm
+                if (filters.products && filters.products.length > 0) {
+                    query = query.in('product', filters.products);
+                }
 
-            if (error) throw error;
+                // Filter theo thị trường
+                if (filters.markets && filters.markets.length > 0) {
+                    query = query.in('market', filters.markets);
+                }
+
+                return query;
+            });
 
             // Bổ sung Email nhân viên từ bảng nhân sự nếu thiếu
             const enrichedData = (data || []).map(item => {
@@ -559,7 +598,7 @@ export default function DanhSachBaoCaoTayCSKH({
         } finally {
             setLoading(false);
         }
-    }, [filters.startDate, filters.endDate, filters.products, filters.markets, filters.personnel, selectedPersonnelNames, hrEmailMap, useTeamInQuery, effectiveTeamFilter]);
+    }, [filters.startDate, filters.endDate, filters.products, filters.markets, filters.personnel, selectedPersonnelNames, hrEmailMap, useTeamInQuery, effectiveTeamFilter, isAdmin]);
 
     useEffect(() => {
         if (filters.startDate && filters.endDate) {
@@ -994,19 +1033,32 @@ export default function DanhSachBaoCaoTayCSKH({
 
     /** Khớp `sales_reports.name` với `users.name` (hoặc username nếu name trống), ghi `users.team` vào `sales_reports.team`. */
     const handleSyncTeamFromUsers = async () => {
+        const teamsLabel = syncSourceTeams.join(', ');
         if (!window.confirm(
             'Đồng bộ cột Team và Chi nhánh (branch) từ bảng users?\n\n' +
-            'Áp dụng cho các dòng đang có trong danh sách (theo bộ lọc ngày / nhân sự).\n' +
+            `Áp dụng TOÀN BỘ dòng team ∈ [${teamsLabel}] — không theo bộ lọc ngày / nhân sự / SP / TT trên trang.\n` +
             'Khớp tên (name / username) không phân biệt hoa thường, sau khi chuẩn hóa khoảng trắng.'
         )) {
             return;
         }
-        if (!allReports.length) {
-            alert('Không có dữ liệu trong khoảng đã lọc.');
-            return;
-        }
         setTeamSyncing(true);
         try {
+            const rows = await fetchAllSalesReportRows(() => {
+                let q = supabase
+                    .from('sales_reports')
+                    .select('id, name, team, branch')
+                    .order('id', { ascending: true });
+                if (syncSourceTeams.length > 0) {
+                    q = q.in('team', syncSourceTeams);
+                }
+                return q;
+            });
+
+            if (!rows.length) {
+                alert(`Không có dòng sales_reports với team ∈ [${teamsLabel}].`);
+                return;
+            }
+
             const { data: users, error: userErr } = await supabase
                 .from('users')
                 .select('name, username, team, branch');
@@ -1028,7 +1080,7 @@ export default function DanhSachBaoCaoTayCSKH({
             let skippedNoMatch = 0;
             let skippedSame = 0;
 
-            for (const r of allReports) {
+            for (const r of rows) {
                 const key = normalizePersonName(r.name);
                 const prof = nameToProfile.get(key);
                 if (!prof) {
@@ -1059,6 +1111,7 @@ export default function DanhSachBaoCaoTayCSKH({
             }
 
             alert(
+                `Đã quét ${rows.length} dòng (team ∈ [${teamsLabel}]).\n` +
                 `Đã cập nhật team & chi nhánh: ${updated} dòng.\n` +
                 `Không khớp tên với users (hoặc user không có team/chi nhánh): ${skippedNoMatch} dòng.\n` +
                 `Đã khớp, không đổi: ${skippedSame} dòng.`
@@ -1454,7 +1507,9 @@ export default function DanhSachBaoCaoTayCSKH({
                                             colSpan={isAdmin ? 17 : 16}
                                             className="text-center"
                                         >
-                                            {loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}
+                                            {loading
+                                                ? 'Đang tải...'
+                                                : `Không có dữ liệu trong khoảng thời gian này (team: ${teamFilterLabel}). Thử mở rộng Từ ngày / Đến ngày.`}
                                         </td>
                                     </tr>
                                 ) : (

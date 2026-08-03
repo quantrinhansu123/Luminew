@@ -154,6 +154,13 @@ function Home() {
           permission: 'CSKH_LIST_HCM',
         },
         {
+          id: "crm-stats-hcm",
+          label: "Thống Kê KH-HCM",
+          icon: <TrendingUp className="w-4 h-4" />,
+          path: "/thong-ke-kh-hcm",
+          permissionAny: ['CSKH_STATS_HCM', 'CSKH_LIST_HCM', 'CSKH_VIEW_HCM'],
+        },
+        {
           id: "crm-paid",
           label: "Đơn đã thu tiền/cần CS",
           icon: <FileText className="w-4 h-4" />,
@@ -865,6 +872,14 @@ function Home() {
           permission: 'CSKH_LIST_HCM',
         },
         {
+          title: "Thống Kê KH-HCM",
+          icon: <TrendingUp className="w-8 h-8" />,
+          color: "bg-amber-600",
+          path: "/thong-ke-kh-hcm",
+          status: "Mua lại theo SP/Thị trường",
+          permissionAny: ['CSKH_STATS_HCM', 'CSKH_LIST_HCM', 'CSKH_VIEW_HCM'],
+        },
+        {
           title: "Đơn đã thu tiền/cần CS",
           icon: <FileText className="w-8 h-8" />,
           color: "bg-cyan-500",
@@ -925,7 +940,7 @@ function Home() {
           icon: <Database className="w-8 h-8" />,
           color: "bg-teal-600",
           path: "/danh-sach-bao-cao-tay-cskh-hcm",
-          status: "HCM-Sale Đêm, CSKH-HCM, HCM",
+          status: "team = CSKH-HCM",
           permission: 'CSKH_MANUAL_HCM',
         },
         {
@@ -941,7 +956,7 @@ function Home() {
           icon: <BarChart3 className="w-8 h-8" />,
           color: "bg-orange-700",
           path: "/xem-bao-cao-cskh-hcm",
-          status: "HCM-Sale Đêm, CSKH-HCM, HCM",
+          status: "team = CSKH-HCM",
           permission: 'CSKH_VIEW_HCM',
         },
         {
