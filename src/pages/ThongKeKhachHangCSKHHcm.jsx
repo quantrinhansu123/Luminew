@@ -1,6 +1,7 @@
-import { RefreshCw, Search, TrendingUp, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Download, RefreshCw, Search, TrendingUp, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
+import * as XLSX from 'xlsx';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { formatLocalYmd, mergeUniqueRowsById, orderRangeToCreatedAtIsoBounds } from '../utils/dateParsing';
@@ -47,6 +48,19 @@ function formatCurrency(n) {
 
 function formatPercent(n) {
   return `${(Number(n) * 100 || 0).toFixed(1)}%`;
+}
+
+function exportSheetToExcel(sheetName, header, bodyRows, filePrefix) {
+  if (!bodyRows.length) {
+    toast.warning('Không có dữ liệu để xuất Excel theo bộ lọc hiện tại.');
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([header, ...bodyRows]);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `${filePrefix}_${stamp}.xlsx`);
+  toast.success(`Đã tải Excel: ${bodyRows.length.toLocaleString('vi-VN')} dòng (theo bộ lọc).`);
 }
 
 async function fetchAllRows(buildQuery) {
@@ -216,13 +230,25 @@ function MultiSelectDropdown({ label, options, selected, onChange, open, onToggl
   );
 }
 
-function ReportTable({ title, columns, rows, loading, emptyText, renderRow, colSpan }) {
+function ReportTable({ title, columns, rows, loading, emptyText, renderRow, colSpan, onExport }) {
   const hasRows = rows.length > 0;
   return (
     <div className="bg-white border border-gray-300 rounded-lg shadow-sm mb-6 overflow-hidden">
       {title && (
-        <div className="bg-[#F37021] text-white text-center font-bold uppercase tracking-wide py-2 text-sm">
-          {title}
+        <div className="bg-[#F37021] text-white font-bold uppercase tracking-wide py-2 px-3 text-sm flex items-center justify-between gap-2">
+          <span className="flex-1 text-center">{title}</span>
+          {onExport && (
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={loading || !hasRows}
+              title="Tải Excel theo bộ lọc hiện tại"
+              className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed normal-case tracking-normal"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Tải Excel
+            </button>
+          )}
         </div>
       )}
       <div className="overflow-x-auto" data-cskh-grid-root>
@@ -415,6 +441,65 @@ export default function ThongKeKhachHangCSKHHcm() {
     return { tongKH, muaLai, tyLe: tongKH > 0 ? muaLai / tongKH : 0, lan2, lan3, tu4, doanhThuMuaLai };
   }, [aggregates]);
 
+  const exportListExcel = useCallback(() => {
+    exportSheetToExcel(
+      'Danh_sach_mua_lai',
+      ['STT', 'Tên KH', 'SĐT', 'Sản phẩm', 'Thị trường', 'Lần mua', 'Tổng đơn', 'Tổng doanh thu'],
+      section1Rows.map((r, idx) => [
+        idx + 1,
+        r.name,
+        r.phone || '',
+        r.product,
+        r.market,
+        r.lanMua,
+        r.tongDon,
+        r.tongDoanhThu,
+      ]),
+      `ThongKeKH_HCM_DanhSach_${startDate}_${endDate}`
+    );
+  }, [section1Rows, startDate, endDate]);
+
+  const exportMarketExcel = useCallback(() => {
+    exportSheetToExcel(
+      'Theo_thi_truong',
+      ['Thị trường', 'Tổng KH', 'KH mua lại', 'Tỷ lệ mua lại (%)', 'Doanh thu mua lại'],
+      section2Rows.map((r) => [
+        r.market,
+        r.tongKH,
+        r.muaLai,
+        Number(((r.tyLeMuaLai || 0) * 100).toFixed(1)),
+        r.doanhThuMuaLai,
+      ]),
+      `ThongKeKH_HCM_ThiTruong_${startDate}_${endDate}`
+    );
+  }, [section2Rows, startDate, endDate]);
+
+  const exportProductExcel = useCallback(() => {
+    exportSheetToExcel(
+      'Theo_san_pham',
+      ['Sản phẩm', 'Tổng KH', 'KH mua lại', 'Lần 2', 'Lần 3', '≥4 lần', 'Doanh thu'],
+      section3Rows.map((r) => [r.product, r.tongKH, r.muaLai, r.lan2, r.lan3, r.tu4, r.doanhThu]),
+      `ThongKeKH_HCM_SanPham_${startDate}_${endDate}`
+    );
+  }, [section3Rows, startDate, endDate]);
+
+  const exportOverviewExcel = useCallback(() => {
+    exportSheetToExcel(
+      'Tong_quan',
+      ['Chỉ tiêu', 'Giá trị'],
+      [
+        ['Tổng khách hàng', kpi.tongKH],
+        ['Khách mua lại', kpi.muaLai],
+        ['Tỷ lệ mua lại (%)', Number(((kpi.tyLe || 0) * 100).toFixed(1))],
+        ['Khách mua lần 2', kpi.lan2],
+        ['Khách mua lần 3', kpi.lan3],
+        ['Khách mua ≥4 lần', kpi.tu4],
+        ['Doanh thu khách mua lại', kpi.doanhThuMuaLai],
+      ],
+      `ThongKeKH_HCM_TongQuan_${startDate}_${endDate}`
+    );
+  }, [kpi, startDate, endDate]);
+
   if (!hasAccess) {
     return (
       <div className="p-8 text-center font-bold text-red-600">
@@ -533,6 +618,7 @@ export default function ThongKeKhachHangCSKHHcm() {
         columns={['STT', 'Tên KH', 'Sản phẩm', 'Thị trường', 'Lần mua', 'Tổng đơn', 'Tổng doanh thu']}
         rows={section1Rows}
         loading={loading}
+        onExport={exportListExcel}
         emptyText={`Không có khách hàng nào mua lại từ ${REPEAT_THRESHOLD} lần trong khoảng thời gian / bộ lọc đã chọn.`}
         renderRow={(r, idx) => (
           <tr key={r.key} className="hover:bg-orange-50/40">
@@ -557,6 +643,7 @@ export default function ThongKeKhachHangCSKHHcm() {
         columns={['Thị trường', 'Tổng KH', 'KH mua lại', 'Tỷ lệ mua lại', 'Doanh thu mua lại']}
         rows={section2Rows}
         loading={loading}
+        onExport={exportMarketExcel}
         emptyText="Không có dữ liệu trong khoảng thời gian / bộ lọc đã chọn."
         renderRow={(r) => (
           <tr key={r.market} className="hover:bg-orange-50/40">
@@ -576,6 +663,7 @@ export default function ThongKeKhachHangCSKHHcm() {
         columns={['Sản phẩm', 'Tổng KH', 'KH mua lại', 'Lần 2', 'Lần 3', '≥4 lần', 'Doanh thu']}
         rows={section3Rows}
         loading={loading}
+        onExport={exportProductExcel}
         emptyText="Không có dữ liệu trong khoảng thời gian / bộ lọc đã chọn."
         renderRow={(r) => (
           <tr key={r.product} className="hover:bg-orange-50/40">
@@ -606,6 +694,7 @@ export default function ThongKeKhachHangCSKHHcm() {
           { label: 'Doanh thu khách mua lại', value: formatCurrency(kpi.doanhThuMuaLai) },
         ]}
         loading={loading}
+        onExport={exportOverviewExcel}
         emptyText=""
         renderRow={(r) => (
           <tr key={r.label} className="hover:bg-orange-50/40">
