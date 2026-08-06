@@ -1816,6 +1816,11 @@ export default function BaoCaoVanHanhHtml() {
                             <option value="thisWeek">Tuần này</option>
                             <option value="lastWeek">Tuần trước</option>
                             <option value="thisMonth">Tháng này</option>
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                                <option key={m} value={`month_${m}`}>
+                                    Tháng {m}
+                                </option>
+                            ))}
                         </select>
                     </label>
                     <label className="text-xs text-gray-700">
@@ -2150,6 +2155,11 @@ export default function BaoCaoVanHanhHtml() {
                                     <option value="thisWeek">Tuần này</option>
                                     <option value="lastWeek">Tuần trước</option>
                                     <option value="thisMonth">Tháng này</option>
+                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                                        <option key={m} value={`month_${m}`}>
+                                            Tháng {m}
+                                        </option>
+                                    ))}
                                 </select>
                             </label>
                             <label className="flex items-center gap-1">
