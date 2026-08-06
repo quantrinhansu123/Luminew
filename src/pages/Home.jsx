@@ -380,14 +380,6 @@ function Home() {
           permission: 'ORDERS_REPORT',
         },
         {
-          id: "delivery-report-legacy-tabs",
-          label: "Báo cáo vận đơn nhân viên",
-          icon: <Table2 className="w-4 h-4" />,
-          path: "/baocao-vandon-nv/index.html?region=hcm",
-          isExternal: true,
-          permissionAny: ['ORDERS_REPORT', 'ORDERS_LIST_HCM'],
-        },
-        {
           id: "delivery-bc-van-hanh",
           label: "Báo cáo vận hành",
           icon: <Activity className="w-4 h-4" />,
@@ -1120,15 +1112,6 @@ function Home() {
           path: "/bao-cao-van-don",
           status: "Mở ứng dụng",
           permission: 'ORDERS_REPORT',
-        },
-        {
-          title: "Báo cáo vận đơn (tab cũ)",
-          icon: <Table2 className="w-8 h-8" />,
-          color: "bg-cyan-700",
-          path: "/baocao-vandon-nv/index.html?region=hcm",
-          status: "order_code_hcm",
-          isExternal: true,
-          permissionAny: ['ORDERS_REPORT', 'ORDERS_LIST_HCM'],
         },
         {
           title: "Báo cáo vận hành",
