@@ -103,6 +103,12 @@
   border-radius: 8px;
 }
 
+.nssl-root .nssl-iframe-kpi,
+.nssl-root .nssl-iframe-van {
+  height: min(88vh, 1100px);
+  min-height: 720px;
+}
+
 .nssl-root .report-container {
   display: flex;
   flex-wrap: wrap;
@@ -570,4 +576,147 @@
 
 .nssl-root table tbody tr:nth-child(odd):not(.top-1):not(.top-2):not(.top-3):not(.total-row) {
   background-color: rgba(0, 0, 0, 0.015);
+}
+
+.nssl-root .sale-ok-table thead th {
+  vertical-align: middle;
+  text-align: center;
+}
+
+.nssl-root .sale-ok-table thead tr:last-child th {
+  font-weight: 600;
+  font-size: 0.92em;
+}
+
+.nssl-root .sale-staff-link {
+  color: #1565c0;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+}
+
+.nssl-root .sale-staff-link:hover {
+  color: #0d47a1;
+}
+
+.sale-staff-detail-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.sale-staff-detail-modal.open {
+  display: flex;
+}
+
+.sale-staff-detail-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.sale-staff-detail-panel {
+  position: relative;
+  z-index: 1;
+  width: min(1400px, 98vw);
+  max-height: min(92vh, 1600px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  padding: 20px 22px 22px;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+.sale-staff-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.sale-staff-detail-head h3 {
+  margin: 0;
+  font-size: 1.35rem;
+  color: #1b4b1b;
+}
+
+.sale-staff-detail-sub {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #555;
+}
+
+.sale-staff-detail-close {
+  flex-shrink: 0;
+  border: none;
+  background: #eee;
+  color: #333;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  font-size: 21px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sale-staff-detail-close:hover {
+  background: #ddd;
+}
+
+.sale-staff-detail-empty {
+  text-align: center;
+  padding: 18px 8px;
+  color: #666;
+}
+
+.sale-staff-detail-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sale-staff-detail-panel th,
+.sale-staff-detail-panel td {
+  border: 1px solid #ddd;
+  padding: 8px 10px;
+}
+
+.sale-staff-detail-panel thead th {
+  background: #4a6e23;
+  color: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sale-staff-detail-panel td.sale-staff-product-merged {
+  vertical-align: middle;
+  font-weight: 600;
+  background: #f3faf3;
+}
+
+.sale-staff-detail-panel .bg-green {
+  background: #c8e6c9;
+}
+
+.sale-staff-detail-panel .bg-yellow {
+  background: #fff9c4;
+}
+
+.sale-staff-detail-panel .total-row {
+  font-weight: 700;
+  background: #eef5e8;
 }

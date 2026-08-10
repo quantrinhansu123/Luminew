@@ -1188,7 +1188,7 @@ export default function BaoCaoSale({ reportType = 'sale' } = {}) {
                             >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <Filter size={18} />
-                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Chỉ số vận đơn của MKT</h3>
+                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Chỉ số vận đơn của Sale</h3>
                                 </div>
                                 {isKpiFilterExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                             </div>

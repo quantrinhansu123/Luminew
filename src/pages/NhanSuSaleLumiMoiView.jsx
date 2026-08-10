@@ -16,6 +16,8 @@ import {
 } from '../utils/dashboardGlobalDateRange';
 import {
   NSSL_IFRAME_THU_CONG,
+  NSSL_KPI_FILTERS_MSG_TYPE,
+  NSSL_KPI_READY_MSG_TYPE,
   buildKpiEmbedUrl,
   buildVanDonEmbedUrl,
   fetchLatestSalesReportNDayRange,
@@ -29,6 +31,7 @@ import {
   formatPercent,
   summarizeAndSortSalesData,
   aggregateTotalFromFlatList,
+  buildSaleStaffProductMarketBreakdown,
   dedupeSalesReportRowsByTTKey,
   uniqueSorted,
   buildEmployeeEmailToNameMap,
@@ -95,46 +98,277 @@ function flatListFilteredNoTeamNghi(flatList) {
   return flatList.filter((item) => (item.team || '').trim() !== 'Đã nghỉ');
 }
 
+function SaleNameLink({ name, displayName, onOpen }) {
+  const label = displayName || name || '—';
+  return (
+    <button
+      type="button"
+      className="sale-staff-link"
+      title="Xem chi tiết theo Sản phẩm & Thị trường"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (name) onOpen(name);
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function SaleStaffProductMarketModal({
+  staffName,
+  displayName,
+  mode,
+  dedupedRows,
+  rawRowsForMess,
+  startDate,
+  endDate,
+  onClose,
+}) {
+  const { rows, sourceRowCount } = useMemo(
+    () => buildSaleStaffProductMarketBreakdown(staffName, dedupedRows, rawRowsForMess),
+    [staffName, dedupedRows, rawRowsForMess]
+  );
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const productRowSpans = useMemo(() => {
+    const spans = new Array(rows.length).fill(0);
+    for (let i = 0; i < rows.length; ) {
+      let j = i + 1;
+      const pk = String(rows[i].product || '')
+        .trim()
+        .toLowerCase();
+      while (
+        j < rows.length &&
+        String(rows[j].product || '')
+          .trim()
+          .toLowerCase() === pk
+      ) {
+        j += 1;
+      }
+      spans[i] = j - i;
+      i = j;
+    }
+    return spans;
+  }, [rows]);
+
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, r) => {
+          acc.mess += r.mess;
+          acc.phanHoi += r.phanHoi;
+          acc.don += r.don;
+          acc.soDonThucTe += r.soDonThucTe;
+          acc.chot += r.chot;
+          acc.doanhThuChotThucTe += r.doanhThuChotThucTe;
+          acc.soDonHoanHuyThucTe += r.soDonHoanHuyThucTe;
+          acc.doanhSoHoanHuyThucTe += r.doanhSoHoanHuyThucTe;
+          return acc;
+        },
+        {
+          mess: 0,
+          phanHoi: 0,
+          don: 0,
+          soDonThucTe: 0,
+          chot: 0,
+          doanhThuChotThucTe: 0,
+          soDonHoanHuyThucTe: 0,
+          doanhSoHoanHuyThucTe: 0,
+        }
+      ),
+    [rows]
+  );
+
+  const uniqueProducts = new Set(rows.map((r) => String(r.product || '').trim().toLowerCase())).size;
+  const dateLabel = startDate && endDate ? `${startDate} → ${endDate}` : '';
+  const titleName = displayName || staffName || '—';
+  const isSauHuy = mode === 'sau-huy';
+
+  const renderMetricCells = (s) => {
+    if (isSauHuy) {
+      const soDonNb = s.soDonThucTe;
+      const soDonHuy = s.soDonHoanHuyThucTe || 0;
+      const dsHuy = s.doanhSoHoanHuyThucTe || 0;
+      const soDonOk = soDonNb - soDonHuy;
+      const doanhSoOk = s.doanhThuChotThucTe - dsHuy;
+      const rateTt = soDonNb > 0 ? soDonOk / soDonNb : 0;
+      const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
+      return (
+        <>
+          <td>{formatNumber(soDonNb)}</td>
+          <td>{formatNumber(soDonHuy)}</td>
+          <td>{formatCurrency(dsHuy)}</td>
+          <td>{formatNumber(soDonOk)}</td>
+          <td>{formatCurrency(doanhSoOk)}</td>
+          <td className={rateClass}>{formatPercent(rateTt)}</td>
+        </>
+      );
+    }
+    const rate = s.mess ? s.soDonThucTe / s.mess : 0;
+    const rateClass = rate >= 0.1 ? 'bg-green' : rate > 0.05 ? 'bg-yellow' : '';
+    return (
+      <>
+        <td>{formatNumber(s.mess)}</td>
+        <td>{formatNumber(s.phanHoi)}</td>
+        <td>{formatNumber(s.don)}</td>
+        <td>{formatNumber(s.soDonThucTe)}</td>
+        <td>{formatCurrency(s.chot)}</td>
+        <td>{formatCurrency(s.doanhThuChotThucTe)}</td>
+        <td className={rateClass}>{formatPercent(rate)}</td>
+      </>
+    );
+  };
+
+  return createPortal(
+    <div className="sale-staff-detail-modal open" role="dialog" aria-modal="true">
+      <div className="sale-staff-detail-backdrop" onClick={onClose} />
+      <div className="sale-staff-detail-panel">
+        <div className="sale-staff-detail-head">
+          <div>
+            <h3>Chi tiết: {titleName}</h3>
+            <p className="sale-staff-detail-sub">
+              {[
+                dateLabel ? `Khoảng ngày: ${dateLabel}` : '',
+                `Theo bộ lọc hiện tại · ${formatNumber(sourceRowCount)} dòng gốc · ${formatNumber(uniqueProducts)} SP · ${formatNumber(rows.length)} dòng thị trường`,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          </div>
+          <button type="button" className="sale-staff-detail-close" onClick={onClose} aria-label="Đóng">
+            ×
+          </button>
+        </div>
+        {!rows.length ? (
+          <p className="sale-staff-detail-empty">
+            Không có dữ liệu SP / thị trường cho nhân viên này trong bộ lọc hiện tại.
+          </p>
+        ) : (
+          <div className="table-responsive-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>STT</th>
+                  <th>Sản phẩm</th>
+                  <th>Thị trường</th>
+                  {isSauHuy ? (
+                    <>
+                      <th title="Số đơn nội bộ — lên đơn bình thường">Số đơn nb</th>
+                      <th>Huỷ — Số đơn</th>
+                      <th>Huỷ — DS</th>
+                      <th>Số đơn Ok</th>
+                      <th>Doanh số Ok</th>
+                      <th title="Số đơn Ok / Số đơn nb">Tỷ lệ chốt TT</th>
+                    </>
+                  ) : (
+                    <>
+                      <th>Số Mess</th>
+                      <th>Phản hồi</th>
+                      <th>Số Đơn</th>
+                      <th>Số đơn TT</th>
+                      <th>DS Chốt</th>
+                      <th>Doanh số TT</th>
+                      <th>Tỉ lệ chốt</th>
+                    </>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="total-row">
+                  <td className="total-label" colSpan={3}>
+                    TỔNG CỘNG
+                  </td>
+                  {renderMetricCells(totals)}
+                </tr>
+                {rows.map((r, i) => {
+                  const span = productRowSpans[i];
+                  return (
+                    <tr key={`${r.product}||${r.market}`}>
+                      <td className="text-center">{i + 1}</td>
+                      {span > 0 ? (
+                        <td className="text-left sale-staff-product-merged" rowSpan={span}>
+                          {r.product}
+                        </td>
+                      ) : null}
+                      <td className="text-left">{r.market}</td>
+                      {renderMetricCells(r)}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+/** Cache users trong session — tránh gọi lại mỗi lần đổi ngày. */
+let cachedEmployeeRowsPromise = null;
+let cachedEmailNameRowsPromise = null;
+
 /** Danh sách nhân sự dạng employeeData cũ (gamma) — lấy từ Supabase `users` + `id_appsheet`. */
 async function fetchEmployeeDataForRestrict() {
-  try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id_appsheet, email, name, username, role, team, branch, position, department')
-      .not('id_appsheet', 'is', null);
-    if (error) throw error;
-    return (data || [])
-      .filter((u) => String(u.id_appsheet || '').trim() !== '')
-      .map((u) => ({
-        id: String(u.id_appsheet).trim(),
-        Email: (u.email || '').trim(),
-        'Họ Và Tên': (u.name || u.username || '').trim(),
-        'Chức vụ': (u.position || '').trim(),
-        'Vị trí': (u.position || '').trim(),
-        'Bộ phận': (u.department || '').trim(),
-        Team: (u.team || '').trim(),
-        'Chi nhánh': (u.branch || '').trim(),
-        'chi nhánh': (u.branch || '').trim(),
-      }));
-  } catch (e) {
-    console.warn('[NhanSuSaleLumiMoi] users for restrict:', e);
-    return [];
+  if (!cachedEmployeeRowsPromise) {
+    cachedEmployeeRowsPromise = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id_appsheet, email, name, username, role, team, branch, position, department')
+          .not('id_appsheet', 'is', null);
+        if (error) throw error;
+        return (data || [])
+          .filter((u) => String(u.id_appsheet || '').trim() !== '')
+          .map((u) => ({
+            id: String(u.id_appsheet).trim(),
+            Email: (u.email || '').trim(),
+            'Họ Và Tên': (u.name || u.username || '').trim(),
+            'Chức vụ': (u.position || '').trim(),
+            'Vị trí': (u.position || '').trim(),
+            'Bộ phận': (u.department || '').trim(),
+            Team: (u.team || '').trim(),
+            'Chi nhánh': (u.branch || '').trim(),
+            'chi nhánh': (u.branch || '').trim(),
+          }));
+      } catch (e) {
+        console.warn('[NhanSuSaleLumiMoi] users for restrict:', e);
+        cachedEmployeeRowsPromise = null;
+        return [];
+      }
+    })();
   }
+  return cachedEmployeeRowsPromise;
 }
 
 /** Chỉ email + tên — để resolve hiển thị (gồm user không có id_appsheet). RLS có thể giới hạn. */
 async function fetchUsersEmailNameForDisplayMap() {
-  try {
-    const { data, error } = await supabase.from('users').select('email, name, username');
-    if (error) throw error;
-    return (data || []).map((u) => ({
-      Email: (u.email || '').trim(),
-      'Họ Và Tên': (u.name || u.username || '').trim(),
-    }));
-  } catch (e) {
-    console.warn('[NhanSuSaleLumiMoi] users email→name map:', e);
-    return [];
+  if (!cachedEmailNameRowsPromise) {
+    cachedEmailNameRowsPromise = (async () => {
+      try {
+        const { data, error } = await supabase.from('users').select('email, name, username');
+        if (error) throw error;
+        return (data || []).map((u) => ({
+          Email: (u.email || '').trim(),
+          'Họ Và Tên': (u.name || u.username || '').trim(),
+        }));
+      } catch (e) {
+        console.warn('[NhanSuSaleLumiMoi] users email→name map:', e);
+        cachedEmailNameRowsPromise = null;
+        return [];
+      }
+    })();
   }
+  return cachedEmailNameRowsPromise;
 }
 
 function teamRowMatchesSelection(selectedList, teamVal) {
@@ -285,10 +519,17 @@ export default function NhanSuSaleLumiMoiView({
 
   const [activeTab, setActiveTab] = useState('sau-huy');
   const [selectedRowKey, setSelectedRowKey] = useState(null);
+  const [staffDetailName, setStaffDetailName] = useState(null);
+
+  useEffect(() => {
+    if (activeTab !== 'sau-huy' && activeTab !== 'chot') setStaffDetailName(null);
+  }, [activeTab]);
 
   const [iframeKpi, setIframeKpi] = useState(() => buildKpiEmbedUrl(''));
   const [iframeVanDon, setIframeVanDon] = useState(() => buildVanDonEmbedUrl(''));
   const [iframeThuCong, setIframeThuCong] = useState('about:blank');
+  const kpiIframeRef = useRef(null);
+  const vanDonIframeRef = useRef(null);
 
   /**
    * Tên nhân sự được phép xem (users.selected_personnel → khớp cột name/ten trên dòng báo cáo).
@@ -1034,12 +1275,11 @@ export default function NhanSuSaleLumiMoiView({
           soDonHoanHuyThucTe: 0,
           doanhSoHoanHuyThucTe: 0,
         },
-        doanhSoMap: {},
         soDonSauHuyTotal2: 0,
         dsSauHuyTTTotal: 0,
         totalRateSauHuy: 0,
         soDonHuyTotal: 0,
-        tiLeHuyTotal: 0,
+        dsHuyTotal: 0,
       };
     }
 
@@ -1048,26 +1288,22 @@ export default function NhanSuSaleLumiMoiView({
     });
     const flatListFiltered = keepTeamNghiRowsForHcmReport ? flatList : flatListFilteredNoTeamNghi(flatList);
     const total = aggregateTotalFromFlatList(flatListFiltered);
-    const doanhSoMap = {};
-    flatListFiltered.forEach((item) => {
-      doanhSoMap[item.name] = item.doanhThuChotThucTe;
-    });
-    /* Tổng dòng — giữ công thức file HTML */
+    /* Tổng dòng — Số đơn Ok / Số đơn nb */
     const soDonSauHuyTotal2 = total.soDonThucTe - total.soDonHoanHuyThucTe;
     const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
-    const totalRateSauHuy = total.mess ? soDonSauHuyTotal2 / total.mess : 0;
-    const soDonHuyTotal = total.soDonThucTe - soDonSauHuyTotal2;
-    const tiLeHuyTotal = total.soDonThucTe > 0 ? soDonHuyTotal / total.soDonThucTe : 0;
+    // Tỷ lệ chốt TT = Số đơn Ok / Số đơn nb (nội bộ)
+    const totalRateSauHuy = total.soDonThucTe > 0 ? soDonSauHuyTotal2 / total.soDonThucTe : 0;
+    const soDonHuyTotal = total.soDonHoanHuyThucTe || total.soDonThucTe - soDonSauHuyTotal2;
+    const dsHuyTotal = total.doanhSoHoanHuyThucTe || 0;
 
     return {
       flatListFiltered,
       total,
-      doanhSoMap,
       soDonSauHuyTotal2,
       dsSauHuyTTTotal,
       totalRateSauHuy,
       soDonHuyTotal,
-      tiLeHuyTotal,
+      dsHuyTotal,
     };
   }, [deferredFilteredDeduped, shouldComputeMainFormulas, keepTeamNghiRowsForHcmReport]);
 
@@ -1083,6 +1319,93 @@ export default function NhanSuSaleLumiMoiView({
     }
   };
 
+  const buildSidebarFilterMessage = useCallback(
+    ({ includeNameFilter, includeTeamFilter }) => {
+      const nameAllEff = includeNameFilter
+        ? showPersonnelNameFilter
+          ? nameAllApplied
+          : true
+        : true;
+      const namesEff =
+        includeNameFilter && showPersonnelNameFilter && !nameAllApplied ? nameSelApplied : [];
+      const teamAllEff = includeTeamFilter ? teamAll : true;
+      const teamsEff = includeTeamFilter && !teamAll ? teamSel : [];
+      return {
+        type: NSSL_KPI_FILTERS_MSG_TYPE,
+        startDate,
+        endDate,
+        teamAll: teamAllEff,
+        teams: teamsEff,
+        nameAll: nameAllEff,
+        names: namesEff,
+        productAll,
+        products: productAll ? [] : productSel,
+        marketAll,
+        markets: marketAll ? [] : marketSel,
+      };
+    },
+    [
+      startDate,
+      endDate,
+      teamAll,
+      teamSel,
+      showPersonnelNameFilter,
+      nameAllApplied,
+      nameSelApplied,
+      productAll,
+      productSel,
+      marketAll,
+      marketSel,
+    ]
+  );
+
+  const postMessageToIframe = useCallback((iframeRef, msg) => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    try {
+      win.postMessage(msg, window.location.origin);
+    } catch {
+      try {
+        win.postMessage(msg, '*');
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
+
+  const postKpiSidebarFilters = useCallback(() => {
+    postMessageToIframe(
+      kpiIframeRef,
+      buildSidebarFilterMessage({ includeNameFilter: true, includeTeamFilter: true })
+    );
+  }, [postMessageToIframe, buildSidebarFilterMessage]);
+
+  const postVanDonSidebarFilters = useCallback(() => {
+    // Nhân sự Vận đơn — không dùng lọc Team/Tên Sale (team Sale ≠ team Vận đơn)
+    postMessageToIframe(
+      vanDonIframeRef,
+      buildSidebarFilterMessage({ includeNameFilter: false, includeTeamFilter: false })
+    );
+  }, [postMessageToIframe, buildSidebarFilterMessage]);
+
+  useEffect(() => {
+    if (activeTab === 'kpi-sale') postKpiSidebarFilters();
+    else if (activeTab === 'van-don-sale') postVanDonSidebarFilters();
+  }, [activeTab, postKpiSidebarFilters, postVanDonSidebarFilters]);
+
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (event.origin && event.origin !== window.location.origin) return;
+      const data = event?.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.type !== NSSL_KPI_READY_MSG_TYPE) return;
+      if (activeTab === 'kpi-sale') postKpiSidebarFilters();
+      else if (activeTab === 'van-don-sale') postVanDonSidebarFilters();
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [activeTab, postKpiSidebarFilters, postVanDonSidebarFilters]);
+
   const toggleMaster = (all, setAll, setSel) => {
     if (all) {
       setAll(false);
@@ -1093,8 +1416,15 @@ export default function NhanSuSaleLumiMoiView({
     }
   };
 
-  const { flatListFiltered, total, doanhSoMap, soDonSauHuyTotal2, dsSauHuyTTTotal, totalRateSauHuy, soDonHuyTotal, tiLeHuyTotal } =
-    summaryMain;
+  const {
+    flatListFiltered,
+    total,
+    soDonSauHuyTotal2,
+    dsSauHuyTTTotal,
+    totalRateSauHuy,
+    soDonHuyTotal,
+    dsHuyTotal,
+  } = summaryMain;
 
   const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
 
@@ -1504,7 +1834,7 @@ restrictedForPopulate,
               className={`tab-button ${activeTab === 'sau-huy' ? 'active' : ''}`}
               onClick={() => onTabClick('sau-huy')}
             >
-              Sale đã trừ hủy
+              Sale ok
             </button>
             <button
               type="button"
@@ -1540,19 +1870,25 @@ restrictedForPopulate,
 
           <div id="tab-sau-huy" className={`tab-content ${activeTab === 'sau-huy' ? 'active' : ''}`}>
             <div className="table-responsive-container">
-              <table id="summary-table-sau-huy">
+              <table id="summary-table-sau-huy" className="sale-ok-table">
                 <thead>
                   <tr>
-                    <th>STT</th>
-                    <th>Team</th>
-                    <th>Sale</th>
-                    <th>Số đơn hủy</th>
-                    <th>Số đơn TT</th>
-                    <th>Số đơn sau huỷ</th>
-                    <th>Doanh số TT</th>
-                    <th>DS Sau Hủy TT</th>
-                    <th>Tỉ lệ chốt</th>
-                    <th>Tỉ lệ hủy</th>
+                    <th rowSpan={2}>STT</th>
+                    <th rowSpan={2}>Team</th>
+                    <th rowSpan={2}>Sale</th>
+                    <th rowSpan={2} title="Số đơn nội bộ — lên đơn bình thường">
+                      Số đơn nb
+                    </th>
+                    <th colSpan={2}>Trạng thái huỷ</th>
+                    <th rowSpan={2}>Số đơn Ok</th>
+                    <th rowSpan={2}>Doanh số Ok</th>
+                    <th rowSpan={2} title="Số đơn Ok / Số đơn nb">
+                      Tỷ lệ chốt TT
+                    </th>
+                  </tr>
+                  <tr>
+                    <th>Số đơn</th>
+                    <th>DS</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1560,22 +1896,21 @@ restrictedForPopulate,
                     <td className="total-label" colSpan={3}>
                       TỔNG CỘNG
                     </td>
-                    <td className="total-value">{formatNumber(soDonHuyTotal)}</td>
                     <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
+                    <td className="total-value">{formatNumber(soDonHuyTotal)}</td>
+                    <td className="total-value">{formatCurrency(dsHuyTotal)}</td>
                     <td className="total-value">{formatNumber(soDonSauHuyTotal2)}</td>
-                    <td className="total-value">{formatCurrency(total.doanhThuChotThucTe)}</td>
                     <td className="total-value">{formatCurrency(dsSauHuyTTTotal)}</td>
                     <td className="total-value">{formatPercent(totalRateSauHuy)}</td>
-                    <td className="total-value">{formatPercent(tiLeHuyTotal)}</td>
                   </tr>
                   {flatListFiltered.map((item, index) => {
-                    const soDonSauHuy = item.soDonThucTe - item.soDonHoanHuyThucTe;
-                    const dsSauHuyTT = item.doanhThuChotThucTe - item.doanhSoHoanHuyThucTe;
-                    const rate = item.mess ? soDonSauHuy / item.mess : 0;
-                    const rateClass = rate >= 0.1 ? 'bg-green' : rate > 0.05 ? 'bg-yellow' : '';
-                    const soDonTT = item.soDonThucTe;
-                    const soDonHuy = soDonTT - soDonSauHuy;
-                    const tiLeHuy = soDonTT > 0 ? soDonHuy / soDonTT : 0;
+                    const soDonNb = item.soDonThucTe;
+                    const soDonHuy = item.soDonHoanHuyThucTe || 0;
+                    const dsHuy = item.doanhSoHoanHuyThucTe || 0;
+                    const soDonOk = soDonNb - soDonHuy;
+                    const doanhSoOk = item.doanhThuChotThucTe - dsHuy;
+                    const rateTt = soDonNb > 0 ? soDonOk / soDonNb : 0;
+                    const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
                     const key = `s-${item.name}-${index}`;
                     return (
                       <tr
@@ -1590,15 +1925,18 @@ restrictedForPopulate,
                           className="text-left"
                           title={formatSaleDisplayName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
                         >
-                          {formatSaleDisplayName(item.name) || item.name || '—'}
+                          <SaleNameLink
+                            name={item.name}
+                            displayName={formatSaleDisplayName(item.name)}
+                            onOpen={setStaffDetailName}
+                          />
                         </td>
+                        <td>{formatNumber(soDonNb)}</td>
                         <td>{formatNumber(soDonHuy)}</td>
-                        <td>{formatNumber(soDonTT)}</td>
-                        <td>{formatNumber(soDonSauHuy)}</td>
-                        <td>{formatCurrency(doanhSoMap[item.name] || 0)}</td>
-                        <td>{formatCurrency(dsSauHuyTT)}</td>
-                        <td className={rateClass}>{formatPercent(rate)}</td>
-                        <td>{formatPercent(tiLeHuy)}</td>
+                        <td>{formatCurrency(dsHuy)}</td>
+                        <td>{formatNumber(soDonOk)}</td>
+                        <td>{formatCurrency(doanhSoOk)}</td>
+                        <td className={rateClass}>{formatPercent(rateTt)}</td>
                       </tr>
                     );
                   })}
@@ -1611,6 +1949,7 @@ restrictedForPopulate,
                 rawRowsForMess={deferredFiltered}
                 formatSaleName={formatSaleDisplayName}
                 keepTeamNghiRows={keepTeamNghiRowsForHcmReport}
+                onStaffOpen={setStaffDetailName}
               />
             )}
           </div>
@@ -1662,7 +2001,11 @@ restrictedForPopulate,
                           className="text-left"
                           title={formatSaleDisplayName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
                         >
-                          {formatSaleDisplayName(item.name) || item.name || '—'}
+                          <SaleNameLink
+                            name={item.name}
+                            displayName={formatSaleDisplayName(item.name)}
+                            onOpen={setStaffDetailName}
+                          />
                         </td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
@@ -1683,18 +2026,35 @@ restrictedForPopulate,
                 rawRowsForMess={deferredFiltered}
                 formatSaleName={formatSaleDisplayName}
                 keepTeamNghiRows={keepTeamNghiRowsForHcmReport}
+                onStaffOpen={setStaffDetailName}
               />
             )}
           </div>
 
           <div id="tab-kpi-sale" className={`tab-content ${activeTab === 'kpi-sale' ? 'active' : ''}`}>
             {activeTab === 'kpi-sale' && (
-              <iframe title="KPIs Sale" className="nssl-iframe-kpi" src={iframeKpi} loading="lazy" />
+              <iframe
+                ref={kpiIframeRef}
+                title="KPIs Sale — KPIs vận đơn"
+                className="nssl-iframe-kpi"
+                src={iframeKpi}
+                loading="lazy"
+                allow="clipboard-read; clipboard-write"
+                onLoad={postKpiSidebarFilters}
+              />
             )}
           </div>
           <div id="tab-van-don-sale" className={`tab-content ${activeTab === 'van-don-sale' ? 'active' : ''}`}>
             {activeTab === 'van-don-sale' && (
-              <iframe title="Vận đơn Sale" className="nssl-iframe-van" src={iframeVanDon} loading="lazy" />
+              <iframe
+                ref={vanDonIframeRef}
+                title="Vận đơn Sale — KPIs vận đơn"
+                className="nssl-iframe-van"
+                src={iframeVanDon}
+                loading="lazy"
+                allow="clipboard-read; clipboard-write"
+                onLoad={postVanDonSidebarFilters}
+              />
             )}
           </div>
           <div id="tab-thu-cong" className={`tab-content ${activeTab === 'thu-cong' ? 'active' : ''}`}>
@@ -1704,6 +2064,18 @@ restrictedForPopulate,
           </div>
         </div>
       </div>
+      {staffDetailName && (activeTab === 'sau-huy' || activeTab === 'chot') && (
+        <SaleStaffProductMarketModal
+          staffName={staffDetailName}
+          displayName={formatSaleDisplayName(staffDetailName)}
+          mode={activeTab === 'sau-huy' ? 'sau-huy' : 'chot'}
+          dedupedRows={deferredFilteredDeduped}
+          rawRowsForMess={deferredFiltered}
+          startDate={startDate}
+          endDate={endDate}
+          onClose={() => setStaffDetailName(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1713,6 +2085,7 @@ function DailyBreakdownSauHuy({
   rawRowsForMess = [],
   formatSaleName = (t) => t,
   keepTeamNghiRows = false,
+  onStaffOpen,
 }) {
   if (!filteredData.length) {
     return (
@@ -1743,26 +2116,35 @@ function DailyBreakdownSauHuy({
         );
         const flatListFiltered = keepTeamNghiRows ? flatList : flatListFilteredNoTeamNghi(flatList);
         const total = aggregateTotalFromFlatList(flatListFiltered);
-        const soDonSauHuyTotal = total.soDonThucTe - total.soDonHoanHuyThucTe;
-        const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
-        const totalRateSauHuy = total.mess ? soDonSauHuyTotal / total.mess : 0;
+        const soDonNbTotal = total.soDonThucTe;
+        const soDonHuyTotal = total.soDonHoanHuyThucTe || 0;
+        const dsHuyTotal = total.doanhSoHoanHuyThucTe || 0;
+        const soDonOkTotal = soDonNbTotal - soDonHuyTotal;
+        const doanhSoOkTotal = total.doanhThuChotThucTe - dsHuyTotal;
+        const totalRateTt = soDonNbTotal > 0 ? soDonOkTotal / soDonNbTotal : 0;
         return (
           <div key={date}>
             <h3>Chi tiết ngày: {date}</h3>
             <div className="table-responsive-container">
-              <table>
+              <table className="sale-ok-table">
                 <thead>
                   <tr>
-                    <th>STT</th>
-                    <th>Team</th>
-                    <th>Sale</th>
-                    <th>Số Mess</th>
-                    <th>Phản hồi</th>
-                    <th>Số đơn TT</th>
-                    <th>Doanh số TT</th>
-                    <th>Số đơn sau huỷ</th>
-                    <th>DS Sau Hủy TT</th>
-                    <th>Tỉ lệ chốt</th>
+                    <th rowSpan={2}>STT</th>
+                    <th rowSpan={2}>Team</th>
+                    <th rowSpan={2}>Sale</th>
+                    <th rowSpan={2} title="Số đơn nội bộ — lên đơn bình thường">
+                      Số đơn nb
+                    </th>
+                    <th colSpan={2}>Trạng thái huỷ</th>
+                    <th rowSpan={2}>Số đơn Ok</th>
+                    <th rowSpan={2}>Doanh số Ok</th>
+                    <th rowSpan={2} title="Số đơn Ok / Số đơn nb">
+                      Tỷ lệ chốt TT
+                    </th>
+                  </tr>
+                  <tr>
+                    <th>Số đơn</th>
+                    <th>DS</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1770,19 +2152,21 @@ function DailyBreakdownSauHuy({
                     <td colSpan={3} className="total-label">
                       TỔNG NGÀY {date}
                     </td>
-                    <td className="total-value">{formatNumber(total.mess)}</td>
-                    <td className="total-value">{formatNumber(total.phanHoi)}</td>
-                    <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
-                    <td className="total-value">{formatCurrency(total.doanhThuChotThucTe)}</td>
-                    <td className="total-value">{formatNumber(soDonSauHuyTotal)}</td>
-                    <td className="total-value">{formatCurrency(dsSauHuyTTTotal)}</td>
-                    <td className="total-value">{formatPercent(totalRateSauHuy)}</td>
+                    <td className="total-value">{formatNumber(soDonNbTotal)}</td>
+                    <td className="total-value">{formatNumber(soDonHuyTotal)}</td>
+                    <td className="total-value">{formatCurrency(dsHuyTotal)}</td>
+                    <td className="total-value">{formatNumber(soDonOkTotal)}</td>
+                    <td className="total-value">{formatCurrency(doanhSoOkTotal)}</td>
+                    <td className="total-value">{formatPercent(totalRateTt)}</td>
                   </tr>
                   {flatListFiltered.map((item, index) => {
-                    const soDonSauHuy = item.soDonThucTe - item.soDonHoanHuyThucTe;
-                    const dsSauHuyTT = item.doanhThuChotThucTe - item.doanhSoHoanHuyThucTe;
-                    const rate = item.mess ? soDonSauHuy / item.mess : 0;
-                    const rateClass = rate >= 0.1 ? 'bg-green' : rate > 0.05 ? 'bg-yellow' : '';
+                    const soDonNb = item.soDonThucTe;
+                    const soDonHuy = item.soDonHoanHuyThucTe || 0;
+                    const dsHuy = item.doanhSoHoanHuyThucTe || 0;
+                    const soDonOk = soDonNb - soDonHuy;
+                    const doanhSoOk = item.doanhThuChotThucTe - dsHuy;
+                    const rateTt = soDonNb > 0 ? soDonOk / soDonNb : 0;
+                    const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
                     return (
                       <tr key={`${date}-${item.name}`} style={{ '--row-index': index }}>
                         <td className="text-center">{index + 1}</td>
@@ -1791,15 +2175,22 @@ function DailyBreakdownSauHuy({
                           className="text-left"
                           title={formatSaleName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
                         >
-                          {formatSaleName(item.name) || item.name || '—'}
+                          {onStaffOpen ? (
+                            <SaleNameLink
+                              name={item.name}
+                              displayName={formatSaleName(item.name)}
+                              onOpen={onStaffOpen}
+                            />
+                          ) : (
+                            formatSaleName(item.name) || item.name || '—'
+                          )}
                         </td>
-                        <td>{formatNumber(item.mess)}</td>
-                        <td>{formatNumber(item.phanHoi)}</td>
-                        <td>{formatNumber(item.soDonThucTe)}</td>
-                        <td>{formatCurrency(item.doanhThuChotThucTe)}</td>
-                        <td>{formatNumber(soDonSauHuy)}</td>
-                        <td>{formatCurrency(dsSauHuyTT)}</td>
-                        <td className={rateClass}>{formatPercent(rate)}</td>
+                        <td>{formatNumber(soDonNb)}</td>
+                        <td>{formatNumber(soDonHuy)}</td>
+                        <td>{formatCurrency(dsHuy)}</td>
+                        <td>{formatNumber(soDonOk)}</td>
+                        <td>{formatCurrency(doanhSoOk)}</td>
+                        <td className={rateClass}>{formatPercent(rateTt)}</td>
                       </tr>
                     );
                   })}
@@ -1818,6 +2209,7 @@ function DailyBreakdownChot({
   rawRowsForMess = [],
   formatSaleName = (t) => t,
   keepTeamNghiRows = false,
+  onStaffOpen,
 }) {
   if (!filteredData.length) {
     return (
@@ -1892,7 +2284,15 @@ function DailyBreakdownChot({
                           className="text-left"
                           title={formatSaleName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
                         >
-                          {formatSaleName(item.name) || item.name || '—'}
+                          {onStaffOpen ? (
+                            <SaleNameLink
+                              name={item.name}
+                              displayName={formatSaleName(item.name)}
+                              onOpen={onStaffOpen}
+                            />
+                          ) : (
+                            formatSaleName(item.name) || item.name || '—'
+                          )}
                         </td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>

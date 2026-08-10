@@ -52,6 +52,82 @@
       position: relative;
       z-index: 2000;
     }
+    body.hide-local-filters .filters { display: none !important; }
+    /* KPIs Sale (embed): bảng + chữ lớn hơn cho dễ nhìn */
+    body.hide-local-filters {
+      font-size: 14px;
+      padding: 8px 6px;
+    }
+    body.hide-local-filters .container { max-width: 100%; }
+    body.hide-local-filters .header { margin-bottom: 10px; }
+    body.hide-local-filters .header h1 { font-size: 28px; }
+    body.hide-local-filters .column-controls {
+      font-size: 14px;
+      padding: 12px 14px !important;
+    }
+    body.hide-local-filters .column-controls label {
+      font-size: 14px;
+      margin-left: 12px;
+    }
+    /* Embed Sale/Vận đơn: layout cân đối — Đơn hẹp, DS rộng, không lệch cột */
+    body.hide-local-filters .table-wrap {
+      overflow-x: auto;
+      max-width: 100%;
+    }
+    body.hide-local-filters #kpi-summary-table {
+      width: 100%;
+      min-width: 1100px !important;
+      table-layout: fixed !important;
+    }
+    body.hide-local-filters #kpi-summary-table col.col-stt { width: 42px !important; }
+    body.hide-local-filters #kpi-summary-table col.col-team { width: 110px !important; }
+    body.hide-local-filters #kpi-summary-table col.col-staff { width: 140px !important; }
+    body.hide-local-filters #kpi-summary-table col.col-count { width: 48px !important; }
+    body.hide-local-filters #kpi-summary-table col.col-money { width: 118px !important; }
+    body.hide-local-filters #kpi-summary-table col.col-money-wide { width: 122px !important; }
+    body.hide-local-filters #kpi-summary-table col.col-percent { width: 84px !important; }
+    body.hide-local-filters th,
+    body.hide-local-filters td {
+      font-size: 14px !important;
+      padding: 8px 6px !important;
+      line-height: 1.3;
+    }
+    body.hide-local-filters #kpi-summary-table thead th {
+      font-size: 12px !important;
+      padding: 8px 4px !important;
+      vertical-align: middle !important;
+      white-space: normal !important;
+      overflow-wrap: normal !important;
+      word-break: keep-all !important;
+      line-height: 1.25 !important;
+    }
+    body.hide-local-filters #kpi-summary-table td {
+      white-space: nowrap !important;
+    }
+    body.hide-local-filters #kpi-summary-table .cell-count,
+    body.hide-local-filters #kpi-summary-table th.cell-count {
+      width: 48px !important;
+      max-width: 48px !important;
+      padding: 6px 2px !important;
+      text-align: center !important;
+      font-size: 13px !important;
+      overflow: hidden !important;
+      text-overflow: clip !important;
+    }
+    body.hide-local-filters #kpi-summary-table th.cell-count {
+      font-size: 11px !important;
+    }
+    body.hide-local-filters #kpi-summary-table .cell-money,
+    body.hide-local-filters #kpi-summary-table th.cell-money {
+      padding: 8px 6px !important;
+      text-align: right !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+    }
+    body.hide-local-filters #kpi-summary-table td.text-left {
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
     .filters label { font-weight: 500; margin-right: 6px; }
     .filters input[type="date"], .filters input[type="text"] { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
     .filters .spacer { flex: 1 1 auto; }
@@ -70,52 +146,17 @@
       margin-top: 10px;
       table-layout: fixed;
     }
-    #kpi-summary-table th:first-child,
-    #kpi-summary-table td:first-child {
-      width: 40px;
-      min-width: 40px;
-      max-width: 40px;
-    }
-    /* Cột "Số đơn" - hẹp lại hết cỡ */
-    #kpi-summary-table th[data-col-index="4"]:nth-of-type(1),
-    #kpi-summary-table th[data-col-index="5"]:nth-of-type(1),
-    #kpi-summary-table th[data-col-index="6"]:nth-of-type(1),
-    #kpi-summary-table th[data-col-index="7"]:nth-of-type(1),
-    #kpi-summary-table th[data-col-index="12"]:nth-of-type(1),
-    #kpi-summary-table td[data-col-index="4"].text-center,
-    #kpi-summary-table td[data-col-index="5"].text-center,
-    #kpi-summary-table td[data-col-index="6"].text-center,
-    #kpi-summary-table td[data-col-index="7"].text-center,
-    #kpi-summary-table td[data-col-index="12"].text-center,
-    #kpi-summary-table tfoot td[data-col-index="4"].text-center,
-    #kpi-summary-table tfoot td[data-col-index="5"].text-center,
-    #kpi-summary-table tfoot td[data-col-index="6"].text-center,
-    #kpi-summary-table tfoot td[data-col-index="7"].text-center,
-    #kpi-summary-table tfoot td[data-col-index="12"].text-center {
-      width: 32px !important;
-      min-width: 32px !important;
-      max-width: 32px !important;
+    #kpi-summary-table .cell-count,
+    #kpi-summary-table th.cell-count {
+      width: 48px;
+      max-width: 52px;
       padding: 4px 2px !important;
+      text-align: center !important;
       white-space: nowrap !important;
     }
-    /* Cột "Doanh số" - to ra (các ô không có class text-center) */
-    #kpi-summary-table th[data-col-index="4"]:nth-of-type(2),
-    #kpi-summary-table th[data-col-index="5"]:nth-of-type(2),
-    #kpi-summary-table th[data-col-index="6"]:nth-of-type(2),
-    #kpi-summary-table th[data-col-index="7"]:nth-of-type(2),
-    #kpi-summary-table th[data-col-index="13"],
-    #kpi-summary-table td[data-col-index="4"]:not(.text-center),
-    #kpi-summary-table td[data-col-index="5"]:not(.text-center),
-    #kpi-summary-table td[data-col-index="6"]:not(.text-center),
-    #kpi-summary-table td[data-col-index="7"]:not(.text-center),
-    #kpi-summary-table td[data-col-index="13"],
-    #kpi-summary-table tfoot td[data-col-index="4"]:not(.text-center),
-    #kpi-summary-table tfoot td[data-col-index="5"]:not(.text-center),
-    #kpi-summary-table tfoot td[data-col-index="6"]:not(.text-center),
-    #kpi-summary-table tfoot td[data-col-index="7"]:not(.text-center),
-    #kpi-summary-table tfoot td[data-col-index="13"] {
-      width: 170px !important;
-      min-width: 170px !important;
+    #kpi-summary-table .cell-money,
+    #kpi-summary-table th.cell-money {
+      text-align: right !important;
     }
     /* Cột "Nhân viên" - nới rộng */
     #kpi-summary-table th:nth-child(3),
@@ -152,26 +193,17 @@
     td { text-align: right; }
     td.text-left { text-align: left; }
     tfoot tr { background: var(--primary-dark); color: #fff; font-weight: 700; }
-    /* Ẩn hoàn toàn cột CPQC và %CP/DT */
-    #kpi-summary-table th[data-col-index="3"],
-    #kpi-summary-table td[data-col-index="3"],
-    #kpi-summary-table th[data-col-index="18"],
-    #kpi-summary-table td[data-col-index="18"] {
-      display: none !important;
-    }
-
     #kpi-summary-table {
-      min-width: 1680px;
+      min-width: 1200px;
       table-layout: fixed;
     }
-    #kpi-summary-table col.col-stt { width: 48px; }
+    #kpi-summary-table col.col-stt { width: 44px; }
     #kpi-summary-table col.col-team { width: 120px; }
-    #kpi-summary-table col.col-staff { width: 190px; }
-    #kpi-summary-table col.col-hidden { width: 0; }
-    #kpi-summary-table col.col-count { width: 72px; }
-    #kpi-summary-table col.col-money { width: 128px; }
-    #kpi-summary-table col.col-money-wide { width: 136px; }
-    #kpi-summary-table col.col-percent { width: 108px; }
+    #kpi-summary-table col.col-staff { width: 160px; }
+    #kpi-summary-table col.col-count { width: 48px; }
+    #kpi-summary-table col.col-money { width: 120px; }
+    #kpi-summary-table col.col-money-wide { width: 124px; }
+    #kpi-summary-table col.col-percent { width: 90px; }
     #kpi-summary-table th,
     #kpi-summary-table td {
       padding: 6px 8px;
@@ -181,9 +213,10 @@
     }
     #kpi-summary-table th {
       white-space: normal;
-      word-break: normal;
-      overflow-wrap: anywhere;
+      word-break: keep-all;
+      overflow-wrap: normal;
       font-size: 11px;
+      vertical-align: middle;
     }
     #kpi-summary-table td {
       white-space: nowrap;
@@ -193,37 +226,7 @@
       white-space: normal;
       overflow-wrap: anywhere;
     }
-    #kpi-summary-table th:first-child,
-    #kpi-summary-table td:first-child {
-      width: auto;
-      min-width: 0;
-      max-width: none;
-    }
-    #kpi-summary-table th:nth-child(3),
-    #kpi-summary-table td:nth-child(3),
-    #kpi-summary-table tfoot td:nth-child(3) {
-      width: auto;
-      min-width: 0;
-      max-width: none;
-    }
-    #kpi-summary-table td.text-center,
-    #kpi-summary-table tfoot td.text-center {
-      width: auto !important;
-      min-width: 0 !important;
-      max-width: none !important;
-      padding: 6px 8px !important;
-    }
-    #kpi-summary-table th[data-col-index] {
-      width: auto !important;
-      min-width: 0 !important;
-      max-width: none !important;
-    }
-    #kpi-summary-table td[data-col-index]:not(.text-center),
-    #kpi-summary-table tfoot td[data-col-index]:not(.text-center) {
-      width: auto !important;
-      min-width: 0 !important;
-      max-width: none !important;
-    }
+    /* Độ rộng cột do <colgroup> + .cell-count / .cell-money — không override width ở đây */
 
     .badge-range { display:inline-block; background:#ffecb3; color:#6d4c41; padding:3px 6px; border-radius:4px; font-size:12px; margin-left:8px; }
     .status { margin-left: 8px; color: #666; }
@@ -344,7 +347,7 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1>Chỉ số vận đơn của MKT</h1>
+      <h1 id="page-title">Chỉ số vận đơn của Team Vận đơn</h1>
       <span id="loading">Đang tải dữ liệu...</span>
       <span id="roleInfo" class="status"></span>
     </div>
@@ -437,7 +440,6 @@
             <col class="col-stt">
             <col class="col-team">
             <col class="col-staff">
-            <col class="col-hidden">
             <col class="col-count">
             <col class="col-money">
             <col class="col-count">
@@ -451,35 +453,32 @@
             <col class="col-money">
             <col class="col-money-wide">
             <col class="col-percent">
-            <col class="col-hidden">
           </colgroup>
           <thead>
             <tr>
               <th rowspan="2">STT</th>
               <th rowspan="2">Team</th>
               <th rowspan="2">Nhân viên</th>
-              <th rowspan="2" data-col-index="3" style="display: none;">CPQC</th>
-              <th colspan="2" data-col-index="4">Số đơn và DS chốt</th>
-              <th colspan="2" data-col-index="5">Số đơn và DS hủy</th>
-              <th colspan="2" data-col-index="6">Số đơn và DS sau hủy</th>
-              <th colspan="2" data-col-index="7">Số đơn và DS đi</th>
-              <th colspan="2" data-col-index="12">Số đơn và DThu thành công</th>
+              <th colspan="2" data-col-index="4" title="Số đơn và DS chốt">Chốt</th>
+              <th colspan="2" data-col-index="5" title="Số đơn và DS hủy">Hủy</th>
+              <th colspan="2" data-col-index="6" title="Số đơn và DS sau hủy">Sau hủy</th>
+              <th colspan="2" data-col-index="7" title="Số đơn và DS đi">Đi</th>
+              <th colspan="2" data-col-index="12" title="Số đơn và DThu thành công">Thu tiền</th>
               <th rowspan="2" data-col-index="14">Ship</th>
-              <th rowspan="2" data-col-index="15">DThu tính KPI</th>
-              <th rowspan="2" data-col-index="16">Tỷ lệ thu tiền</th>
-              <th rowspan="2" data-col-index="18" style="display: none;">%CP/DT</th>
+              <th rowspan="2" data-col-index="15">DThu KPI</th>
+              <th rowspan="2" data-col-index="16">Tỷ lệ thu</th>
             </tr>
             <tr>
-              <th data-col-index="4">Số đơn</th>
-              <th data-col-index="4">DS chốt</th>
-              <th data-col-index="5">Số đơn</th>
-              <th data-col-index="5">DS hủy</th>
-              <th data-col-index="6">Số đơn</th>
-              <th data-col-index="6">DS sau hủy</th>
-              <th data-col-index="7">Số đơn</th>
-              <th data-col-index="7">DS đi</th>
-              <th data-col-index="12">Số đơn</th>
-              <th data-col-index="13">DThu TC</th>
+              <th class="cell-count" data-col-index="4" title="Số đơn">Đơn</th>
+              <th class="cell-money" data-col-index="4">DS chốt</th>
+              <th class="cell-count" data-col-index="5" title="Số đơn">Đơn</th>
+              <th class="cell-money" data-col-index="5">DS hủy</th>
+              <th class="cell-count" data-col-index="6" title="Số đơn">Đơn</th>
+              <th class="cell-money" data-col-index="6">DS sau hủy</th>
+              <th class="cell-count" data-col-index="7" title="Số đơn">Đơn</th>
+              <th class="cell-money" data-col-index="7">DS đi</th>
+              <th class="cell-count" data-col-index="12" title="Số đơn">Đơn</th>
+              <th class="cell-money" data-col-index="13">DThu TC</th>
             </tr>
           </thead>
           <tbody id="kpi-summary-body"></tbody>
@@ -669,9 +668,135 @@
       loadOrdersDebounce = setTimeout(() => loadData(), 400);
     }
 
+    /** Phạm vi nhân viên theo ?dept= — Sale (KPIs Sale) | MKT | Vận đơn (mặc định tab vận đơn). */
+    function getActiveStaffScope() {
+      const deptRaw = String(getQueryParam('dept') || 'Vận đơn').trim();
+      if (deptRaw === 'Sale' || deptRaw.toUpperCase() === 'SALE') {
+        return { dept: 'Sale', staffType: 'Sale', boPhan: 'Sale', col: 'Nhân viên Sale' };
+      }
+      if (deptRaw === 'MKT' || deptRaw === 'Marketing') {
+        return { dept: 'MKT', staffType: 'Marketing', boPhan: 'MKT', col: 'Nhân viên Marketing' };
+      }
+      return { dept: 'Vận đơn', staffType: 'Vận đơn', boPhan: 'Vận đơn', col: 'NV Vận đơn' };
+    }
+
+    function applyPageTitleFromQuery() {
+      const scope = getActiveStaffScope();
+      const customTitle = String(getQueryParam('title') || '').trim();
+      const titleMap = {
+        Sale: 'Chỉ số vận đơn của Sale',
+        MKT: 'Chỉ số vận đơn của MKT',
+        'Vận đơn': 'Chỉ số vận đơn của Team Vận đơn',
+      };
+      const title = customTitle || titleMap[scope.dept] || `Chỉ số vận đơn của ${scope.dept}`;
+      const h1 = document.getElementById('page-title');
+      if (h1) h1.textContent = title;
+      document.title = title;
+    }
+
+    function shouldHideLocalFilters() {
+      const v = String(getQueryParam('hideFilters') || '').trim().toLowerCase();
+      return v === '1' || v === 'true' || v === 'yes';
+    }
+
+    /** Bộ lọc từ parent `/xem-bao-cao-sale` (thanh trái) — ghi đè dropdown nội bộ. */
+    let externalFilterState = null;
+    /** Cache HR giữa các lần đổi ngày (embed) — tránh tải lại users. */
+    let hrRowsCachePayload = null;
+    let embedAwaitingParentFilters = false;
+    let embedInitialLoadStarted = false;
+    const NSSL_KPI_FILTERS_MSG = 'LUMINEW_NSSL_KPI_FILTERS';
+    const NSSL_KPI_READY_MSG = 'LUMINEW_NSSL_KPI_READY';
+
+    function asFilterSel(all, values) {
+      const vals = Array.isArray(values)
+        ? values.map((x) => String(x ?? '').trim()).filter(Boolean)
+        : [];
+      const isAll = all === true || (all !== false && vals.length === 0);
+      return { all: isAll, empty: false, values: isAll ? [] : vals };
+    }
+
+    function syncExternalFilterUi() {
+      if (!externalFilterState) return;
+      const start = externalFilterState.startDate || '';
+      const end = externalFilterState.endDate || '';
+      if (start) {
+        const sd = document.getElementById('startDate');
+        if (sd) sd.value = start;
+      }
+      if (end) {
+        const ed = document.getElementById('endDate');
+        if (ed) ed.value = end;
+      }
+      try { updateRangeBadge(); } catch (_) { /* ignore */ }
+      try {
+        if (externalFilterState.team.all) setDropdownAll('filterTeam');
+        else setDropdownValues('filterTeam', externalFilterState.team.values);
+        if (externalFilterState.name.all) setDropdownAll('filterName');
+        else setDropdownValues('filterName', externalFilterState.name.values);
+        if (externalFilterState.product.all) setDropdownAll('filterProduct');
+        else setDropdownValues('filterProduct', externalFilterState.product.values);
+        if (externalFilterState.market.all) setDropdownAll('filterMarket');
+        else setDropdownValues('filterMarket', externalFilterState.market.values);
+        setDropdownAll('filterBranch');
+      } catch (_) { /* dropdown chưa sẵn */ }
+    }
+
+    function applyExternalFiltersFromParent(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      const start = String(payload.startDate || '').trim();
+      const end = String(payload.endDate || '').trim();
+      const prevStart = document.getElementById('startDate')?.value || '';
+      const prevEnd = document.getElementById('endDate')?.value || '';
+
+      externalFilterState = {
+        startDate: start,
+        endDate: end,
+        team: asFilterSel(payload.teamAll, payload.teams),
+        name: asFilterSel(payload.nameAll, payload.names),
+        product: asFilterSel(payload.productAll, payload.products),
+        market: asFilterSel(payload.marketAll, payload.markets),
+      };
+
+      syncExternalFilterUi();
+
+      // Embed: lần đầu đợi parent → chỉ load 1 lần (tránh load mặc định 10 ngày rồi load lại)
+      if (embedAwaitingParentFilters && !embedInitialLoadStarted) {
+        embedAwaitingParentFilters = false;
+        embedInitialLoadStarted = true;
+        loadData();
+        return;
+      }
+
+      const datesChanged = (start && start !== prevStart) || (end && end !== prevEnd);
+      if (datesChanged) scheduleLoadOrdersFromApi();
+      else applyFiltersAndRender();
+    }
+
+    function notifyParentKpiReady() {
+      if (!shouldHideLocalFilters()) return;
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: NSSL_KPI_READY_MSG }, '*');
+        }
+      } catch (_) { /* ignore */ }
+    }
+
+    function bindParentFilterListener() {
+      if (!shouldHideLocalFilters()) return;
+      window.addEventListener('message', (event) => {
+        const data = event?.data;
+        if (!data || typeof data !== 'object') return;
+        if (data.type !== NSSL_KPI_FILTERS_MSG) return;
+        applyExternalFiltersFromParent(data);
+      });
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
-      setDefaultDates();
-      await loadData();
+      applyPageTitleFromQuery();
+      const embedMode = shouldHideLocalFilters();
+      if (embedMode) document.body.classList.add('hide-local-filters');
+      bindParentFilterListener();
       bindEvents();
 
       // Chọn chế độ hiển thị theo tham số view trên URL:
@@ -686,6 +811,23 @@
       } else {
         if (aggContainer) aggContainer.classList.remove('hidden');
         if (rawContainer) rawContainer.classList.add('hidden');
+      }
+
+      if (embedMode) {
+        // Chờ bộ lọc thanh trái từ parent trước khi tải đơn (bỏ fetch thừa)
+        embedAwaitingParentFilters = true;
+        toggleLoading(true);
+        notifyParentKpiReady();
+        setTimeout(() => {
+          if (embedInitialLoadStarted) return;
+          embedAwaitingParentFilters = false;
+          embedInitialLoadStarted = true;
+          setDefaultDates();
+          loadData();
+        }, 1500);
+      } else {
+        setDefaultDates();
+        await loadData();
       }
     });
 
@@ -718,24 +860,35 @@
     async function loadData() {
       toggleLoading(true);
       try {
-        console.log('🔄 Bắt đầu load dữ liệu từ Supabase...');
+        const embedMode = shouldHideLocalFilters();
         const dateRange = VandonNvRegion.resolveOrderHcmDateRange(getOrderDateRangeForApi());
+
+        // Embed KPIs Sale / Vận đơn: bỏ MKT (cột CPQC ẩn), cache HR giữa các lần đổi ngày
+        const skipMkt = embedMode;
+        const reuseHr = embedMode && hrRowsCachePayload != null;
 
         const [dataF3, dataMkt, dataHr] = await Promise.all([
           loadFromSupabaseWithRetry(
             () => VandonNvRegion.fetchOrderHcmRows(dateRange),
-            { retries: 3, delayMs: 800 }
+            { retries: 2, delayMs: 500 }
           ),
-          loadFromSupabaseWithRetry(() => VandonNvRegion.fetchMktRows(), { retries: 2, delayMs: 800 }).catch(() => null),
-          loadFromSupabaseWithRetry(() => VandonNvRegion.fetchHrRows(), { retries: 2, delayMs: 800 }).catch(() => null)
+          skipMkt
+            ? Promise.resolve(null)
+            : loadFromSupabaseWithRetry(() => VandonNvRegion.fetchMktRows(), {
+                retries: 2,
+                delayMs: 500,
+              }).catch(() => null),
+          reuseHr
+            ? Promise.resolve(hrRowsCachePayload)
+            : loadFromSupabaseWithRetry(() => VandonNvRegion.fetchHrRows(), {
+                retries: 2,
+                delayMs: 500,
+              }).catch(() => null),
         ]);
-        
-        console.log('📥 Đã nhận dữ liệu F3, kiểu:', typeof dataF3, Array.isArray(dataF3) ? 'Array' : 'Object');
-        console.log('📥 Đã nhận dữ liệu HR, kiểu:', typeof dataHr, Array.isArray(dataHr) ? 'Array' : 'Object');
-        
+
+        if (!reuseHr && dataHr) hrRowsCachePayload = dataHr;
+
         rawOrders = normalizeF3(dataF3);
-        console.log(`✅ Đã normalize F3 data, số lượng: ${rawOrders.length} dòng`);
-        // Xử lý dữ liệu từ API mới: có thể là {data: [...]} hoặc {rows: [...]} hoặc array trực tiếp
         if (dataMkt) {
           if (Array.isArray(dataMkt)) {
             mktRows = normalizeF3(dataMkt);
@@ -748,39 +901,23 @@
           }
         } else {
           mktRows = [];
-          console.warn('⚠️ No MKT report data loaded - CPQC will be 0 for all staff');
         }
-        // HR: cần Team hoặc Bộ phận (Supabase users.department) — chỉ Team sẽ loại hết NV có department chưa nhập team
         if (dataHr) {
           const normalized = normalizeF3(dataHr);
-          console.log('📊 HR data normalized:', normalized.length, 'records');
-          hrRows = normalized.filter(item => {
+          hrRows = normalized.filter((item) => {
             if (!item) return false;
             const tm = (item['Team'] || '').toString().trim();
             const bp = (item['Bộ phận'] || item['Bo_phan'] || '').toString().trim();
             return !!(tm || bp);
           });
-          console.log('✅ HR data loaded:', hrRows.length, 'records with Team or Bộ phận');
-          if (hrRows.length > 0) {
-            console.log('📌 Sample HR record:', hrRows[0]);
-            console.log('📋 HR record keys:', Object.keys(hrRows[0]));
-          }
         } else {
           hrRows = [];
-          console.warn('⚠️ No HR data loaded from Supabase');
         }
 
-        /* F3 từ order_code_hcm (Supabase) — không lọc thêm theo Team. */
-        
-        // Debug: Kiểm tra dữ liệu F3
-        if (rawOrders.length > 0) {
-          console.log('📋 Sample F3 record:', rawOrders[0]);
-          console.log('📋 F3 record keys:', Object.keys(rawOrders[0]));
-        }
-        
         computeAccessScope();
         populateAllFilters();
-        applyFiltersAndRender(); // Chỉ dùng cho KPI, không khởi tạo RAW F3 view nữa
+        syncExternalFilterUi();
+        applyFiltersAndRender();
       } catch (e) {
         console.error('Lỗi tải dữ liệu F3:', e);
         document.getElementById('statusText').textContent =
@@ -794,7 +931,8 @@
         hrRows = [];
         computeAccessScope();
         populateAllFilters();
-        applyFiltersAndRender(); // Chỉ dùng cho KPI
+        syncExternalFilterUi();
+        applyFiltersAndRender();
       } finally {
         toggleLoading(false);
       }
@@ -963,11 +1101,11 @@
       const branchValues = getUniqueValues('Team'); // Team in F3 = Chi nhánh
       const marketValues = getUniqueValues('Khu vực');
 
-      // 1. Populate Staff Type - Auto chọn "Vận đơn", không cho phép chọn
-      const staffTypes = ['Vận đơn'];
+      // 1. Populate Staff Type — theo ?dept= (Sale / MKT / Vận đơn), không cho chọn tay
+      const scope = getActiveStaffScope();
+      const staffTypes = [scope.staffType];
       populateDropdown('filterStaffType', staffTypes);
-      // Auto set "Vận đơn" và ẩn dropdown
-      setDropdownValues('filterStaffType', ['Vận đơn']);
+      setDropdownValues('filterStaffType', [scope.staffType]);
 
       // 2. Update Team dropdown based on Staff Type
       updateTeamDropdown();
@@ -1169,9 +1307,14 @@
                   else return;
               }
               
-              // Filter by Staff Type (Dept)
+              // Filter by Staff Type (Dept) — khớp biến thể Bộ phận như updateTeamDropdown
               if (targetDepts.size > 0) {
-                  if (!targetDepts.has(bp)) return;
+                  const bpUpper = bp.toUpperCase();
+                  let match = targetDepts.has(bp);
+                  if (!match && targetDepts.has('MKT') && (bp === 'MKT' || bpUpper === 'MKT' || bp === 'Marketing' || bpUpper === 'MARKETING')) match = true;
+                  if (!match && targetDepts.has('Sale') && (bp === 'Sale' || bpUpper === 'SALE')) match = true;
+                  if (!match && targetDepts.has('Vận đơn') && (bp === 'Vận đơn' || bp === 'Vận_đơn' || bp === 'Van don' || bpUpper === 'VẬN ĐƠN' || bpUpper === 'VẬN_ĐƠN' || bp.includes('Vận') || bp.includes('vận'))) match = true;
+                  if (!match) return;
               }
               
               names.add(n);
@@ -1591,22 +1734,26 @@
     }
 
     function applyFiltersAndRender() {
-      const s = document.getElementById('startDate').value ? new Date(document.getElementById('startDate').value + 'T00:00:00') : null;
-      const e = document.getElementById('endDate').value ? new Date(document.getElementById('endDate').value + 'T23:59:59') : null;
-      const selectedName = getSelectedDropdown('filterName');
+      const ext = externalFilterState;
+      const startVal = (ext && ext.startDate) || document.getElementById('startDate').value;
+      const endVal = (ext && ext.endDate) || document.getElementById('endDate').value;
+      const s = startVal ? new Date(startVal + 'T00:00:00') : null;
+      const e = endVal ? new Date(endVal + 'T23:59:59') : null;
+      const selectedName = (ext && ext.name) || getSelectedDropdown('filterName');
       const includeZero = document.getElementById('includeZeroShip') ? document.getElementById('includeZeroShip').checked : true;
       
-      // Get selected values from dropdown checkbox filters
-      const selectedProduct = getSelectedDropdown('filterProduct');
+      // Get selected values from dropdown checkbox filters (hoặc từ thanh trái parent)
+      const selectedProduct = (ext && ext.product) || getSelectedDropdown('filterProduct');
       const selectedBranch = getSelectedDropdown('filterBranch'); // Chi nhánh from F3 Team
-      const selectedTeam = getSelectedDropdown('filterTeam'); // Team from BAO_CAO_MKT/HR
-      const selectedMarket = getSelectedDropdown('filterMarket');
-      // Auto chọn "Vận đơn" - không cho phép chọn Loại NV
-      const selectedStaffType = { all: false, values: ['Vận đơn'], empty: false };
+      const selectedTeam = (ext && ext.team) || getSelectedDropdown('filterTeam'); // Team from BAO_CAO_MKT/HR
+      const selectedMarket = (ext && ext.market) || getSelectedDropdown('filterMarket');
+      // Loại NV theo ?dept= (Sale / MKT / Vận đơn)
+      const staffScope = getActiveStaffScope();
+      const selectedStaffType = { all: false, values: [staffScope.staffType], empty: false };
       
-      // Determine target roles/columns based on Staff Type - chỉ lấy Vận đơn
+      // Cột F3 + loại NV tương ứng bộ phận
       const roleColumns = [];
-      roleColumns.push({ col: 'NV Vận đơn', type: 'Vận đơn' });
+      roleColumns.push({ col: staffScope.col, type: staffScope.staffType });
 
       const filtered = rawOrders.filter(r => {
         // Sử dụng getRowValue để hỗ trợ cả tên cột có dấu gạch dưới và không có
@@ -1737,10 +1884,9 @@
         });
       }
 
-      // BƯỚC 1: Lấy danh sách nhân viên từ HR data (giống vandonCEO.html)
-      // Auto chọn "Vận đơn" - không cho phép chọn Loại NV
+      // BƯỚC 1: Lấy danh sách nhân viên từ HR data theo Bộ phận (?dept=)
       const boPhanMap = { 'Marketing': 'MKT', 'Sale': 'Sale', 'Vận đơn': 'Vận đơn' };
-      const boPhanFilters = new Set(['Vận đơn']); // Luôn chỉ lấy Vận đơn
+      const boPhanFilters = new Set([staffScope.boPhan]);
 
       // Lấy nhân sự từ HR data theo Team đã chọn
       let staffFromHR = [];
@@ -2063,13 +2209,13 @@
       
       console.log('📊 Tổng số nhân viên có CPQC:', cpqcByName.size);
       
-      // Log tổng kết nhân viên Vận đơn
-      const vanDonInTable = [...byName.values()].filter(it => it.type === 'Vận đơn');
-      if (vanDonInTable.length > 0) {
-         const vanDonWithData = vanDonInTable.filter(it => it.soDonChot > 0);
-         console.log('📦 Vận đơn in table:', vanDonInTable.length, 'total,', vanDonWithData.length, 'with data');
+      // Log tổng kết nhân viên theo bộ phận đang xem
+      const scopedInTable = [...byName.values()].filter(it => it.type === staffScope.staffType);
+      if (scopedInTable.length > 0) {
+         const withData = scopedInTable.filter(it => it.soDonChot > 0);
+         console.log(`📦 ${staffScope.staffType} in table:`, scopedInTable.length, 'total,', withData.length, 'with data');
       } else {
-         console.warn('⚠️ No Vận đơn staff found in table!');
+         console.warn(`⚠️ No ${staffScope.staffType} staff found in table!`);
       }
 
       // Tạo Set các nhân viên được chọn trong bộ lọc để filter
@@ -2175,28 +2321,25 @@
       const bodyRowsHtml = dataList.map((s, i) => {
         Object.keys(total).forEach(key => total[key] += s[key] || 0);
         const tyLeThuTien = s.dsDi > 0 ? (s.dThuThanhCong / s.dsDi) : 0;
-        const cpdt = s.dThuTinhKpi > 0 ? (s.cpqc / s.dThuTinhKpi) : 0;
         const staffName = (s.name || '').toString().trim() || 'N/A';
         const staffTeam = (s.team || '').toString().trim() || '';
         return `<tr>
                 <td class="text-center">${i + 1}</td>
                 <td class="text-left">${staffTeam}</td>
                 <td class="text-left">${staffName}</td>
-                <td data-col-index="3">${formatCurrency(s.cpqc)}</td>
-                <td data-col-index="4" class="text-center">${formatNumber(s.soDonChot)}</td>
-                <td data-col-index="4">${formatCurrency(s.dsChot)}</td>
-                <td data-col-index="5" class="text-center">${formatNumber(s.soDonHuy)}</td>
-                <td data-col-index="5">${formatCurrency(s.dsHuy)}</td>
-                <td data-col-index="6" class="text-center">${formatNumber(s.soDonSauHuy)}</td>
-                <td data-col-index="6">${formatCurrency(s.dsSauHuy)}</td>
-                <td data-col-index="7" class="text-center">${formatNumber(s.soDonDi)}</td>
-                <td data-col-index="7">${formatCurrency(s.dsDi)}</td>
-                <td data-col-index="12" class="text-center">${formatNumber(s.soDonThuTien)}</td>
-                <td data-col-index="13">${formatCurrency(s.dThuThanhCong)}</td>
-                <td data-col-index="14">${formatCurrency(s.ship)}</td>
-                <td data-col-index="15">${formatCurrency(s.dThuTinhKpi)}</td>
+                <td data-col-index="4" class="cell-count text-center">${formatNumber(s.soDonChot)}</td>
+                <td data-col-index="4" class="cell-money">${formatCurrency(s.dsChot)}</td>
+                <td data-col-index="5" class="cell-count text-center">${formatNumber(s.soDonHuy)}</td>
+                <td data-col-index="5" class="cell-money">${formatCurrency(s.dsHuy)}</td>
+                <td data-col-index="6" class="cell-count text-center">${formatNumber(s.soDonSauHuy)}</td>
+                <td data-col-index="6" class="cell-money">${formatCurrency(s.dsSauHuy)}</td>
+                <td data-col-index="7" class="cell-count text-center">${formatNumber(s.soDonDi)}</td>
+                <td data-col-index="7" class="cell-money">${formatCurrency(s.dsDi)}</td>
+                <td data-col-index="12" class="cell-count text-center">${formatNumber(s.soDonThuTien)}</td>
+                <td data-col-index="13" class="cell-money">${formatCurrency(s.dThuThanhCong)}</td>
+                <td data-col-index="14" class="cell-money">${formatCurrency(s.ship)}</td>
+                <td data-col-index="15" class="cell-money">${formatCurrency(s.dThuTinhKpi)}</td>
                 <td data-col-index="16">${formatPercent(tyLeThuTien)}</td>
-                <td data-col-index="18">${formatPercent(cpdt)}</td>
             </tr>`;
       }).join('');
 
@@ -2211,25 +2354,22 @@
       }
 
       const totalTyLeThuTien = total.dsDi > 0 ? (total.dThuThanhCong / total.dsDi) : 0;
-      const totalCpdt = total.dThuTinhKpi > 0 ? (total.cpqc / total.dThuTinhKpi) : 0;
 
       const totalRowHtml = `<tr class="total-row">
             <td class="total-label" colspan="3">TỔNG CỘNG</td>
-            <td class="total-value" data-col-index="3">${formatCurrency(total.cpqc)}</td>
-            <td class="total-value text-center" data-col-index="4">${formatNumber(total.soDonChot)}</td>
-            <td class="total-value" data-col-index="4">${formatCurrency(total.dsChot)}</td>
-            <td class="total-value text-center" data-col-index="5">${formatNumber(total.soDonHuy)}</td>
-            <td class="total-value" data-col-index="5">${formatCurrency(total.dsHuy)}</td>
-            <td class="total-value text-center" data-col-index="6">${formatNumber(total.soDonSauHuy)}</td>
-            <td class="total-value" data-col-index="6">${formatCurrency(total.dsSauHuy)}</td>
-            <td class="total-value text-center" data-col-index="7">${formatNumber(total.soDonDi)}</td>
-            <td class="total-value" data-col-index="7">${formatCurrency(total.dsDi)}</td>
-            <td class="total-value text-center" data-col-index="12">${formatNumber(total.soDonThuTien)}</td>
-            <td class="total-value" data-col-index="13">${formatCurrency(total.dThuThanhCong)}</td>
-            <td class="total-value" data-col-index="14">${formatCurrency(total.ship)}</td>
-            <td class="total-value" data-col-index="15">${formatCurrency(total.dThuTinhKpi)}</td>
+            <td class="total-value cell-count text-center" data-col-index="4">${formatNumber(total.soDonChot)}</td>
+            <td class="total-value cell-money" data-col-index="4">${formatCurrency(total.dsChot)}</td>
+            <td class="total-value cell-count text-center" data-col-index="5">${formatNumber(total.soDonHuy)}</td>
+            <td class="total-value cell-money" data-col-index="5">${formatCurrency(total.dsHuy)}</td>
+            <td class="total-value cell-count text-center" data-col-index="6">${formatNumber(total.soDonSauHuy)}</td>
+            <td class="total-value cell-money" data-col-index="6">${formatCurrency(total.dsSauHuy)}</td>
+            <td class="total-value cell-count text-center" data-col-index="7">${formatNumber(total.soDonDi)}</td>
+            <td class="total-value cell-money" data-col-index="7">${formatCurrency(total.dsDi)}</td>
+            <td class="total-value cell-count text-center" data-col-index="12">${formatNumber(total.soDonThuTien)}</td>
+            <td class="total-value cell-money" data-col-index="13">${formatCurrency(total.dThuThanhCong)}</td>
+            <td class="total-value cell-money" data-col-index="14">${formatCurrency(total.ship)}</td>
+            <td class="total-value cell-money" data-col-index="15">${formatCurrency(total.dThuTinhKpi)}</td>
             <td class="total-value" data-col-index="16">${formatPercent(totalTyLeThuTien)}</td>
-            <td class="total-value" data-col-index="18">${formatPercent(totalCpdt)}</td>
         </tr>`;
 
       document.getElementById('kpi-summary-body').innerHTML = totalRowHtml + bodyRowsHtml;

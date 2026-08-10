@@ -35,24 +35,42 @@ const SALES_REPORTS_SELECT = [
 ].join(',');
 
 export const SALES_REPORTS_API_BASE = 'https://lumidataapi.vercel.app';
-/** KPI Sale — trong app (KPisale.html trên github.io bị CORS + timeout khi gọi n-api-rouge). */
-export const NSSL_KPI_EMBED_PATH = '/embed/bao-cao-hieu-suat-kpi';
-/** Trang trong app — thay Vandonsale.html (getAll ~7MB hay lỗi JSON: cắt nửa / chuỗi chưa escape). */
-export const NSSL_VAN_DON_EMBED_PATH = '/embed/bao-cao-van-don';
+/**
+ * KPIs Sale — dùng trang KPIs vận đơn (same-origin), thay KPisale.html / embed cũ
+ * (github.io CORS + BaoCaoHieuSuatKPI phụ thuộc API ngoài hay timeout).
+ */
+export const NSSL_KPI_EMBED_PATH = '/baocao-vandon-nv/KPIVandon.html';
+/** Cùng trang KPIVandon — lọc nhân sự Bộ phận Vận đơn (thay embed `/embed/bao-cao-van-don` cũ). */
+export const NSSL_VAN_DON_EMBED_PATH = NSSL_KPI_EMBED_PATH;
 export const NSSL_IFRAME_THU_CONG = 'https://nguyenbatyads37.github.io/static-html-show-data/baoCaoThuCong.html';
+/** Host `/xem-bao-cao-sale` → iframe KPIs / Vận đơn: đồng bộ bộ lọc thanh trái. */
+export const NSSL_KPI_FILTERS_MSG_TYPE = 'LUMINEW_NSSL_KPI_FILTERS';
+/** Iframe KPIs / Vận đơn sẵn sàng nhận bộ lọc từ parent. */
+export const NSSL_KPI_READY_MSG_TYPE = 'LUMINEW_NSSL_KPI_READY';
 
-/** URL iframe Vận đơn Sale (same-origin để dùng session + API phân trang). */
-export function buildVanDonEmbedUrl(idAppsheet) {
-  if (typeof window === 'undefined') return NSSL_VAN_DON_EMBED_PATH;
-  const base = `${window.location.origin}${NSSL_VAN_DON_EMBED_PATH}`;
-  return idAppsheet ? `${base}?id=${encodeURIComponent(String(idAppsheet))}` : base;
+function buildKpiVandonEmbedUrl(idAppsheet, dept, title) {
+  const params = new URLSearchParams({
+    view: 'vandon',
+    table: 'orders',
+    dept,
+    hideFilters: '1',
+  });
+  if (title) params.set('title', title);
+  if (idAppsheet) params.set('id', String(idAppsheet));
+  if (typeof window === 'undefined') {
+    return `${NSSL_KPI_EMBED_PATH}?${params.toString()}`;
+  }
+  return `${window.location.origin}${NSSL_KPI_EMBED_PATH}?${params.toString()}`;
 }
 
-/** URL iframe KPIs Sale (same-origin). */
+/** URL iframe Vận đơn Sale = KPIVandon, chỉ nhân sự Bộ phận Vận đơn. */
+export function buildVanDonEmbedUrl(idAppsheet) {
+  return buildKpiVandonEmbedUrl(idAppsheet, 'Vận đơn', 'Chỉ số vận đơn của Team Vận đơn');
+}
+
+/** URL iframe KPIs Sale = KPIVandon, nhân sự Bộ phận Sale. */
 export function buildKpiEmbedUrl(idAppsheet) {
-  if (typeof window === 'undefined') return NSSL_KPI_EMBED_PATH;
-  const base = `${window.location.origin}${NSSL_KPI_EMBED_PATH}`;
-  return idAppsheet ? `${base}?id=${encodeURIComponent(String(idAppsheet))}` : base;
+  return buildKpiVandonEmbedUrl(idAppsheet, 'Sale', 'Chỉ số vận đơn của Sale');
 }
 
 export function formatCurrency(value) {
@@ -890,6 +908,71 @@ export function summarizeAndSortSalesData(data, options = {}) {
   const total = aggregateTotalFromFlatList(flatList);
 
   return { flatList, total };
+}
+
+/**
+ * Gom dòng chi tiết của 1 Sale theo Sản phẩm × Thị trường (cùng metric bảng tổng).
+ * @param {string} staffName — `ten` gốc trên báo cáo (khóa summary).
+ * @param {object[]} dedupedRows — dòng đã dedupe (Ngày+Tên+SP+TT), đã lọc bộ lọc hiện tại.
+ * @param {object[]} [rawRowsForMess] — dòng gốc để cộng Số Mess theo SP×TT (nếu có).
+ */
+export function buildSaleStaffProductMarketBreakdown(staffName, dedupedRows, rawRowsForMess = []) {
+  const nameKey = normalizeViAscii(staffName);
+  if (!nameKey) return { rows: [], sourceRowCount: 0 };
+
+  const matchName = (r) => normalizeViAscii(r?.ten) === nameKey;
+  const rows = (dedupedRows || []).filter(matchName);
+  const messSource = Array.isArray(rawRowsForMess) && rawRowsForMess.length > 0 ? rawRowsForMess : rows;
+
+  const groups = new Map();
+  const ensure = (product, market) => {
+    const gKey = `${normalizeViAscii(product)}||${normalizeViAscii(market)}`;
+    if (!groups.has(gKey)) {
+      groups.set(gKey, {
+        product,
+        market,
+        mess: 0,
+        phanHoi: 0,
+        don: 0,
+        soDonThucTe: 0,
+        chot: 0,
+        doanhThuChotThucTe: 0,
+        soDonHoanHuyThucTe: 0,
+        doanhSoHoanHuyThucTe: 0,
+      });
+    }
+    return groups.get(gKey);
+  };
+
+  for (const r of rows) {
+    const product = String(r.sanPham || '').trim() || 'Chưa xác định';
+    const market = String(r.thiTruong || '').trim() || 'Không xác định';
+    const G = ensure(product, market);
+    G.phanHoi += Number(r.phanHoi) || 0;
+    G.don += Number(r.soDon) || 0;
+    G.soDonThucTe += Number(r.soDonThucTe) || 0;
+    // DS Chốt (tab báo cáo tay): cộng revenue_actual giống summarizeAndSortSalesData
+    G.chot += Number(r.doanhThuChotThucTe) || 0;
+    G.doanhThuChotThucTe += Number(r.doanhThuChotThucTe) || 0;
+    G.soDonHoanHuyThucTe += Number(r.soDonHoanHuyThucTe) || 0;
+    G.doanhSoHoanHuyThucTe += Number(r.doanhSoHoanHuyThucTe) || 0;
+  }
+
+  for (const r of messSource) {
+    if (!matchName(r)) continue;
+    const product = String(r.sanPham || '').trim() || 'Chưa xác định';
+    const market = String(r.thiTruong || '').trim() || 'Không xác định';
+    const G = ensure(product, market);
+    G.mess += Number(r.soMessCmt) || 0;
+  }
+
+  const list = [...groups.values()].sort((a, b) => {
+    const p = String(a.product).localeCompare(String(b.product), 'vi');
+    if (p !== 0) return p;
+    return String(a.market).localeCompare(String(b.market), 'vi');
+  });
+
+  return { rows: list, sourceRowCount: rows.length };
 }
 
 /** Cộng các chỉ số từ danh sách đã gom (vd. sau khi loại team «Đã nghỉ» để khớp TỔNG với dòng hiển thị). */

@@ -12,6 +12,8 @@ export default defineConfig(({ mode }) => {
   const apiTarget = env.VITE_DEV_API_PROXY || 'http://127.0.0.1:3003';
 
   return {
+  // Separate cache path avoids EPERM when Windows locks node_modules/.vite/deps
+  cacheDir: path.resolve(__dirname, 'node_modules/.vite-cache'),
   plugins: [react(), viteBaocaoVandonNvSupabaseConfigPlugin(env)],
   resolve: {
     alias: {

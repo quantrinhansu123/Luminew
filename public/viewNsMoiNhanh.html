@@ -187,6 +187,14 @@
       text-align: right !important;
     }
 
+    .sale-ok-like-table thead th {
+      vertical-align: middle;
+      text-align: center;
+    }
+    .sale-ok-like-table thead tr:last-child th {
+      font-size: 0.92em;
+    }
+
     .bg-green {
       background-color: #4CAF50 !important;
       color: white;
@@ -1325,6 +1333,7 @@
   </div>
   <div class="tab-container">
     <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
+    <button class="tablinks" onclick="openTab(event, 'OkReport')">Báo cáo ok</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
     <button class="tablinks" onclick="openTab(event, 'MarketReport')">Hiệu suất MKT</button>
     <button class="tablinks" onclick="openTab(event, 'AlertReport')">
@@ -1457,6 +1466,96 @@
             <iframe id="mkt-hcm-dual-iframe" title="Báo cáo MKT HCM" loading="lazy"></iframe>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+  <!-- TAB: BÁO CÁO OK (Số đơn Ok / Doanh số Ok — cùng nguồn TT với Báo cáo chi tiết) -->
+  <div id="OkReport" class="tab-content">
+    <div class="report-container">
+      <div class="sidebar">
+        <h3>Bộ lọc</h3>
+        <label for="quick-date-select-tabok">Chọn nhanh:</label>
+        <select id="quick-date-select-tabok">
+          <option value="">-- Chọn nhanh --</option>
+          <optgroup label="Ngày">
+            <option value="today">Hôm nay</option>
+            <option value="yesterday">Hôm qua</option>
+          </optgroup>
+          <optgroup label="Tuần">
+            <option value="lastWeek">Tuần trước</option>
+            <option value="thisWeek">Tuần này</option>
+            <option value="nextWeek">Tuần sau</option>
+          </optgroup>
+          <optgroup label="Tháng">
+            <option value="thisMonth">Tháng này</option>
+            <option value="month_1">Tháng 1</option>
+            <option value="month_2">Tháng 2</option>
+            <option value="month_3">Tháng 3</option>
+            <option value="month_4">Tháng 4</option>
+            <option value="month_5">Tháng 5</option>
+            <option value="month_6">Tháng 6</option>
+            <option value="month_7">Tháng 7</option>
+            <option value="month_8">Tháng 8</option>
+            <option value="month_9">Tháng 9</option>
+            <option value="month_10">Tháng 10</option>
+            <option value="month_11">Tháng 11</option>
+            <option value="month_12">Tháng 12</option>
+          </optgroup>
+          <optgroup label="Quý">
+            <option value="quarter_1">Quý 1</option>
+            <option value="quarter_2">Quý 2</option>
+            <option value="quarter_3">Quý 3</option>
+            <option value="quarter_4">Quý 4</option>
+          </optgroup>
+        </select>
+        <label for="start-date-tabok">Từ ngày:</label><input type="date" id="start-date-tabok">
+        <label for="end-date-tabok">Đến ngày:</label><input type="date" id="end-date-tabok">
+        <h3>Sản phẩm</h3>
+        <label><input type="checkbox" id="product-all-tabok" checked> Tất cả</label>
+        <div id="product-options-tabok" class="indent"></div>
+        <h3>Ca</h3>
+        <label><input type="checkbox" id="ca-all-tabok" checked> Tất cả</label>
+        <div id="ca-options-tabok" class="indent"></div>
+        <h3>Team</h3>
+        <label><input type="checkbox" id="team-all-tabok" checked> Tất cả</label>
+        <div id="team-options-tabok" class="indent"></div>
+        <h3>Thị trường</h3>
+        <label><input type="checkbox" id="market-all-tabok" checked> Tất cả</label>
+        <div id="market-options-tabok"></div>
+      </div>
+      <div class="main-content-area">
+        <div class="header">
+          <img
+            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
+            alt="Logo">
+          <h2>BÁO CÁO OK</h2>
+        </div>
+        <p style="margin:0 0 10px;font-size:13px;color:#555;">
+          Số đơn Ok / Doanh số Ok lấy từ chỉ số TT của Báo cáo chi tiết (đã trừ hủy). Tỷ lệ chốt TT = Số đơn Ok ÷ Số đơn nb.
+        </p>
+        <div class="table-responsive-container">
+          <table id="ok-summary-table" class="sortable-table sale-ok-like-table">
+            <thead>
+              <tr>
+                <th class="green-header" rowspan="2">STT<span class="sort-icon"></span></th>
+                <th class="green-header" rowspan="2">Team<span class="sort-icon"></span></th>
+                <th class="green-header" rowspan="2">Marketing<span class="sort-icon"></span></th>
+                <th class="green-header" rowspan="2" title="Số đơn nội bộ = Ok + Huỷ">Số đơn nb<span class="sort-icon"></span></th>
+                <th class="blue-header" colspan="2">Trạng thái huỷ</th>
+                <th class="green-header" rowspan="2">Số đơn Ok<span class="sort-icon"></span></th>
+                <th class="green-header" rowspan="2">Doanh số Ok<span class="sort-icon"></span></th>
+                <th class="yellow-header" rowspan="2" title="Số đơn Ok / Số đơn nb">Tỷ lệ chốt TT<span class="sort-icon"></span></th>
+              </tr>
+              <tr>
+                <th class="blue-header">Số đơn<span class="sort-icon"></span></th>
+                <th class="blue-header">DS<span class="sort-icon"></span></th>
+              </tr>
+            </thead>
+            <tbody id="ok-summary-body"></tbody>
+            <tfoot id="ok-summary-foot"></tfoot>
+          </table>
+        </div>
+        <div id="daily-breakdown-ok"></div>
       </div>
     </div>
   </div>
@@ -1978,6 +2077,8 @@
           dates: {
             startTab1: getMktInputValue('start-date-tab1'),
             endTab1: getMktInputValue('end-date-tab1'),
+            startTabOk: getMktInputValue('start-date-tabok'),
+            endTabOk: getMktInputValue('end-date-tabok'),
             startTab3: getMktInputValue('start-date-tab3'),
             endTab3: getMktInputValue('end-date-tab3'),
             startMkt: getMktInputValue('start-date-mkt'),
@@ -1985,6 +2086,7 @@
           },
           quick: {
             tab1: getMktInputValue('quick-date-select-tab1'),
+            tabok: getMktInputValue('quick-date-select-tabok'),
             tab3: getMktInputValue('quick-date-select-tab3'),
             mkt: getMktInputValue('quick-date-mkt'),
           },
@@ -2015,6 +2117,8 @@
       const dateMap = {
         'start-date-tab1': shared.dates?.startTab1,
         'end-date-tab1': shared.dates?.endTab1,
+        'start-date-tabok': shared.dates?.startTabOk,
+        'end-date-tabok': shared.dates?.endTabOk,
         'start-date-tab3': shared.dates?.startTab3,
         'end-date-tab3': shared.dates?.endTab3,
         'start-date-mkt': shared.dates?.startMkt,
@@ -2027,6 +2131,7 @@
       });
       const quickMap = {
         'quick-date-select-tab1': shared.quick?.tab1,
+        'quick-date-select-tabok': shared.quick?.tabok,
         'quick-date-select-tab3': shared.quick?.tab3,
         'quick-date-mkt': shared.quick?.mkt,
       };
@@ -2224,6 +2329,7 @@
       const tabId = visibleTab ? visibleTab.id : 'DetailedReport';
       const dateInputMap = {
         DetailedReport: ['start-date-tab1', 'end-date-tab1'],
+        OkReport: ['start-date-tabok', 'end-date-tabok'],
         KpiReport: ['start-date-tab3', 'end-date-tab3'],
         MarketReport: ['start-date-mkt', 'end-date-mkt'],
       };
@@ -2803,6 +2909,7 @@
     const sortStates = {
       summary: { column: null, direction: 'asc' },
       kpi: { column: null, direction: 'asc' },
+      ok: { column: null, direction: 'asc' },
       daily: {}
     };
 
@@ -2947,6 +3054,7 @@
       if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return;
       const dateInputs = [
         'start-date-tab1', 'end-date-tab1',
+        'start-date-tabok', 'end-date-tabok',
         'start-date-tab3', 'end-date-tab3',
         'start-date-mkt', 'end-date-mkt'
       ];
@@ -3091,6 +3199,7 @@
 
       const dateInputs = [
         'start-date-tab1', 'end-date-tab1',
+        'start-date-tabok', 'end-date-tabok',
         'start-date-tab3', 'end-date-tab3',
         'start-date-mkt', 'end-date-mkt'
       ];
@@ -3131,6 +3240,10 @@
       // Listener sắp xếp bảng
       document.getElementById('summary-table').querySelector('thead').addEventListener('click', (e) => sortTable(e, 'summary'));
       document.getElementById('kpi-summary-table').querySelector('thead').addEventListener('click', (e) => sortTable(e, 'kpi'));
+      const okTable = document.getElementById('ok-summary-table');
+      if (okTable) {
+        okTable.querySelector('thead').addEventListener('click', (e) => sortTable(e, 'ok'));
+      }
       document.getElementById('daily-breakdown').addEventListener('click', (e) => {
         const staffBtn = e.target.closest('[data-mkt-staff-name]');
         if (staffBtn) {
@@ -3143,9 +3256,29 @@
           sortTable(e, 'daily');
         }
       });
+      const dailyOk = document.getElementById('daily-breakdown-ok');
+      if (dailyOk) {
+        dailyOk.addEventListener('click', (e) => {
+          const staffBtn = e.target.closest('[data-mkt-staff-name]');
+          if (staffBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            openStaffProductMarketModal(staffBtn.getAttribute('data-mkt-staff-name'));
+          }
+        });
+      }
       const summaryBody = document.getElementById('summary-body');
       if (summaryBody) {
         summaryBody.addEventListener('click', (e) => {
+          const staffBtn = e.target.closest('[data-mkt-staff-name]');
+          if (!staffBtn) return;
+          e.preventDefault();
+          openStaffProductMarketModal(staffBtn.getAttribute('data-mkt-staff-name'));
+        });
+      }
+      const okSummaryBody = document.getElementById('ok-summary-body');
+      if (okSummaryBody) {
+        okSummaryBody.addEventListener('click', (e) => {
           const staffBtn = e.target.closest('[data-mkt-staff-name]');
           if (!staffBtn) return;
           e.preventDefault();
@@ -3633,8 +3766,18 @@
       persistMktFilterStatesFromDom();
     }
 
+    function handleTabOkFilters(target) {
+      handleCheckbox('product-all-tabok', 'filter-product-tabok', target);
+      handleCheckbox('ca-all-tabok', 'filter-ca-tabok', target);
+      handleCheckbox('team-all-tabok', 'filter-team-tabok', target);
+      handleCheckbox('market-all-tabok', 'filter-market-tabok', target);
+      applyOkReportFilters();
+      persistMktFilterStatesFromDom();
+    }
+
     const MKT_REFETCH_DATE_IDS = new Set([
       'start-date-tab1', 'end-date-tab1',
+      'start-date-tabok', 'end-date-tabok',
       'start-date-tab3', 'end-date-tab3',
       'start-date-mkt', 'end-date-mkt',
     ]);
@@ -3672,6 +3815,9 @@
           case 'DetailedReport':
             handleTab1Filters(target);
             break;
+          case 'OkReport':
+            handleTabOkFilters(target);
+            break;
           case 'KpiReport':
             handleTab3Filters(target);
             break;
@@ -3694,6 +3840,7 @@
 
       const tabId = event.target.closest('.tab-content')?.id ||
         (event.target.id.includes('mkt') ? 'MarketReport' :
+          event.target.id.includes('tabok') ? 'OkReport' :
           event.target.id.includes('tab1') ? 'DetailedReport' : 'KpiReport');
 
       let startDateId, endDateId;
@@ -3703,6 +3850,9 @@
       } else if (tabId === 'KpiReport') {
         startDateId = 'start-date-tab3';
         endDateId = 'end-date-tab3';
+      } else if (tabId === 'OkReport') {
+        startDateId = 'start-date-tabok';
+        endDateId = 'end-date-tabok';
       } else {
         startDateId = 'start-date-tab1';
         endDateId = 'end-date-tab1';
@@ -3919,12 +4069,14 @@
       const subEl = document.getElementById('mkt-staff-detail-sub');
       if (!modal || !bodyEl) return;
 
-      const filteredData = getFilteredData('tab1');
+      const activeTabId = getMktActiveTabId();
+      const filterPrefix = activeTabId === 'OkReport' ? 'tabok' : 'tab1';
+      const filteredData = getFilteredData(filterPrefix);
       const { rows, sourceRowCount } = buildStaffProductMarketBreakdown(name, filteredData);
       const hideTtColumns = shouldHideSummaryTtColumns();
-      const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map((cb) => cb.value);
-      const d0 = document.getElementById('start-date-tab1')?.value || '';
-      const d1 = document.getElementById('end-date-tab1')?.value || '';
+      const selectedMarkets = [...document.querySelectorAll(`.filter-market-${filterPrefix}:checked`)].map((cb) => cb.value);
+      const d0 = document.getElementById(`start-date-${filterPrefix}`)?.value || '';
+      const d1 = document.getElementById(`end-date-${filterPrefix}`)?.value || '';
       const startD = d0 ? parseYmdInputForMkt(d0) : null;
       const endD = d1 ? parseYmdInputForMkt(d1) : null;
       const dateLabel =
@@ -4137,6 +4289,7 @@
       return {
         tab1: captureCheckboxFilterState('tab1'),
         tab3: captureCheckboxFilterState('tab3'),
+        tabok: captureCheckboxFilterState('tabok'),
         mkt: {
           product: captureSelectFilterState('product-filter-mkt'),
           market: captureSelectFilterState('market-filter-mkt'),
@@ -4229,6 +4382,7 @@
       if (!saved) return;
       restoreCheckboxFilterState('tab1', saved.tab1);
       restoreCheckboxFilterState('tab3', saved.tab3);
+      restoreCheckboxFilterState('tabok', saved.tabok);
       if (saved.mkt) {
         restoreSelectFilterState('product-filter-mkt', saved.mkt.product);
         restoreSelectFilterState('market-filter-mkt', saved.mkt.market);
@@ -4245,6 +4399,7 @@
         applyTab1Filters({ immediate: true });
         updateMktFilterDdCounts();
       }
+      else if (tabId === 'OkReport') applyOkReportFilters();
       else if (tabId === 'KpiReport') applyTab3Filters();
       else if (tabId === 'MarketReport') applyTab4Filters();
     }
@@ -4339,7 +4494,7 @@
         });
       };
 
-      ['tab1', 'tab3'].forEach((prefix) => {
+      ['tab1', 'tab3', 'tabok'].forEach((prefix) => {
         const raw = savedState ? savedState[prefix] : null;
         const marketAvail = [
           ...Object.keys(MARKET_GROUPS),
@@ -4354,22 +4509,27 @@
               market: normalizeTypeStateForOptions(raw.market, marketAvail),
             }
           : null;
-        document.getElementById(`product-options-${prefix}`).innerHTML = createCheckboxes(
+        const productEl = document.getElementById(`product-options-${prefix}`);
+        const caEl = document.getElementById(`ca-options-${prefix}`);
+        const teamEl = document.getElementById(`team-options-${prefix}`);
+        const marketEl = document.getElementById(`market-options-${prefix}`);
+        if (!productEl || !caEl || !teamEl || !marketEl) return;
+        productEl.innerHTML = createCheckboxes(
           products,
           `filter-product-${prefix}`,
           tabState ? tabState.product : null
         );
-        document.getElementById(`ca-options-${prefix}`).innerHTML = createCheckboxes(
+        caEl.innerHTML = createCheckboxes(
           cas,
           `filter-ca-${prefix}`,
           tabState ? tabState.ca : null
         );
-        document.getElementById(`team-options-${prefix}`).innerHTML = createCheckboxes(
+        teamEl.innerHTML = createCheckboxes(
           teams,
           `filter-team-${prefix}`,
           tabState ? tabState.team : null
         );
-        document.getElementById(`market-options-${prefix}`).innerHTML = createMarketCheckboxes(
+        marketEl.innerHTML = createMarketCheckboxes(
           `filter-market-${prefix}`,
           tabState ? tabState.market : null
         );
@@ -4453,6 +4613,172 @@
         renderDailyBreakdownPlaceholder(filteredData);
       }
       syncDualHcmFilters();
+    }
+
+    /** Đồng bộ ngày tab Ok từ Báo cáo chi tiết nếu tab Ok trống. */
+    function syncOkReportDatesFromTab1() {
+      const sOk = document.getElementById('start-date-tabok');
+      const eOk = document.getElementById('end-date-tabok');
+      const s1 = document.getElementById('start-date-tab1');
+      const e1 = document.getElementById('end-date-tab1');
+      if (!sOk || !eOk || !s1 || !e1) return;
+      if (!sOk.value && s1.value) sOk.value = s1.value;
+      if (!eOk.value && e1.value) eOk.value = e1.value;
+    }
+
+    /**
+     * Báo cáo ok: TT trên MKT đã net sau hủy.
+     * Số đơn Ok = soDonThucTe; Doanh số Ok = dsChotThucTe;
+     * Số đơn nb = Ok + hủy; Tỷ lệ = Ok / nb.
+     */
+    function generateOkSummaryTableData(data) {
+      const summary = {};
+      data.forEach((r) => {
+        const teamDisp = String(r.team || '').trim() || 'Khác';
+        const nameDisp = String(r.ten || '').trim() || 'N/A';
+        const key = `${normalizeNameForKey(nameDisp)}`;
+        if (!summary[key]) {
+          summary[key] = {
+            team: teamDisp,
+            name: nameDisp,
+            seenDetailKeys: new Set(),
+            soDonNb: 0,
+            soDonHuy: 0,
+            dsHuy: 0,
+            soDonOk: 0,
+            doanhSoOk: 0,
+          };
+        }
+        const S = summary[key];
+        if (!S.team && teamDisp) S.team = teamDisp;
+        const detailKey = mktDetailRowKeyForTotals(r);
+        if (S.seenDetailKeys.has(detailKey)) return;
+        S.seenDetailKeys.add(detailKey);
+        const soDonOk = Number(r.soDonThucTe) || 0;
+        const doanhSoOk = Number(r.dsChotThucTe) || 0;
+        const soDonHuy = Number(r.soDonHuyThucTe) || 0;
+        const dsHuy = Number(r.dsHoanHuyThucTe) || 0;
+        S.soDonOk += soDonOk;
+        S.doanhSoOk += doanhSoOk;
+        S.soDonHuy += soDonHuy;
+        S.dsHuy += dsHuy;
+        S.soDonNb += soDonOk + soDonHuy;
+      });
+      return Object.values(summary).map(({ seenDetailKeys, ...rest }) => rest);
+    }
+
+    function generateOkSummaryTableHTML(dataList) {
+      const total = { soDonNb: 0, soDonHuy: 0, dsHuy: 0, soDonOk: 0, doanhSoOk: 0 };
+      const bodyRowsHtml = dataList
+        .map((s, index) => {
+          Object.keys(total).forEach((k) => {
+            total[k] += Number(s[k]) || 0;
+          });
+          const rateTt = s.soDonNb > 0 ? s.soDonOk / s.soDonNb : 0;
+          const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
+          return `<tr>
+            <td class="text-center">${index + 1}</td>
+            <td class="text-left">${escapeHtml(s.team)}</td>
+            <td class="text-left"><button type="button" class="mkt-staff-link" data-mkt-staff-name="${escapeHtml(s.name)}" title="Xem chi tiết SP &amp; thị trường">${escapeHtml(s.name)}</button></td>
+            <td>${formatNumber(s.soDonNb)}</td>
+            <td>${formatNumber(s.soDonHuy)}</td>
+            <td>${formatCurrency(s.dsHuy)}</td>
+            <td>${formatNumber(s.soDonOk)}</td>
+            <td>${formatCurrency(s.doanhSoOk)}</td>
+            <td class="${rateClass}">${formatPercent(rateTt)}</td>
+          </tr>`;
+        })
+        .join('');
+      const tRate = total.soDonNb > 0 ? total.soDonOk / total.soDonNb : 0;
+      const footHtml = `<tr class="total-row">
+        <td class="total-label" colspan="3">TỔNG CỘNG</td>
+        <td class="total-value">${formatNumber(total.soDonNb)}</td>
+        <td class="total-value">${formatNumber(total.soDonHuy)}</td>
+        <td class="total-value">${formatCurrency(total.dsHuy)}</td>
+        <td class="total-value">${formatNumber(total.soDonOk)}</td>
+        <td class="total-value">${formatCurrency(total.doanhSoOk)}</td>
+        <td class="total-value">${formatPercent(tRate)}</td>
+      </tr>`;
+      return { bodyHtml: bodyRowsHtml, footHtml };
+    }
+
+    function renderOkSummary(dataList) {
+      const { bodyHtml, footHtml } = generateOkSummaryTableHTML(dataList);
+      const bodyEl = document.getElementById('ok-summary-body');
+      const footEl = document.getElementById('ok-summary-foot');
+      if (bodyEl) bodyEl.innerHTML = bodyHtml;
+      if (footEl) footEl.innerHTML = footHtml;
+    }
+
+    const okColumnSortKeys = {
+      0: { prop: null, type: 'number' },
+      1: { prop: 'team', type: 'string' },
+      2: { prop: 'name', type: 'string' },
+      3: { prop: 'soDonNb', type: 'number' },
+      4: { prop: 'soDonHuy', type: 'number' },
+      5: { prop: 'dsHuy', type: 'number' },
+      6: { prop: 'soDonOk', type: 'number' },
+      7: { prop: 'doanhSoOk', type: 'number' },
+      8: { prop: (s) => (s.soDonNb > 0 ? s.soDonOk / s.soDonNb : 0), type: 'number' },
+    };
+
+    function applyOkReportFilters() {
+      syncOkReportDatesFromTab1();
+      const filteredData = getFilteredData('tabok');
+      const summaryList = generateOkSummaryTableData(filteredData);
+      sortList(summaryList, sortStates.ok, okColumnSortKeys, { prop: 'team', type: 'string' });
+      renderOkSummary(summaryList);
+      updateSortIcons(document.getElementById('ok-summary-table'), sortStates.ok);
+      renderDailyBreakdownOk(filteredData);
+    }
+
+    function renderDailyBreakdownOk(filteredData) {
+      const container = document.getElementById('daily-breakdown-ok');
+      if (!container) return;
+      if (!filteredData || filteredData.length === 0) {
+        container.innerHTML = '<h3>Không có dữ liệu chi tiết để hiển thị.</h3>';
+        return;
+      }
+      const groupedByDate = {};
+      filteredData.forEach((r) => {
+        const dateKey = formatDate(r.ngay);
+        if (!dateKey) return;
+        if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
+        groupedByDate[dateKey].push(r);
+      });
+      const sortedDates = Object.keys(groupedByDate).sort((a, b) => {
+        const pa = a.split('/').reverse().join('-');
+        const pb = b.split('/').reverse().join('-');
+        return new Date(pb) - new Date(pa);
+      });
+      container.innerHTML = sortedDates
+        .map((date) => {
+          const dailyList = generateOkSummaryTableData(groupedByDate[date]);
+          dailyList.sort((a, b) => String(a.team).localeCompare(String(b.team), 'vi') || String(a.name).localeCompare(String(b.name), 'vi'));
+          const { bodyHtml, footHtml } = generateOkSummaryTableHTML(dailyList);
+          return `<div>
+            <h3>Chi tiết ngày: ${escapeHtml(date)}</h3>
+            <div class="table-responsive-container">
+              <table class="sale-ok-like-table">
+                <thead>
+                  <tr>
+                    <th rowspan="2">STT</th>
+                    <th rowspan="2">Team</th>
+                    <th rowspan="2">Marketing</th>
+                    <th rowspan="2">Số đơn nb</th>
+                    <th colspan="2">Trạng thái huỷ</th>
+                    <th rowspan="2">Số đơn Ok</th>
+                    <th rowspan="2">Doanh số Ok</th>
+                    <th rowspan="2">Tỷ lệ chốt TT</th>
+                  </tr>
+                  <tr><th>Số đơn</th><th>DS</th></tr>
+                </thead>
+                <tbody>${footHtml}${bodyHtml}</tbody>
+              </table>
+            </div>
+          </div>`;
+        })
+        .join('');
     }
 
     function renderDailyBreakdownPlaceholder(filteredData) {
@@ -5108,6 +5434,8 @@
         applyTab1Filters({ immediate: true });
       } else if (tableType === 'kpi') {
         applyTab3Filters();
+      } else if (tableType === 'ok') {
+        applyOkReportFilters();
       }
     }
 
@@ -5227,6 +5555,7 @@
       setTimeout(async () => {
         try {
           if (tabName === 'DetailedReport') applyTab1Filters({ immediate: true });
+          if (tabName === 'OkReport') applyOkReportFilters();
           if (tabName === 'KpiReport') applyTab3Filters();
           if (tabName === 'MarketReport') {
             await ensureMarketReportCharts();
