@@ -14,6 +14,7 @@ import {
   parseDashboardGlobalDateMessage,
   readDashboardGlobalDateRange,
 } from '../utils/dashboardGlobalDateRange';
+import { calendarMonthDateBounds } from '../utils/dateParsing';
 import {
   NSSL_IFRAME_THU_CONG,
   NSSL_KPI_FILTERS_MSG_TYPE,
@@ -483,6 +484,8 @@ export default function NhanSuSaleLumiMoiView({
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  /** Lọc nhanh theo tháng: '' | thisMonth | month_1…month_12 */
+  const [quickMonthKey, setQuickMonthKey] = useState('');
   /** Tăng khi bấm «Tải dữ liệu» — ép gọi lại API theo Từ/Đến ngày hiện tại. */
   const [loadRequestId, setLoadRequestId] = useState(0);
   /** Đổi tên hàng loạt HCM (Ánh Nguyệt 1 → Ánh Nguyệt). */
@@ -691,6 +694,23 @@ export default function NhanSuSaleLumiMoiView({
     applyNameFiltersFromSidebar();
     setLoadRequestId((n) => n + 1);
   }, [applyNameFiltersFromSidebar]);
+
+  const applyQuickMonthFilter = useCallback((key) => {
+    setQuickMonthKey(key);
+    if (!key) return;
+    const now = new Date();
+    const year = now.getFullYear();
+    let bounds = null;
+    if (key === 'thisMonth') {
+      bounds = calendarMonthDateBounds(year, now.getMonth() + 1);
+    } else if (key.startsWith('month_')) {
+      const m = Number(key.slice(6));
+      bounds = calendarMonthDateBounds(year, m);
+    }
+    if (!bounds?.start || !bounds?.end) return;
+    setStartDate(bounds.start);
+    setEndDate(bounds.end);
+  }, []);
 
   const handleRenameAnhNguyetHcm = useCallback(async () => {
     if (reportTableName !== 'sale_report_hcm' || !isAdmin) return;
@@ -1446,12 +1466,43 @@ export default function NhanSuSaleLumiMoiView({
         <div className="sidebar">
           <h3>Bộ lọc</h3>
           <label>
+            Lọc nhanh theo tháng:
+            <select
+              className="nssl-filter-select"
+              value={quickMonthKey}
+              onChange={(e) => applyQuickMonthFilter(e.target.value)}
+              aria-label="Lọc nhanh theo tháng"
+            >
+              <option value="">— Chọn tháng —</option>
+              <option value="thisMonth">Tháng này</option>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={`month_${m}`}>
+                  Tháng {m}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             Từ ngày:
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setQuickMonthKey('');
+                setStartDate(e.target.value);
+              }}
+            />
           </label>
           <label>
             Đến ngày:
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setQuickMonthKey('');
+                setEndDate(e.target.value);
+              }}
+            />
           </label>
 
           <button

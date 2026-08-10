@@ -277,6 +277,13 @@
   margin-left: 20px;
 }
 
+.nssl-root .sidebar label:has(.nssl-filter-select) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
 .nssl-root .sidebar input[type='date'] {
   width: 100%;
   box-sizing: border-box;

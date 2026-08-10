@@ -39,7 +39,8 @@ const DB_TO_APP_MAPPING = {
   total_amount_vnd: 'Tổng tiền VNĐ',
   payment_method: 'Hình thức thanh toán',
   tracking_code: 'Mã Tracking',
-  shipping_fee: 'Phí ship',
+  // Phí ship VNĐ = shipping_cost. Không map shipping_fee (hay là text/ngày đối soát).
+  shipping_cost: 'Phí ship',
   marketing_staff: 'Nhân viên MKT',
   sale_staff: 'Nhân viên Sale',
   page_name: 'Page',
@@ -108,6 +109,34 @@ function normalizeNgayDoiSoatKeToanText(v) {
   if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(s)) return s;
   if (/^\d{1,2}-\d{1,2}-\d{2,4}/.test(s)) return s;
   return '';
+}
+
+/** Phí ship VNĐ: ưu tiên shipping_cost; shipping_fee chỉ khi là số tiền (bỏ chuỗi ngày). */
+export function shippingVndFromDbRow(sOrder) {
+  if (!sOrder || typeof sOrder !== 'object') return 0;
+  const sc = sOrder.shipping_cost;
+  if (sc !== undefined && sc !== null && sc !== '') {
+    const n = typeof sc === 'number' ? sc : Number(sc);
+    if (Number.isFinite(n)) return n;
+  }
+  const sf = sOrder.shipping_fee;
+  if (sf === undefined || sf === null || sf === '') return 0;
+  if (typeof sf === 'number' && Number.isFinite(sf)) return sf;
+  const s = String(sf).trim();
+  if (/^\d{1,2}[./-]\d{1,2}/.test(s)) return 0;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return 0;
+  const cleaned = s.replace(/[^\d.,-]/g, '');
+  if (!cleaned) return 0;
+  const lastDot = cleaned.lastIndexOf('.');
+  const lastComma = cleaned.lastIndexOf(',');
+  let numStr = cleaned;
+  if (lastDot > -1 && lastDot === cleaned.length - 3 && lastComma > -1 && lastComma < lastDot) {
+    numStr = cleaned.replace(/,/g, '');
+  } else {
+    numStr = cleaned.replace(/\./g, '').replace(/,/g, '');
+  }
+  const n = Number(numStr);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function formatLogSimple(log) {
@@ -251,6 +280,12 @@ export function mapOrderDbRowToLegacyF3(sOrder) {
 
   appOrder['Ngày đối soát kế toán'] = ns;
   appOrder.luu_kho_usd = ns;
+
+  // Ghi đè Phí ship bằng shipping_cost (không dùng shipping_fee text/ngày)
+  const shipVnd = shippingVndFromDbRow(sOrder);
+  appOrder['Phí ship'] = shipVnd;
+  appOrder['Phí cước'] = shipVnd;
+
   for (const k of ['shipping_unit', 'tracking_code', 'Đơn vị vận chuyển', 'Mã Tracking']) {
     const v = appOrder[k];
     if (typeof v === 'string') appOrder[k] = v.trim();

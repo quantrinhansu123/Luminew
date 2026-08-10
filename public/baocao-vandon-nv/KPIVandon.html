@@ -1760,7 +1760,9 @@
         const d = toDate(getRowValue(r, 'Ngày_lên_đơn', 'Ngày lên đơn', 'Thời gian lên đơn'));
         if (!inRange(d, s, e)) return false;
         
-        const ship = parseNumber(getRowValue(r, 'Phí_ship', 'Phí ship'));
+        const ship = parseNumber(
+          getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
+        );
         if (!includeZero && ship === 0) return false;
         
         // Filter by CA - Default to "Hết ca" only (giống baocaomkt)
@@ -2090,7 +2092,10 @@
       const f3Columns = ['Nhân viên Marketing', 'Nhân viên Sale', 'NV Vận đơn'];
       
       filtered.forEach(r => {
-        const ship = parseNumber(getRowValue(r, 'Phí_ship', 'Phí ship'));
+        // Phí ship VNĐ = shipping_cost / Phí cước (không dùng shipping_fee text/ngày)
+        const ship = parseNumber(
+          getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
+        );
         const tongTien = parseNumber(getRowValue(r, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ'));
         const ketQuaCheck = (getRowValue(r, 'Kết_quả_Check', 'Kết quả Check') || '').toString().trim();
         const maTracking = (getRowValue(r, 'Mã_Tracking', 'Mã Tracking') || '').toString().trim();
