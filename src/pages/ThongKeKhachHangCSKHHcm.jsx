@@ -453,19 +453,33 @@ export default function ThongKeKhachHangCSKHHcm() {
       (a, b) => b.tongSoDon - a.tongSoDon || a.product.localeCompare(b.product, 'vi')
     );
     if (!rows.length) return rows;
-    const total = rows.reduce(
-      (acc, r) => {
-        acc.tongSoDon += r.tongSoDon;
-        acc.doanhThu += r.doanhThu;
-        acc.tongKH += r.tongKH;
-        acc.muaLai += r.muaLai;
-        acc.lan2 += r.lan2;
-        acc.lan3 += r.lan3;
-        acc.tu4 += r.tu4;
-        return acc;
-      },
-      { product: 'TỔNG', tongSoDon: 0, doanhThu: 0, tongKH: 0, muaLai: 0, lan2: 0, lan3: 0, tu4: 0, isTotal: true }
-    );
+
+    // Đơn / doanh số: cộng theo dòng (= header).
+    // KH / mua lại / lần 2-3-≥4: lấy unique toàn cục giống tab Tổng quan
+    // (không cộng theo SP vì 1 KH mua nhiều SP sẽ bị đếm trùng).
+    let tongKHUnique = 0;
+    let muaLaiUnique = 0;
+    let lan2Unique = 0;
+    let lan3Unique = 0;
+    let tu4Unique = 0;
+    for (const o of aggregates.overall.values()) {
+      tongKHUnique += 1;
+      if (o.orderCount === 2) lan2Unique += 1;
+      else if (o.orderCount === 3) lan3Unique += 1;
+      else if (o.orderCount >= 4) tu4Unique += 1;
+      if (o.orderCount >= REPEAT_THRESHOLD) muaLaiUnique += 1;
+    }
+    const total = {
+      product: 'TỔNG',
+      tongSoDon: rows.reduce((s, r) => s + r.tongSoDon, 0),
+      doanhThu: rows.reduce((s, r) => s + r.doanhThu, 0),
+      tongKH: tongKHUnique,
+      muaLai: muaLaiUnique,
+      lan2: lan2Unique,
+      lan3: lan3Unique,
+      tu4: tu4Unique,
+      isTotal: true,
+    };
     return [...rows, total];
   }, [aggregates, filteredRows]);
 
