@@ -409,22 +409,18 @@ export default function ThongKeKhachHangCSKHHcm() {
       .sort((a, b) => b.tongSoDon - a.tongSoDon || a.market.localeCompare(b.market, 'vi'));
     if (!rows.length) return rows;
 
-    // Dòng TỔNG: đơn/DS cộng theo dòng; KH lấy unique toàn cục (không cộng chéo thị trường)
-    let tongKHUnique = 0;
-    let muaLaiUnique = 0;
-    for (const o of aggregates.overall.values()) {
-      tongKHUnique += 1;
-      if (o.orderCount >= REPEAT_THRESHOLD) muaLaiUnique += 1;
-    }
-    const total = {
-      market: 'TỔNG',
-      tongSoDon: rows.reduce((s, r) => s + r.tongSoDon, 0),
-      tongDoanhSo: rows.reduce((s, r) => s + r.tongDoanhSo, 0),
-      tongKH: tongKHUnique,
-      muaLai: muaLaiUnique,
-      tyLeMuaLai: tongKHUnique > 0 ? muaLaiUnique / tongKHUnique : 0,
-      isTotal: true,
-    };
+    // Dòng TỔNG = cộng đúng các dòng đang hiển thị (khớp khi cộng tay từng cột)
+    const total = rows.reduce(
+      (acc, r) => {
+        acc.tongSoDon += r.tongSoDon;
+        acc.tongDoanhSo += r.tongDoanhSo;
+        acc.tongKH += r.tongKH;
+        acc.muaLai += r.muaLai;
+        return acc;
+      },
+      { market: 'TỔNG', tongSoDon: 0, tongDoanhSo: 0, tongKH: 0, muaLai: 0, isTotal: true }
+    );
+    total.tyLeMuaLai = total.tongKH > 0 ? total.muaLai / total.tongKH : 0;
     return [...rows, total];
   }, [aggregates, filteredRows]);
 
@@ -457,29 +453,19 @@ export default function ThongKeKhachHangCSKHHcm() {
       (a, b) => b.tongSoDon - a.tongSoDon || a.product.localeCompare(b.product, 'vi')
     );
     if (!rows.length) return rows;
-    let tongKHUnique = 0;
-    let muaLaiUnique = 0;
-    let lan2 = 0;
-    let lan3 = 0;
-    let tu4 = 0;
-    for (const o of aggregates.overall.values()) {
-      tongKHUnique += 1;
-      if (o.orderCount === 2) lan2 += 1;
-      else if (o.orderCount === 3) lan3 += 1;
-      else if (o.orderCount >= 4) tu4 += 1;
-      if (o.orderCount >= REPEAT_THRESHOLD) muaLaiUnique += 1;
-    }
-    const total = {
-      product: 'TỔNG',
-      tongSoDon: rows.reduce((s, r) => s + r.tongSoDon, 0),
-      doanhThu: rows.reduce((s, r) => s + r.doanhThu, 0),
-      tongKH: tongKHUnique,
-      muaLai: muaLaiUnique,
-      lan2,
-      lan3,
-      tu4,
-      isTotal: true,
-    };
+    const total = rows.reduce(
+      (acc, r) => {
+        acc.tongSoDon += r.tongSoDon;
+        acc.doanhThu += r.doanhThu;
+        acc.tongKH += r.tongKH;
+        acc.muaLai += r.muaLai;
+        acc.lan2 += r.lan2;
+        acc.lan3 += r.lan3;
+        acc.tu4 += r.tu4;
+        return acc;
+      },
+      { product: 'TỔNG', tongSoDon: 0, doanhThu: 0, tongKH: 0, muaLai: 0, lan2: 0, lan3: 0, tu4: 0, isTotal: true }
+    );
     return [...rows, total];
   }, [aggregates, filteredRows]);
 
