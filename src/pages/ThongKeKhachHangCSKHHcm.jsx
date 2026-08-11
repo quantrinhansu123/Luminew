@@ -15,7 +15,7 @@ const SELECT_COLUMNS =
 /** Người đã có 1 trong các quyền CSKH HCM hiện có thì xem được luôn; CSKH_STATS_HCM để phân quyền riêng sau này. */
 const ACCESS_PERMISSION_CODES = ['CSKH_STATS_HCM', 'CSKH_LIST_HCM', 'CSKH_VIEW_HCM', 'CSKH_PAID_HCM'];
 
-/** "Mua lại" = tổng số lần mua (kể cả lần đầu) >= 2, thống nhất cho cả 4 bảng bên dưới. */
+/** "Mua lại" = ≥2 lần mua cùng Sản phẩm tại cùng Thị trường — thống nhất mọi tab. */
 const REPEAT_THRESHOLD = 2;
 
 const TABS = [
@@ -381,7 +381,24 @@ export default function ThongKeKhachHangCSKHHcm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aggregates, searchLower]);
 
-  // Bảng 2: Tổng theo thị trường — tongSoDon/tongDoanhSo từ cùng filteredRows với KPI header
+  /** Thị trường có đơn nhưng chưa có KH mua lại (≥2 lần cùng SP tại TT) — dùng giải thích lệch danh sách vs bảng TT. */
+  const marketsWithoutRepeat = useMemo(() => {
+    const orderByMarket = new Map();
+    for (const row of filteredRows) {
+      const market = String(row.country ?? '').trim() || '(Không rõ)';
+      orderByMarket.set(market, (orderByMarket.get(market) || 0) + 1);
+    }
+    const marketsWithMuaLai = new Set();
+    for (const pm of aggregates.byProductMarket.values()) {
+      if (pm.orderCount >= REPEAT_THRESHOLD) marketsWithMuaLai.add(pm.market);
+    }
+    return [...orderByMarket.entries()]
+      .filter(([market]) => !marketsWithMuaLai.has(market))
+      .map(([market, tongSoDon]) => ({ market, tongSoDon }))
+      .sort((a, b) => b.tongSoDon - a.tongSoDon || a.market.localeCompare(b.market, 'vi'));
+  }, [aggregates, filteredRows]);
+
+  // Bảng 2: Tổng theo thị trường — KH mua lại = định nghĩa giống danh sách (KH × SP × TT ≥ 2)
   const section2Rows = useMemo(() => {
     const byMarket = new Map();
     const ensure = (market) => {
@@ -398,33 +415,49 @@ export default function ThongKeKhachHangCSKHHcm() {
       e.tongSoDon += 1;
       e.tongDoanhSo += Number(row.total_amount_vnd) || 0;
     }
-    // KH mua lại theo thị trường: khách có >=2 đơn trong đúng thị trường đó
     for (const m of aggregates.byMarket.values()) {
-      const e = ensure(m.market);
-      e.tongKH += 1;
-      if (m.orderCount >= REPEAT_THRESHOLD) e.muaLai += 1;
+      ensure(m.market).tongKH += 1;
+    }
+    // Cùng nguồn với tab Danh sách mua lại: đếm unique KH có ≥1 SP tại TT đạt ngưỡng mua lại
+    const muaLaiSets = new Map();
+    for (const pm of aggregates.byProductMarket.values()) {
+      if (pm.orderCount < REPEAT_THRESHOLD) continue;
+      let set = muaLaiSets.get(pm.market);
+      if (!set) {
+        set = new Set();
+        muaLaiSets.set(pm.market, set);
+      }
+      set.add(pm.custKey);
+    }
+    for (const [market, set] of muaLaiSets) {
+      ensure(market).muaLai = set.size;
     }
     const rows = [...byMarket.values()]
       .map((e) => ({ ...e, tyLeMuaLai: e.tongKH > 0 ? e.muaLai / e.tongKH : 0 }))
       .sort((a, b) => b.tongSoDon - a.tongSoDon || a.market.localeCompare(b.market, 'vi'));
     if (!rows.length) return rows;
 
-    // Dòng TỔNG = cộng đúng các dòng đang hiển thị (khớp khi cộng tay từng cột)
-    const total = rows.reduce(
-      (acc, r) => {
-        acc.tongSoDon += r.tongSoDon;
-        acc.tongDoanhSo += r.tongDoanhSo;
-        acc.tongKH += r.tongKH;
-        acc.muaLai += r.muaLai;
-        return acc;
-      },
-      { market: 'TỔNG', tongSoDon: 0, tongDoanhSo: 0, tongKH: 0, muaLai: 0, isTotal: true }
-    );
+    const muaLaiUnique = new Set();
+    for (const set of muaLaiSets.values()) {
+      for (const custKey of set) muaLaiUnique.add(custKey);
+    }
+    let tongKHUnique = 0;
+    for (const _ of aggregates.overall.values()) tongKHUnique += 1;
+
+    const total = {
+      market: 'TỔNG',
+      tongSoDon: rows.reduce((s, r) => s + r.tongSoDon, 0),
+      tongDoanhSo: rows.reduce((s, r) => s + r.tongDoanhSo, 0),
+      // KH/mua lại unique (khớp Tổng quan) — không cộng chéo thị trường
+      tongKH: tongKHUnique,
+      muaLai: muaLaiUnique.size,
+      isTotal: true,
+    };
     total.tyLeMuaLai = total.tongKH > 0 ? total.muaLai / total.tongKH : 0;
     return [...rows, total];
   }, [aggregates, filteredRows]);
 
-  // Bảng 3: Tổng theo sản phẩm — tongSoDon/doanhThu từ cùng filteredRows với KPI header
+  // Bảng 3: Tổng theo sản phẩm — KH mua lại / lần 2-3-≥4 cùng định nghĩa với danh sách (KH × SP × TT)
   const section3Rows = useMemo(() => {
     const byProduct = new Map();
     const ensure = (product) => {
@@ -442,65 +475,92 @@ export default function ThongKeKhachHangCSKHHcm() {
       e.doanhThu += Number(row.total_amount_vnd) || 0;
     }
     for (const p of aggregates.byProduct.values()) {
-      const e = ensure(p.product);
-      e.tongKH += 1;
-      if (p.orderCount === 2) e.lan2 += 1;
-      else if (p.orderCount === 3) e.lan3 += 1;
-      else if (p.orderCount >= 4) e.tu4 += 1;
-      if (p.orderCount >= REPEAT_THRESHOLD) e.muaLai += 1;
+      ensure(p.product).tongKH += 1;
     }
+    // Unique KH theo SP: max lần mua trên các TT của cùng SP (khớp danh sách mua lại)
+    const maxByProductCust = new Map();
+    for (const pm of aggregates.byProductMarket.values()) {
+      let custMap = maxByProductCust.get(pm.product);
+      if (!custMap) {
+        custMap = new Map();
+        maxByProductCust.set(pm.product, custMap);
+      }
+      const prev = custMap.get(pm.custKey) || 0;
+      if (pm.orderCount > prev) custMap.set(pm.custKey, pm.orderCount);
+    }
+    for (const [product, custMap] of maxByProductCust) {
+      const e = ensure(product);
+      for (const n of custMap.values()) {
+        if (n < REPEAT_THRESHOLD) continue;
+        e.muaLai += 1;
+        if (n === 2) e.lan2 += 1;
+        else if (n === 3) e.lan3 += 1;
+        else e.tu4 += 1;
+      }
+    }
+
     const rows = [...byProduct.values()].sort(
       (a, b) => b.tongSoDon - a.tongSoDon || a.product.localeCompare(b.product, 'vi')
     );
     if (!rows.length) return rows;
 
-    // Đơn / doanh số: cộng theo dòng (= header).
-    // KH / mua lại / lần 2-3-≥4: lấy unique toàn cục giống tab Tổng quan
-    // (không cộng theo SP vì 1 KH mua nhiều SP sẽ bị đếm trùng).
-    let tongKHUnique = 0;
-    let muaLaiUnique = 0;
-    let lan2Unique = 0;
-    let lan3Unique = 0;
-    let tu4Unique = 0;
-    for (const o of aggregates.overall.values()) {
-      tongKHUnique += 1;
-      if (o.orderCount === 2) lan2Unique += 1;
-      else if (o.orderCount === 3) lan3Unique += 1;
-      else if (o.orderCount >= 4) tu4Unique += 1;
-      if (o.orderCount >= REPEAT_THRESHOLD) muaLaiUnique += 1;
+    const muaLaiMax = new Map();
+    for (const pm of aggregates.byProductMarket.values()) {
+      if (pm.orderCount < REPEAT_THRESHOLD) continue;
+      const prev = muaLaiMax.get(pm.custKey) || 0;
+      if (pm.orderCount > prev) muaLaiMax.set(pm.custKey, pm.orderCount);
     }
+    let muaLai = 0;
+    let lan2 = 0;
+    let lan3 = 0;
+    let tu4 = 0;
+    for (const n of muaLaiMax.values()) {
+      muaLai += 1;
+      if (n === 2) lan2 += 1;
+      else if (n === 3) lan3 += 1;
+      else tu4 += 1;
+    }
+    let tongKHUnique = 0;
+    for (const _ of aggregates.overall.values()) tongKHUnique += 1;
+
     const total = {
       product: 'TỔNG',
       tongSoDon: rows.reduce((s, r) => s + r.tongSoDon, 0),
       doanhThu: rows.reduce((s, r) => s + r.doanhThu, 0),
       tongKH: tongKHUnique,
-      muaLai: muaLaiUnique,
-      lan2: lan2Unique,
-      lan3: lan3Unique,
-      tu4: tu4Unique,
+      muaLai,
+      lan2,
+      lan3,
+      tu4,
       isTotal: true,
     };
     return [...rows, total];
   }, [aggregates, filteredRows]);
 
-  // Khối tổng quan cuối trang (+ tổng đơn / doanh số theo bộ lọc hiện tại)
+  // Khối tổng quan — mua lại cùng định nghĩa với danh sách (KH × SP × TT ≥ 2)
   const kpi = useMemo(() => {
     let tongKH = 0;
+    for (const _ of aggregates.overall.values()) tongKH += 1;
+
+    const muaLaiMax = new Map();
+    for (const pm of aggregates.byProductMarket.values()) {
+      if (pm.orderCount < REPEAT_THRESHOLD) continue;
+      const prev = muaLaiMax.get(pm.custKey) || 0;
+      if (pm.orderCount > prev) muaLaiMax.set(pm.custKey, pm.orderCount);
+    }
     let muaLai = 0;
     let lan2 = 0;
     let lan3 = 0;
     let tu4 = 0;
     let doanhThuMuaLai = 0;
-    for (const o of aggregates.overall.values()) {
-      tongKH += 1;
-      if (o.orderCount === 2) lan2 += 1;
-      else if (o.orderCount === 3) lan3 += 1;
-      else if (o.orderCount >= 4) tu4 += 1;
-      if (o.orderCount >= REPEAT_THRESHOLD) {
-        muaLai += 1;
-        doanhThuMuaLai += o.totalAmount;
-      }
+    for (const [custKey, n] of muaLaiMax) {
+      muaLai += 1;
+      if (n === 2) lan2 += 1;
+      else if (n === 3) lan3 += 1;
+      else tu4 += 1;
+      doanhThuMuaLai += aggregates.overall.get(custKey)?.totalAmount || 0;
     }
+
     let tongSoDon = 0;
     let tongDoanhSo = 0;
     for (const row of filteredRows) {
@@ -599,7 +659,8 @@ export default function ThongKeKhachHangCSKHHcm() {
         <h1 className="text-xl font-bold text-gray-800">Thống Kê KH-HCM</h1>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Khách hàng mua lại (từ {REPEAT_THRESHOLD} lần) theo Sản phẩm &amp; Thị trường — dữ liệu từ {ORDERS_TABLE}
+        Mua lại = từ {REPEAT_THRESHOLD} lần cùng Sản phẩm tại cùng Thị trường — thống nhất mọi tab — dữ liệu từ{' '}
+        {ORDERS_TABLE}
       </p>
 
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 mb-4">
@@ -679,7 +740,7 @@ export default function ThongKeKhachHangCSKHHcm() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng số đơn</div>
           <div className="mt-1 text-2xl font-bold text-gray-900">
@@ -690,6 +751,18 @@ export default function ThongKeKhachHangCSKHHcm() {
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng doanh số</div>
           <div className="mt-1 text-2xl font-bold text-[#F37021]">
             {loading ? '…' : formatCurrency(kpi.tongDoanhSo)}
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">KH mua lại</div>
+          <div className="mt-1 text-2xl font-bold text-gray-900">
+            {loading ? '…' : kpi.muaLai.toLocaleString('vi-VN')}
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tỷ lệ mua lại</div>
+          <div className="mt-1 text-2xl font-bold text-gray-900">
+            {loading ? '…' : formatPercent(kpi.tyLe)}
           </div>
         </div>
       </div>
@@ -712,13 +785,20 @@ export default function ThongKeKhachHangCSKHHcm() {
       </div>
 
       {activeTab === 'list' && (
+      <>
       <ReportTable
         title="Tổng danh sách khách hàng mua lại"
         columns={['STT', 'Tên KH', 'Sản phẩm', 'Thị trường', 'Lần mua', 'Tổng đơn', 'Tổng doanh thu']}
         rows={section1Rows}
         loading={loading}
         onExport={exportListExcel}
-        emptyText={`Không có khách hàng nào mua lại từ ${REPEAT_THRESHOLD} lần trong khoảng thời gian / bộ lọc đã chọn.`}
+        emptyText={
+          marketsWithoutRepeat.length > 0 && kpi.tongSoDon > 0
+            ? `Không có KH mua lại từ ${REPEAT_THRESHOLD} lần cùng SP tại cùng TT. Thị trường vẫn có đơn nhưng chưa mua lại: ${marketsWithoutRepeat
+                .map((m) => `${m.market} (${m.tongSoDon.toLocaleString('vi-VN')} đơn)`)
+                .join(', ')}.`
+            : `Không có khách hàng nào mua lại từ ${REPEAT_THRESHOLD} lần trong khoảng thời gian / bộ lọc đã chọn.`
+        }
         renderRow={(r, idx) => (
           <tr key={r.key} className="hover:bg-orange-50/40">
             <td className="px-3 py-2 text-sm text-gray-500 border border-gray-200">{idx + 1}</td>
@@ -734,6 +814,16 @@ export default function ThongKeKhachHangCSKHHcm() {
           </tr>
         )}
       />
+      {!loading && section1Rows.length > 0 && marketsWithoutRepeat.length > 0 && (
+        <p className="text-xs text-gray-500 -mt-4 mb-4">
+          Thị trường có đơn nhưng chưa có KH mua lại (không hiện trong danh sách):{' '}
+          {marketsWithoutRepeat
+            .map((m) => `${m.market} (${m.tongSoDon.toLocaleString('vi-VN')} đơn)`)
+            .join(', ')}
+          .
+        </p>
+      )}
+      </>
       )}
 
       {activeTab === 'market' && (
