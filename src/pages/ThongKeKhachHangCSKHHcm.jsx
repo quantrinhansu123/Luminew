@@ -52,7 +52,7 @@ const TABS = [
 ];
 
 function normKey(s) {
-  return String(s ?? '').trim().toLowerCase();
+  return foldKey(String(s ?? '').replace(/\s+/g, ' '));
 }
 
 /** Định danh khách hàng chỉ theo tên (không gộp theo SĐT). */
@@ -418,6 +418,7 @@ export default function ThongKeKhachHangCSKHHcm() {
   const marketsWithoutRepeat = useMemo(() => {
     const orderByMarket = new Map();
     for (const row of filteredRows) {
+      if (!customerKeyFor(row)) continue;
       const market = canonicalMarket(row.country);
       orderByMarket.set(market, (orderByMarket.get(market) || 0) + 1);
     }
@@ -443,6 +444,7 @@ export default function ThongKeKhachHangCSKHHcm() {
       return e;
     };
     for (const row of filteredRows) {
+      if (!customerKeyFor(row)) continue; // cùng tập KH với tongKH / mua lại (bỏ đơn thiếu tên)
       const market = canonicalMarket(row.country);
       const e = ensure(market);
       e.tongSoDon += 1;
@@ -493,6 +495,7 @@ export default function ThongKeKhachHangCSKHHcm() {
       return e;
     };
     for (const row of filteredRows) {
+      if (!customerKeyFor(row)) continue;
       const product = String(row.product ?? '').trim() || '(Không rõ)';
       const e = ensure(product);
       e.tongSoDon += 1;
@@ -575,12 +578,13 @@ export default function ThongKeKhachHangCSKHHcm() {
     let tongDoanhSo = 0;
     const tongKHSet = new Set();
     for (const row of filteredRows) {
+      const custKey = customerKeyFor(row);
+      if (!custKey) continue;
       const market = canonicalMarket(row.country);
       if (!marketsWithMuaLai.has(market)) continue;
       tongSoDon += 1;
       tongDoanhSo += Number(row.total_amount_vnd) || 0;
-      const custKey = customerKeyFor(row);
-      if (custKey) tongKHSet.add(custKey);
+      tongKHSet.add(custKey);
     }
 
     const tongKH = tongKHSet.size;
