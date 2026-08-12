@@ -446,15 +446,15 @@ table.bcvh-metric-colsync thead th {
 }
 
 .bcvh-metric-vertical-compact .bcvh-metric-vertical-row {
-    grid-template-columns: 2.15rem max-content;
-    gap: 2px 5px;
+    grid-template-columns: max-content max-content;
+    gap: 1px 3px;
     padding: 3px 4px;
     font-size: 10px;
 }
 
 .bcvh-metric-vertical-compact .bcvh-metric-vertical-row.has-pct {
-    grid-template-columns: 2.15rem max-content max-content;
-    gap: 2px 4px;
+    grid-template-columns: max-content max-content max-content;
+    gap: 1px 3px;
 }
 
 .bcvh-metric-vertical-compact .bcvh-metric-vertical-label {
@@ -493,13 +493,13 @@ table.bcvh-metric-colsync thead th {
 }
 
 .bcvh-metric-vertical-val {
-    text-align: right;
+    text-align: left;
     font-size: 11px;
     font-weight: 800;
     color: #0f172a;
     font-family: 'Times New Roman', Times, serif;
     font-variant-numeric: tabular-nums;
-    justify-self: end;
+    justify-self: start;
 }
 
 .bcvh-metric-vertical-list {
@@ -510,19 +510,21 @@ table.bcvh-metric-colsync thead th {
 
 .bcvh-metric-vertical-row {
     display: grid;
-    grid-template-columns: 4.75rem max-content;
-    gap: 2px 6px;
+    grid-template-columns: max-content max-content;
+    gap: 1px 4px;
     align-items: baseline;
     line-height: 1.25;
-    padding: 4px 6px;
+    padding: 3px 5px;
     border-radius: 4px;
     border-bottom: none;
     font-size: 11px;
+    width: max-content;
+    max-width: 100%;
 }
 
 .bcvh-metric-vertical-row.has-pct {
-    grid-template-columns: 4.75rem max-content max-content;
-    gap: 2px 5px;
+    grid-template-columns: max-content max-content max-content;
+    gap: 1px 4px;
 }
 
 .bcvh-metric-vertical-row:nth-child(5n + 1) {
@@ -614,8 +616,8 @@ table.bcvh-metric-colsync thead th {
 }
 
 .bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-row {
-    gap: 2px 5px;
-    padding: 4px 5px;
+    gap: 1px 4px;
+    padding: 3px 5px;
 }
 
 .bcvh-cell-inline {
