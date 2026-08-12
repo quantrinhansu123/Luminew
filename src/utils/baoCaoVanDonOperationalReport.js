@@ -188,6 +188,8 @@ export function aggregateOperationalReportSlice(slice) {
     });
 
     let tongNoiBo = 0;
+    /** Doanh số (VNĐ) trên cùng tập đơn `tongNoiBo`. */
+    let tongNoiBoAmount = 0;
     let treo = 0;
     let doiHang = 0;
     let huyNoiBo = 0;
@@ -198,6 +200,8 @@ export function aggregateOperationalReportSlice(slice) {
     let coMa = 0;
     /** Tab2 «TỔNG ĐƠN LÊN VẬN HÀNH»: đơn có đơn vị giao hàng / shipping_unit khác trống (histogram «Lên vận hành»). */
     let tongDonLenVanHanh = 0;
+    /** Doanh số (VNĐ) trên cùng tập đơn `tongDonLenVanHanh`. */
+    let tongDonLenVanHanhAmount = 0;
     /** Tổng tiền (tong_tien_vnd, fallback total_amount_vnd trên virtual row) cho đúng các đơn được tính vào coMa. */
     let coMaAmount = 0;
     let giaoTC = 0;
@@ -215,8 +219,10 @@ export function aggregateOperationalReportSlice(slice) {
     let tongThanhToanGiaoHangNb = 0;
 
     for (const r of slice) {
+        const rowAmount = Number(r._tong_tien_vnd ?? 0) || 0;
         // Tổng đơn nội bộ mới: đếm trực tiếp số đơn theo bộ lọc (mỗi row = 1 đơn).
         tongNoiBo += 1;
+        tongNoiBoAmount += rowAmount;
 
         const maTrackingCount = sumMaTracking(r._trang_thai_giao_hang);
         const hasMaTracking = maTrackingCount > 0;
@@ -255,6 +261,7 @@ export function aggregateOperationalReportSlice(slice) {
 
         if (lenVhDonVi > 0) {
             tongDonLenVanHanh += 1;
+            tongDonLenVanHanhAmount += rowAmount;
         }
 
         // «Hủy vận hành»: lấy theo Trạng thái giao hàng NB = Hủy (không ràng buộc ĐVVC).
@@ -283,11 +290,13 @@ export function aggregateOperationalReportSlice(slice) {
 
     return {
         tongNoiBo,
+        tongNoiBoAmount,
         donCoBill,
         donCoBillAmount,
         coMa,
         coMaAmount,
         tongDonLenVanHanh,
+        tongDonLenVanHanhAmount,
         chuaCoMa,
         tyLeVHNoiBo,
         tyLeTTTrenPhi,
@@ -317,6 +326,23 @@ export function formatPctComma(p) {
 
 export function formatNumVi(n) {
     return Number(n || 0).toLocaleString('vi-VN');
+}
+
+/** Hiển thị gọn: bỏ 3 số 0 cuối (chia 1000) — vd 4.797.690.000 → 4.797.690 */
+export function formatNumViCompact(n) {
+    const v = Number(n || 0);
+    if (!Number.isFinite(v)) return '0';
+    if (Math.abs(v) < 1000) return v.toLocaleString('vi-VN');
+    return Math.trunc(v / 1000).toLocaleString('vi-VN');
+}
+
+/** Tách phần «000» cuối để hiển thị nhỏ/đậm — vd 4.797.690.000 → main «4.797.690.» + suffix «000» */
+export function splitNumViAmountTrailingZeros(n) {
+    const full = formatNumVi(n);
+    if (full.length >= 4 && full.endsWith('000')) {
+        return { main: full.slice(0, -3), suffix: '000' };
+    }
+    return { main: full, suffix: null };
 }
 
 /** Các cặp (sản phẩm, thị trường) xuất hiện trong dữ liệu — mỗi cặp một dòng. */
@@ -516,8 +542,10 @@ function rowMatchesPaymentCol(r, col) {
 export const BCVH_DRILL_METRIC_LABELS = {
     donCoBill: 'Đã thanh toán (có bill) — Số đơn',
     donCoBillAmount: 'Đã thanh toán (có bill) — Thành tiền',
-    tongNoiBo: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ',
-    tongDonLenVanHanh: 'TỔNG ĐƠN LÊN VẬN HÀNH',
+    tongNoiBo: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ — Số đơn',
+    tongNoiBoAmount: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ — Doanh số',
+    tongDonLenVanHanh: 'TỔNG ĐƠN LÊN VẬN HÀNH — Số đơn',
+    tongDonLenVanHanhAmount: 'TỔNG ĐƠN LÊN VẬN HÀNH — Doanh số',
     chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (trống mã, check OK; orders: đã có ĐVVC)',
     giaoTC: 'Giao thành công',
     dangGiao: 'Đang giao',
@@ -550,11 +578,13 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
     if (!slice?.length) return [];
     switch (metricId) {
         case 'tongNoiBo':
+        case 'tongNoiBoAmount':
             return [...slice];
         case 'donCoBill':
         case 'donCoBillAmount':
             return slice.filter((r) => sumDonCoBillFullCount(r._trang_thai_thanh_toan) > 0);
         case 'tongDonLenVanHanh':
+        case 'tongDonLenVanHanhAmount':
             return slice.filter((r) => rowLenVhDonViForDrill(r) > 0);
         case 'chuaCoMa':
             return slice.filter(

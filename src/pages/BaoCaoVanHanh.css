@@ -1,19 +1,44 @@
 /* Báo cáo vận hành — tab BC Vận Hành (mẫu Excel) */
 .bcvh-wrap {
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
     font-size: 14px;
+    color: #1f2937;
     /* clip có thể làm sticky thead không bám đúng scrollport; tab2 bọc overflow-hidden + flex để cuộn trong pane */
     overflow-x: visible;
     overflow-y: visible;
     max-width: 100%;
     --bcvh-head-row-1-height: 43px;
+
+    /* Bảng màu chuyên nghiệp — nhóm cột phân biệt bằng sắc độ, không dùng viền/màu chói như Excel gốc */
+    --bcvh-border: #dbe2ea;
+    --bcvh-border-strong: #94a3b8;
+    --bcvh-header-border: rgba(255, 255, 255, 0.16);
+    --bcvh-info-bg: #46566b;
+    --bcvh-cyan-bg: #0f6f8c;
+    --bcvh-yellow-bg: #9c6b12;
+    --bcvh-green-bg: #157a4a;
+    --bcvh-red-bg: #b8443c;
+    --bcvh-grey-bg: #5b6472;
+    --bcvh-total-bg: #1e293b;
+    --bcvh-total-row-bg: #fef6e4;
+    --bcvh-total-row-border: #e8d4a8;
+    --bcvh-row-tint-1: #f3f8fd;
+    --bcvh-row-tint-2: #f2faf5;
+    --bcvh-row-tint-3: #fdfcf4;
+    --bcvh-row-tint-4: #fdf5f9;
+    --bcvh-row-tint-5: #f7f5fc;
+    --bcvh-block-a: #eef5fc;
+    --bcvh-block-b: #f4f7ea;
+    --bcvh-row-separator: #64748b;
+    --bcvh-row-alt: #f7f9fb;
+    --bcvh-row-hover: #eef4fa;
 }
 
 /* Tách 4 cột cố định (trái) | vùng cuộn ngang (phải chỉ chứa số liệu) */
 .bcvh-split {
     width: 100%;
     align-items: stretch; /* cùng chiều cao: vùng bảng + thanh dọc phụ */
-    gap: 8px;
+    gap: 4px;
 }
 
 /* Thanh công cụ + tiêu đề: một khối dính trên, z-index cao hơn thead bảng (≤70) */
@@ -30,14 +55,14 @@
 .bcvh-split-title {
     width: 100%;
     /* sticky thuộc .bcvh-sticky-head */
-    box-shadow: 0 1px 0 #000;
+    box-shadow: 0 1px 0 var(--bcvh-border-strong);
 }
 
 .bcvh-fixed-pane {
     background: #fff;
     position: relative;
     z-index: 2; /* Góc 4 cột + header luôn “đè” phần số liệu khi gặp nhau */
-    border-right: 1px solid #000;
+    border-right: 1px solid var(--bcvh-border-strong);
 }
 
 .bcvh-fixed-pane-scroll {
@@ -83,7 +108,7 @@
 }
 
 .bcvh-metric-head-scroll .bcvh-metric-table {
-    margin-right: 20px;
+    margin-right: 12px;
     margin-bottom: 0;
 }
 
@@ -130,10 +155,10 @@
 
 /* Vạch kép dọc ngăn vùng 4 cột cố định và vùng số liệu cuộn */
 .bcvh-scroll-main {
-    border-left: 3px double #000;
+    border-left: 3px double var(--bcvh-border-strong);
     margin-left: 0; /* tách độc lập khỏi bảng cố định */
     border-radius: 4px;
-    box-shadow: inset 0 0 0 1px #cbd5e1;
+    box-shadow: inset 0 0 0 1px var(--bcvh-border);
 }
 
 /* Bọc bảng số liệu + thanh dọc phụ: cùng chiều cao viewport (flex), không để cột thanh giãn theo nội dung */
@@ -152,7 +177,7 @@
 
 /* Thêm phạm vi cuộn ngang/dọc: cột cuối + hàng cuối không nằm dưới thanh scrollbar */
 .bcvh-scroll-metric .bcvh-metric-table {
-    margin-right: 20px;
+    margin-right: 12px;
     margin-bottom: 12px;
 }
 
@@ -177,7 +202,8 @@ td.fixed-column {
 }
 
 .bcvh-total-row td.fixed-column {
-    background: #FFC000;
+    background: var(--bcvh-total-row-bg);
+    color: #1e293b;
 }
 
 /* Kẻ tách vùng cột cố định khỏi phần cuộn ngang */
@@ -257,12 +283,12 @@ td.fixed-column {
     max-width: var(--bcvh-col-4-width) !important;
 }
 
-/* Default sticky widths (can be tuned) */
+/* Default sticky widths (can be tuned) — thu hẹp trái để ưu tiên viewport cho bảng số liệu phải */
 .bcvh-wrap {
-    --bcvh-col-1-width: 170px; /* Ngày đầu */
-    --bcvh-col-2-width: 170px; /* Ngày cuối */
-    --bcvh-col-3-width: 220px; /* Sản phẩm */
-    --bcvh-col-4-width: 200px; /* Thị trường */
+    --bcvh-col-1-width: 76px; /* Ngày đầu */
+    --bcvh-col-2-width: 76px; /* Ngày cuối */
+    --bcvh-col-3-width: 88px; /* Sản phẩm */
+    --bcvh-col-4-width: 82px; /* Thị trường */
     --bcvh-fixed-width: calc(
         var(--bcvh-col-1-width) + var(--bcvh-col-2-width) + var(--bcvh-col-3-width) + var(--bcvh-col-4-width)
     );
@@ -271,94 +297,410 @@ td.fixed-column {
 }
 
 .bcvh-title-row th {
-    background: #ED7D31;
-    color: #000;
+    background: var(--bcvh-total-bg);
+    color: #fff;
     font-weight: 700;
     font-size: 18px;
     padding: 10px 8px;
     text-align: center;
-    border: 1px solid #000;
+    border: 1px solid var(--bcvh-total-bg);
+}
+
+.bcvh-split-title .bcvh-title-row {
+    background: var(--bcvh-total-bg);
+    color: #fff;
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 0.06em;
+    padding: 9px 8px;
+    text-align: center;
+    border-radius: 4px 4px 0 0;
 }
 
 .bcvh-h-info {
-    background: #d18b3f;
-    color: #000;
-    font-weight: 700;
-    font-size: 12px;
+    background: var(--bcvh-info-bg);
+    color: #fff;
+    font-weight: 600;
+    font-size: 11px;
     vertical-align: middle;
-    border: 1px solid #000;
-    padding: 6px 8px;
+    border: 1px solid var(--bcvh-header-border);
+    padding: 4px 5px;
 }
 
 .bcvh-h-cyan {
-    background: #4aa3b8;
-    color: #000;
-    font-weight: 700;
+    background: var(--bcvh-cyan-bg);
+    color: #fff;
+    font-weight: 600;
     font-size: 12px;
     vertical-align: middle;
-    border: 1px solid #000;
+    border: 1px solid var(--bcvh-header-border);
     padding: 6px 6px;
     line-height: 1.25;
 }
 
 .bcvh-h-yellow {
-    background: #FFC000;
-    color: #000;
-    font-weight: 700;
+    background: var(--bcvh-yellow-bg);
+    color: #fff;
+    font-weight: 600;
     font-size: 12px;
     vertical-align: middle;
-    border: 1px solid #000;
+    border: 1px solid var(--bcvh-header-border);
     padding: 6px 6px;
     line-height: 1.2;
 }
 
 .bcvh-h-green {
-    background: #93c47d;
-    color: #000;
-    font-weight: 700;
+    background: var(--bcvh-green-bg);
+    color: #fff;
+    font-weight: 600;
     font-size: 12px;
     vertical-align: middle;
-    border: 1px solid #000;
+    border: 1px solid var(--bcvh-header-border);
     padding: 6px 6px;
     line-height: 1.2;
 }
 
 .bcvh-h-red {
-    background: #E06666;
-    color: #000;
-    font-weight: 700;
+    background: var(--bcvh-red-bg);
+    color: #fff;
+    font-weight: 600;
     font-size: 12px;
     vertical-align: middle;
-    border: 1px solid #000;
+    border: 1px solid var(--bcvh-header-border);
     padding: 6px 6px;
     line-height: 1.2;
 }
 
 .bcvh-h-grey {
-    background: #A5A5A5;
-    color: #000;
-    font-weight: 700;
+    background: var(--bcvh-grey-bg);
+    color: #fff;
+    font-weight: 600;
     font-size: 12px;
     vertical-align: middle;
-    border: 1px solid #000;
+    border: 1px solid var(--bcvh-header-border);
     padding: 6px 6px;
     line-height: 1.15;
 }
 
 /* Tiêu đề metric: padding ngang rộng hơn để chữ dài đỡ cắt (đè padding .bcvh-h-*) */
 table.bcvh-metric-colsync thead th {
-    padding-left: 10px;
-    padding-right: 10px;
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+/* Bảng số liệu phải — gọn hẹp, ưu tiên chiều ngang */
+.bcvh-metric-compact.bcvh-metric-colsync thead th {
+    font-size: 9px;
+    padding: 2px 3px;
+    line-height: 1.12;
+}
+
+.bcvh-metric-compact.bcvh-metric-colsync .bcvh-cell {
+    font-size: 10px;
+    padding: 2px 3px;
+}
+
+.bcvh-metric-compact.bcvh-metric-colsync .bcvh-cell-inline {
+    gap: 2px;
+}
+
+.bcvh-metric-compact.bcvh-metric-colsync .bcvh-cell-pct {
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.bcvh-metric-compact.bcvh-metric-colsync button {
+    font-size: inherit;
+}
+
+/* Cột trái tab2 — thu hẹp ô nhập */
+.bcvh-fixed-pane .bcvh-cell {
+    font-size: 11px;
+    padding: 3px 4px;
+}
+
+.bcvh-fixed-pane .bcvh-cell-input,
+.bcvh-fixed-pane .bcvh-cell-select {
+    font-size: 11px;
+    padding: 2px 4px;
+    min-width: 0;
+    width: 100%;
+}
+
+.bcvh-fixed-pane input[type='date'].bcvh-cell-input {
+    font-size: 10px;
+    padding: 2px 2px;
+}
+
+.bcvh-right-pane {
+    flex: 1 1 0%;
+    min-width: 0;
+}
+
+.bcvh-metric-vertical-compact {
+    padding: 3px 2px !important;
+}
+
+.bcvh-metric-vertical-compact .bcvh-metric-vertical-list {
+    gap: 2px;
+}
+
+.bcvh-metric-vertical-compact .bcvh-metric-vertical-row {
+    grid-template-columns: 2.15rem max-content;
+    gap: 2px 5px;
+    padding: 3px 4px;
+    font-size: 10px;
+}
+
+.bcvh-metric-vertical-compact .bcvh-metric-vertical-row.has-pct {
+    grid-template-columns: 2.15rem max-content max-content;
+    gap: 2px 4px;
+}
+
+.bcvh-metric-vertical-compact .bcvh-metric-vertical-label {
+    font-size: 9px;
+}
+
+.bcvh-h-compact {
+    font-size: 10px;
+    padding: 4px 3px;
+    line-height: 1.15;
+}
+
+.bcvh-metric-vertical-compact .bcvh-metric-vertical-val,
+.bcvh-metric-vertical-compact .bcvh-metric-vertical-row button {
+    font-size: 10px;
+}
+
+.bcvh-metric-vertical-compact .bcvh-metric-vertical-row .bcvh-cell-pct {
+    font-size: 9px;
+}
+
+.bcvh-metric-vertical,
+.bcvh-delivery-vertical {
+    padding: 5px 4px !important;
+    vertical-align: top;
+    font-family: 'Times New Roman', Times, serif;
+}
+
+.bcvh-amount-display {
+    display: inline-block;
+    white-space: nowrap;
+    line-height: 1;
+    font-family: 'Times New Roman', Times, serif;
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+}
+
+.bcvh-metric-vertical-val {
+    text-align: right;
+    font-size: 11px;
+    font-weight: 800;
+    color: #0f172a;
+    font-family: 'Times New Roman', Times, serif;
+    font-variant-numeric: tabular-nums;
+    justify-self: end;
+}
+
+.bcvh-metric-vertical-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.bcvh-metric-vertical-row {
+    display: grid;
+    grid-template-columns: 4.75rem max-content;
+    gap: 2px 6px;
+    align-items: baseline;
+    line-height: 1.25;
+    padding: 4px 6px;
+    border-radius: 4px;
+    border-bottom: none;
+    font-size: 11px;
+}
+
+.bcvh-metric-vertical-row.has-pct {
+    grid-template-columns: 4.75rem max-content max-content;
+    gap: 2px 5px;
+}
+
+.bcvh-metric-vertical-row:nth-child(5n + 1) {
+    background: #e8f2fa;
+}
+
+.bcvh-metric-vertical-row:nth-child(5n + 2) {
+    background: #e7f5ec;
+}
+
+.bcvh-metric-vertical-row:nth-child(5n + 3) {
+    background: #faf4e3;
+}
+
+.bcvh-metric-vertical-row:nth-child(5n + 4) {
+    background: #fae8ef;
+}
+
+.bcvh-metric-vertical-row:nth-child(5n + 5) {
+    background: #ece7f8;
+}
+
+.bcvh-metric-vertical-label {
+    grid-column: 1;
+    font-size: 10px;
+    font-weight: 800;
+    color: #0f172a;
+    text-align: left;
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+    font-family: 'Times New Roman', Times, serif;
+}
+
+.bcvh-metric-vertical-row .bcvh-cell-pct {
+    font-size: 10px;
+    font-weight: 800;
+    color: #334155;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.bcvh-metric-vertical-row button {
+    font-variant-numeric: tabular-nums;
+}
+
+.bcvh-total-row .bcvh-metric-vertical-row:nth-child(5n + 1) {
+    background: #f5e6c8;
+}
+
+.bcvh-total-row .bcvh-metric-vertical-row:nth-child(5n + 2) {
+    background: #f0e8c4;
+}
+
+.bcvh-total-row .bcvh-metric-vertical-row:nth-child(5n + 3) {
+    background: #f8ecc8;
+}
+
+.bcvh-total-row .bcvh-metric-vertical-row:nth-child(5n + 4) {
+    background: #f5ddd8;
+}
+
+.bcvh-total-row .bcvh-metric-vertical-row:nth-child(5n + 5) {
+    background: #ebe2f0;
+}
+
+.bcvh-total-row .bcvh-metric-vertical-label {
+    color: #334155;
+    font-weight: 800;
+}
+
+.bcvh-total-row .bcvh-metric-vertical-val {
+    color: #0f172a;
+    font-weight: 800;
+}
+
+.bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-label {
+    font-size: 10px;
+}
+
+.bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-val,
+.bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-row button {
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-row .bcvh-cell-pct {
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-row {
+    gap: 2px 5px;
+    padding: 4px 5px;
+}
+
+.bcvh-cell-inline {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    flex-wrap: nowrap;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.bcvh-cell-pct {
+    font-size: 10px;
+    font-weight: 800;
+    color: #334155;
 }
 
 .bcvh-cell {
-    border: 1px solid #000;
+    border: 1px solid var(--bcvh-border);
     padding: 6px 8px;
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
     text-align: right;
     vertical-align: middle;
+    background: #fff;
+}
+
+/* Khối dòng lớn — 2 màu xen kẽ (trái + phải) + kẻ đậm phân cách */
+.bcvh-fixed-table tbody tr:nth-child(odd):not(.bcvh-total-row) > .bcvh-cell,
+.bcvh-metric-table tbody tr:nth-child(odd):not(.bcvh-total-row) > .bcvh-cell {
+    background: var(--bcvh-block-a);
+}
+
+.bcvh-fixed-table tbody tr:nth-child(even):not(.bcvh-total-row) > .bcvh-cell,
+.bcvh-metric-table tbody tr:nth-child(even):not(.bcvh-total-row) > .bcvh-cell {
+    background: var(--bcvh-block-b);
+}
+
+.bcvh-fixed-table tbody tr:not(.bcvh-total-row) > .bcvh-cell,
+.bcvh-metric-table tbody tr:not(.bcvh-total-row) > .bcvh-cell {
+    border-bottom: 3px solid var(--bcvh-row-separator);
+}
+
+.bcvh-fixed-table tbody tr.bcvh-total-row > .bcvh-cell,
+.bcvh-metric-table tbody tr.bcvh-total-row > .bcvh-cell {
+    border-top: 3px solid var(--bcvh-row-separator);
+}
+
+.bcvh-fixed-table tbody tr:hover:not(.bcvh-total-row) > .bcvh-cell,
+.bcvh-metric-table tbody tr:hover:not(.bcvh-total-row) > .bcvh-cell {
+    filter: brightness(0.98);
+}
+
+.bcvh-fixed-pane .bcvh-cell-input,
+.bcvh-fixed-pane .bcvh-cell-select {
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.bcvh-total-row .bcvh-cell {
+    background: var(--bcvh-total-row-bg);
+    color: #1e293b;
+    font-weight: 800;
+    border-color: var(--bcvh-total-row-border);
+}
+
+.bcvh-total-row .bcvh-cell-pct {
+    color: #475569;
+    font-weight: 800;
+}
+
+.bcvh-total-row .bcvh-cell button {
+    color: #1d4ed8;
+    font-weight: 800;
+}
+
+.bcvh-total-row .bcvh-cell button:hover {
+    color: #1e3a8a;
+}
+
+.bcvh-total-row .bcvh-cell-input,
+.bcvh-total-row .bcvh-cell-select {
+    background: rgba(255, 255, 255, 0.85);
 }
 
 .bcvh-cell-left {
@@ -369,28 +711,23 @@ table.bcvh-metric-colsync thead th {
     width: 100%;
     max-width: 100%;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
     padding: 4px 6px;
-    border: 1px solid #666;
-    border-radius: 3px;
+    border: 1px solid var(--bcvh-border-strong);
+    border-radius: 4px;
 }
 
 .bcvh-cell-select {
     width: 100%;
     max-width: 100%;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
     padding: 4px 6px;
-    border: 1px solid #666;
-    border-radius: 3px;
+    border: 1px solid var(--bcvh-border-strong);
+    border-radius: 4px;
     background: #fff;
 }
 
-.bcvh-total-row .bcvh-cell {
-    background: #FFC000;
-    color: #1a1a1a;
-    font-weight: 800;
-}
 
 .bcvh-pill {
     display: inline-block;

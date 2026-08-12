@@ -129,6 +129,144 @@ const newBcvhRowId = () =>
     }`;
 
 const TABS = ['tab1', 'tab2', 'tab3', 'tab4', 'tab5'];
+
+const BCVH_PAYMENT_HEAD_SHORT = {
+    bom: 'Bom bùng',
+    henTT: 'Hẹn TT',
+    khoDoi: 'Khó đòi',
+    hoanHang: 'Hoàn HH',
+    khongNhan: 'K nhận HH',
+    khongPH: 'KPH 3N',
+    kphNhieuNgay: 'KPH n.n',
+    phiHoan: 'TT phí hoàn'
+};
+
+/** Tab2 — mỗi nhóm metric hiển thị dọc trong một cột */
+const BCVH_CHECK_VERTICAL_METRICS = [
+    { id: 'huyNoiBo', label: 'Huỷ NB', title: 'Huỷ nội bộ', kind: 'count' },
+    { id: 'doiHang', label: 'Đợi hàng', kind: 'count' },
+    { id: 'khachHen', label: 'Khách hẹn', kind: 'count' },
+    { id: 'treo', label: 'Treo', kind: 'count' },
+    { id: 'vanDonXL', label: 'VĐ XL', title: 'Vận đơn XL', kind: 'count' },
+    { id: 'daCkChuaDay', label: 'OK chưa mã', title: 'Đơn Ok nhưng chưa có mã', kind: 'count' }
+];
+
+const BCVH_DELIVERY_VERTICAL_METRICS = [
+    { id: 'giaoTC', label: 'Giao TC', title: 'Giao Thành Công', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'dangGiao', label: 'Đang giao', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'chuaGiao', label: 'Chưa giao', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'hoan', label: 'Hoàn', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'huyVH', label: 'Hủy VH', title: 'Hủy vận hành', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'choCheck', label: 'Chờ check', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    {
+        id: 'tongThanhToanGiaoHangNb',
+        label: 'TT giao NB',
+        title: 'Tổng thanh toán giao hàng NB',
+        kind: 'amount',
+        showPct: true,
+        pctBase: 'tongNoiBoAmount'
+    }
+];
+
+const BCVH_VERTICAL_SECTIONS = [
+    {
+        key: 'paid',
+        headerClass: 'bcvh-h-cyan',
+        label: 'Đã TT',
+        subLabel: '(bill)',
+        title: 'Đã Thanh Toán (có bill)',
+        compact: true,
+        items: [
+            { id: 'donCoBill', label: 'SL', title: 'Số đơn', kind: 'count' },
+            { id: 'donCoBillAmount', label: 'Tiền', title: 'Thành tiền', kind: 'amount' }
+        ]
+    },
+    {
+        key: 'tongNb',
+        headerClass: 'bcvh-h-cyan',
+        label: 'TỔNG NB',
+        title: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ',
+        compact: true,
+        items: [
+            { id: 'tongNoiBo', label: 'SL', title: 'Số đơn', kind: 'count' },
+            { id: 'tongNoiBoAmount', label: 'DS', title: 'Doanh số', kind: 'amount' }
+        ]
+    },
+    {
+        key: 'lenVh',
+        headerClass: 'bcvh-h-cyan',
+        label: 'LÊN VH',
+        title: 'TỔNG ĐƠN LÊN VẬN HÀNH',
+        compact: true,
+        items: [
+            { id: 'tongDonLenVanHanh', label: 'SL', title: 'Số đơn', kind: 'count' },
+            { id: 'tongDonLenVanHanhAmount', label: 'DS', title: 'Doanh số', kind: 'amount' }
+        ]
+    },
+    {
+        key: 'chuaMa',
+        headerClass: 'bcvh-h-cyan',
+        label: 'CHƯA MÃ',
+        title: 'TỔNG ĐƠN CHƯA CÓ MÃ (đã lên VH, trống mã)',
+        compact: true,
+        items: [{ id: 'chuaCoMa', label: 'SL', title: 'Số đơn', kind: 'count' }]
+    },
+    {
+        key: 'tyLe',
+        headerClass: 'bcvh-h-yellow',
+        label: 'TỶ LỆ',
+        title: 'Tỷ lệ',
+        compact: true,
+        items: [
+            {
+                field: 'tyLeVHNoiBo',
+                label: 'VH/NB',
+                title: 'TỈ LỆ ĐƠN LÊN VH / ĐƠN NỘI BỘ',
+                kind: 'pct'
+            },
+            {
+                field: 'tyLeTTTrenPhi',
+                label: 'TT/Phí',
+                title: 'Tỉ lệ TT thành công / đơn tính phí',
+                kind: 'pct'
+            },
+            {
+                field: 'tyLeTTThanhCong',
+                label: 'TT/Giao',
+                title: 'Tỉ lệ TT thành công / đơn giao TC',
+                kind: 'pct'
+            }
+        ]
+    },
+    {
+        key: 'delivery',
+        headerClass: 'bcvh-h-green',
+        label: 'GIAO HÀNG',
+        subLabel: 'NB',
+        title: 'TRẠNG THÁI GIAO HÀNG NB — SL + %',
+        items: BCVH_DELIVERY_VERTICAL_METRICS
+    },
+    {
+        key: 'check',
+        headerClass: 'bcvh-h-red',
+        label: 'KẾT QUẢ',
+        subLabel: 'CHECK',
+        title: 'TỔNG ĐƠN THEO KẾT QUẢ CHECK',
+        items: BCVH_CHECK_VERTICAL_METRICS
+    },
+    {
+        key: 'payment',
+        headerClass: 'bcvh-h-grey',
+        label: 'THU TIỀN',
+        title: 'TRẠNG THÁI THU TIỀN',
+        items: BC_VH_PAYMENT_COLUMNS.map((c) => ({
+            paymentId: c.id,
+            label: BCVH_PAYMENT_HEAD_SHORT[c.id] ?? c.label,
+            title: c.label,
+            kind: 'payment'
+        }))
+    }
+];
 const BCVH_CRITERIA_STORAGE_KEY = 'bao_cao_van_hanh_tab2_criteria_v1';
 /** Tổng số dòng (dòng tiêu chí auto + dòng thêm tay). */
 const MAX_BCVH_ROWS_TOTAL = 60;
@@ -982,51 +1120,76 @@ export default function BaoCaoVanHanhHtml() {
         });
     };
 
-    const renderBcvhDrillableCell = (slice, metricId, rowCtx, num) => (
-        <td className="bcvh-cell align-middle">
-            <button
-                type="button"
-                className="max-w-full cursor-pointer text-left font-inherit tabular-nums text-blue-800 underline decoration-dotted underline-offset-2 hover:text-blue-950"
-                onClick={() => openBcvhDrill(slice, metricId, rowCtx)}
-            >
-                {formatNumVi(num)}
-            </button>
-        </td>
+    const formatBcvhPctOf = (num, base) => {
+        if (!base || base <= 0) return '—';
+        return formatPctComma((100 * num) / base);
+    };
+
+    const renderBcvhAmountDisplay = (val) => (
+        <span className="bcvh-amount-display">{formatNumVi(val)}</span>
     );
+
+    const renderBcvhVerticalSectionCell = (section, m, slice, rowCtx) => {
+        const { items, compact } = section;
+        return (
+        <td
+            className={`bcvh-cell bcvh-metric-vertical align-top${compact ? ' bcvh-metric-vertical-compact' : ''}`}
+        >
+            <div className="bcvh-metric-vertical-list">
+                {items.map((item) => {
+                    const rowKey = item.id ?? item.field ?? item.paymentId;
+                    const hasPct = Boolean(item.showPct);
+                    const rowClass = `bcvh-metric-vertical-row${hasPct ? ' has-pct' : ''}`;
+
+                    if (item.kind === 'pct') {
+                        return (
+                            <div key={rowKey} className={rowClass}>
+                                <span className="bcvh-metric-vertical-label" title={item.title ?? item.label}>
+                                    {item.label}
+                                </span>
+                                <span className="bcvh-metric-vertical-val">{formatPctComma(m[item.field])}</span>
+                            </div>
+                        );
+                    }
+
+                    const metricId =
+                        item.kind === 'payment' ? `payment:${item.paymentId}` : item.id;
+                    const val =
+                        item.kind === 'payment'
+                            ? m.payment[item.paymentId] || 0
+                            : (m[item.id] ?? 0);
+                    const fmtFull = item.kind === 'amount' ? formatNumVi : formatSlVi;
+                    const pctStr =
+                        hasPct && item.pctBase ? formatBcvhPctOf(val, m[item.pctBase]) : null;
+
+                    return (
+                        <div key={rowKey} className={rowClass}>
+                            <span className="bcvh-metric-vertical-label" title={item.title ?? item.label}>
+                                {item.label}
+                            </span>
+                            <button
+                                type="button"
+                                className="bcvh-metric-vertical-val cursor-pointer font-inherit tabular-nums font-extrabold text-blue-900 underline decoration-dotted underline-offset-2 hover:text-blue-950"
+                                title={item.kind === 'amount' ? `${fmtFull(val)} đ` : String(fmtFull(val))}
+                                onClick={() => openBcvhDrill(slice, metricId, rowCtx)}
+                            >
+                                {item.kind === 'amount' ? renderBcvhAmountDisplay(val) : formatSlVi(val)}
+                            </button>
+                            {pctStr != null && <span className="bcvh-cell-pct">{pctStr}</span>}
+                        </div>
+                    );
+                })}
+            </div>
+        </td>
+        );
+    };
 
     const renderBcvhMetricCells = (m, slice, rowCtx) => (
         <>
-            {renderBcvhDrillableCell(slice, 'donCoBill', rowCtx, m.donCoBill)}
-            {renderBcvhDrillableCell(slice, 'donCoBillAmount', rowCtx, m.donCoBillAmount)}
-            {renderBcvhDrillableCell(slice, 'tongNoiBo', rowCtx, m.tongNoiBo)}
-            {renderBcvhDrillableCell(slice, 'tongDonLenVanHanh', rowCtx, m.tongDonLenVanHanh)}
-            {renderBcvhDrillableCell(slice, 'chuaCoMa', rowCtx, m.chuaCoMa)}
-            <td className="bcvh-cell">{formatPctComma(m.tyLeVHNoiBo)}</td>
-            <td className="bcvh-cell">{formatPctComma(m.tyLeTTTrenPhi)}</td>
-            <td className="bcvh-cell">{formatPctComma(m.tyLeTTThanhCong)}</td>
-            {renderBcvhDrillableCell(slice, 'giaoTC', rowCtx, m.giaoTC)}
-            {renderBcvhDrillableCell(slice, 'dangGiao', rowCtx, m.dangGiao)}
-            {renderBcvhDrillableCell(slice, 'chuaGiao', rowCtx, m.chuaGiao)}
-            {renderBcvhDrillableCell(slice, 'hoan', rowCtx, m.hoan)}
-            {renderBcvhDrillableCell(slice, 'huyVH', rowCtx, m.huyVH)}
-            {renderBcvhDrillableCell(slice, 'choCheck', rowCtx, m.choCheck)}
-            {renderBcvhDrillableCell(slice, 'tongThanhToanGiaoHangNb', rowCtx, m.tongThanhToanGiaoHangNb)}
-            {renderBcvhDrillableCell(slice, 'huyNoiBo', rowCtx, m.huyNoiBo)}
-            {renderBcvhDrillableCell(slice, 'doiHang', rowCtx, m.doiHang)}
-            {renderBcvhDrillableCell(slice, 'khachHen', rowCtx, m.khachHen)}
-            {renderBcvhDrillableCell(slice, 'treo', rowCtx, m.treo)}
-            {renderBcvhDrillableCell(slice, 'vanDonXL', rowCtx, m.vanDonXL)}
-            {renderBcvhDrillableCell(slice, 'daCkChuaDay', rowCtx, m.daCkChuaDay)}
-            {BC_VH_PAYMENT_COLUMNS.map((c) => (
-                <td key={c.id} className="bcvh-cell align-middle">
-                    <button
-                        type="button"
-                        className="max-w-full cursor-pointer text-left font-inherit tabular-nums text-blue-800 underline decoration-dotted underline-offset-2 hover:text-blue-950"
-                        onClick={() => openBcvhDrill(slice, `payment:${c.id}`, rowCtx)}
-                    >
-                        {formatNumVi(m.payment[c.id] || 0)}
-                    </button>
-                </td>
+            {BCVH_VERTICAL_SECTIONS.map((section) => (
+                <React.Fragment key={section.key}>
+                    {renderBcvhVerticalSectionCell(section, m, slice, rowCtx)}
+                </React.Fragment>
             ))}
         </>
     );
@@ -1034,88 +1197,24 @@ export default function BaoCaoVanHanhHtml() {
     const renderBcvhMetricThead = () => (
         <thead>
             <tr>
-                <th colSpan={2} className="bcvh-h-cyan">
-                    Đã Thanh Toán
-                    <br />
-                    (có bill)
-                </th>
-                <th rowSpan={2} className="bcvh-h-cyan leading-tight">
-                    TỔNG ĐƠN
-                    <br />
-                    SALE LÊN FILE
-                    <br />
-                    NỘI BỘ
-                </th>
-                <th rowSpan={2} className="bcvh-h-cyan leading-tight">
-                    TỔNG ĐƠN
-                    <br />
-                    LÊN VẬN HÀNH
-                </th>
-                <th rowSpan={2} className="bcvh-h-cyan leading-tight">
-                    TỔNG ĐƠN
-                    <br />
-                    CHƯA CÓ MÃ
-                    <br />
-                    <span className="font-normal">(đã lên VH, trống mã)</span>
-                </th>
-                <th colSpan={3} className="bcvh-h-yellow">
-                    TỶ LỆ
-                </th>
-                <th colSpan={7} className="bcvh-h-green leading-tight">
-                    TRẠNG THÁI GIAO HÀNG NB
-                </th>
-                <th colSpan={6} className="bcvh-h-red leading-tight">
-                    TỔNG ĐƠN THEO KẾT QUẢ CHECK
-                </th>
-                <th colSpan={8} className="bcvh-h-grey leading-tight">
-                    TRẠNG THÁI THU TIỀN
-                </th>
-            </tr>
-            <tr>
-                <th className="bcvh-h-cyan">Số đơn</th>
-                <th className="bcvh-h-cyan">Thành tiền</th>
-                <th className="bcvh-h-yellow leading-tight">
-                    TỈ LỆ ĐƠN LÊN VH
-                    <br />
-                    / ĐƠN NỘI BỘ
-                </th>
-                <th className="bcvh-h-yellow leading-tight">
-                    Tỉ lệ TT thành công
-                    <br />
-                    / đơn tính phí
-                </th>
-                <th className="bcvh-h-yellow leading-tight">
-                    Tỉ lệ TT thành công
-                    <br />
-                    / đơn giao TC
-                </th>
-                <th className="bcvh-h-green">Giao Thành Công</th>
-                <th className="bcvh-h-green">Đang Giao</th>
-                <th className="bcvh-h-green">Chưa Giao</th>
-                <th className="bcvh-h-green">Hoàn</th>
-                <th className="bcvh-h-green leading-tight">Hủy vận hành</th>
-                <th className="bcvh-h-green">Chờ check</th>
-                <th className="bcvh-h-green leading-tight">
-                    Tổng thanh toán
-                    <br />
-                    giao hàng NB
-                </th>
-                <th className="bcvh-h-red">Huỷ nội bộ</th>
-                <th className="bcvh-h-red">Đợi hàng</th>
-                <th className="bcvh-h-red">Khách hẹn</th>
-                <th className="bcvh-h-red">Treo</th>
-                <th className="bcvh-h-red">Vận đơn XL</th>
-                <th className="bcvh-h-red leading-tight">
-                    Đơn Ok nhưng
-                    <br />
-                    chưa có mã
-                </th>
-                {BC_VH_PAYMENT_COLUMNS.map((col) => (
-                    <th key={col.id} className="bcvh-h-grey leading-tight">
-                        {col.label}
+                {BCVH_VERTICAL_SECTIONS.map((section) => (
+                    <th
+                        key={section.key}
+                        rowSpan={2}
+                        className={`${section.headerClass} leading-tight${section.compact ? ' bcvh-h-compact' : ''}`}
+                        title={section.title}
+                    >
+                        {section.label}
+                        {section.subLabel ? (
+                            <>
+                                <br />
+                                {section.subLabel}
+                            </>
+                        ) : null}
                     </th>
                 ))}
             </tr>
+            <tr aria-hidden="true" />
         </thead>
     );
 
@@ -1541,13 +1640,27 @@ export default function BaoCaoVanHanhHtml() {
             }
         }
 
-        const MIN_COL = 88;
+        /** Cột trái gọn (0–4); cột phải vừa nội dung (không kéo giãn chữ–số) */
+        const COL_LIMITS = [
+            { min: 68, max: 88 },
+            { min: 68, max: 88 },
+            { min: 68, max: 88 },
+            { min: 54, max: 68 },
+            { min: 58, max: 74 },
+            { min: 92, max: 118 },
+            { min: 84, max: 108 },
+            { min: 84, max: 108 }
+        ];
+        const capColWidth = (colIdx, w) => {
+            const lim = COL_LIMITS[colIdx] ?? { min: 88, max: 120 };
+            return Math.min(lim.max, Math.max(lim.min, Math.ceil(w)));
+        };
         const buildColgroup = () => {
             const cg = document.createElement('colgroup');
             cg.className = 'bcvh-metric-colgroup';
-            maxW.forEach((w) => {
+            maxW.forEach((w, i) => {
                 const col = document.createElement('col');
-                const px = Math.max(MIN_COL, Math.ceil(w));
+                const px = capColWidth(i, w);
                 col.style.width = `${px}px`;
                 col.style.minWidth = `${px}px`;
                 cg.appendChild(col);
@@ -1567,8 +1680,8 @@ export default function BaoCaoVanHanhHtml() {
             const lastH = cgHead.querySelector('col:last-child');
             const lastB = cgBody.querySelector('col:last-child');
             if (!lastH || !lastB) return;
-            const cur = parseFloat(lastH.style.width) || MIN_COL;
-            const next = Math.max(MIN_COL, Math.round(cur + deltaPx));
+            const cur = parseFloat(lastH.style.width) || 42;
+            const next = Math.max(42, Math.round(cur + deltaPx));
             lastH.style.width = `${next}px`;
             lastH.style.minWidth = `${next}px`;
             lastB.style.width = `${next}px`;
@@ -2254,10 +2367,10 @@ export default function BaoCaoVanHanhHtml() {
                         <div className="bcvh-title-row text-center uppercase tracking-wide">BÁO CÁO VẬN HÀNH</div>
                     </div>
                     </div>
-                    <div className="bcvh-split bcvh-split-stack flex min-h-0 flex-1 flex-row items-stretch gap-2">
+                    <div className="bcvh-split bcvh-split-stack flex min-h-0 flex-1 flex-row items-stretch gap-1">
                         <div
                             ref={bcvhLeftColumnRef}
-                            className="flex min-h-0 shrink-0 flex-col"
+                            className="flex min-h-0 max-w-[var(--bcvh-fixed-width)] shrink-0 flex-col"
                         >
                             <div className="bcvh-fixed-pane bcvh-fixed-pane-head shrink-0">
                                 <table
@@ -2348,7 +2461,7 @@ export default function BaoCaoVanHanhHtml() {
                                                     />
                                                 </td>
                                                 <td className="bcvh-cell bcvh-cell-left bcvh-col-3 align-middle">
-                                                    <div className="min-w-[7rem] max-w-[11rem]">
+                                                    <div className="min-w-0 w-full">
                                                         <MultiSelect
                                                             label="SP"
                                                             placeholder="SP"
@@ -2370,7 +2483,7 @@ export default function BaoCaoVanHanhHtml() {
                                                     </div>
                                                 </td>
                                                 <td className="bcvh-cell bcvh-cell-left bcvh-col-4 align-middle">
-                                                    <div className="flex min-w-[7rem] max-w-[11rem] items-center gap-1">
+                                                    <div className="flex min-w-0 w-full items-center gap-1">
                                                         <div className="min-w-0 flex-1">
                                                             <MultiSelect
                                                                 label="TT"
@@ -2419,7 +2532,7 @@ export default function BaoCaoVanHanhHtml() {
                                 </table>
                             </div>
                         </div>
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                        <div className="bcvh-right-pane flex min-h-0 min-w-0 flex-col">
                             <div className="bcvh-metric-head-band flex shrink-0 items-stretch">
                                 <div
                                     ref={bcvhMetricHeadScrollRef}
@@ -2427,7 +2540,7 @@ export default function BaoCaoVanHanhHtml() {
                                 >
                                     <table
                                         ref={bcvhScrollHeadTableRef}
-                                        className="bcvh-metric-table bcvh-metric-colsync border-separate border-spacing-0"
+                                        className="bcvh-metric-table bcvh-metric-colsync bcvh-metric-compact border-separate border-spacing-0"
                                     >
                                         {renderBcvhMetricThead()}
                                     </table>
@@ -2440,7 +2553,7 @@ export default function BaoCaoVanHanhHtml() {
                                 >
                                     <table
                                         ref={bcvhScrollTableRef}
-                                        className="bcvh-metric-table bcvh-metric-colsync relative z-[1] -mt-px border-separate border-spacing-0"
+                                        className="bcvh-metric-table bcvh-metric-colsync bcvh-metric-compact relative z-[1] -mt-px border-separate border-spacing-0"
                                     >
                                         <tbody>
                                             {bcvhLines.map((line, idx) => (
