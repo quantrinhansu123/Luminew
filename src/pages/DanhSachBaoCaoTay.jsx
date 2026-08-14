@@ -697,7 +697,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         if (
             !window.confirm(
                 `Tính lại ${tableLabel} từ ${ordersLabel} (Supabase) — cùng luồng Admin Tools:\n\n` +
-                    '• Cập nhật số đơn, doanh số, đơn hủy, đơn go (có tracking, không hủy).\n' +
+                    '• Cập nhật số đơn, doanh số, đơn hủy, Đơn Ok (check=Ok), đơn go (có tracking, không hủy).\n' +
                     '• Tự thêm dòng «Hết ca» nếu thiếu key (ngày + nhân viên sale + SP + thị trường).\n\n' +
                     `Khoảng: ${filters.startDate} → ${filters.endDate}\n\nChạy?`
             )
@@ -986,9 +986,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             response_count: report.response_count,
             order_count: report.order_count,
             order_cancel_count: report.order_cancel_count || 0,
+            order_success_count: report.order_success_count || 0,
             order_go: report.order_go || 0,
             revenue_actual: report.revenue_actual,
             revenue_cancel_actual: report.revenue_cancel_actual || 0,
+            revenue_success: report.revenue_success || 0,
             revenue_go_actual: report.revenue_go_actual || 0
         });
     };
@@ -1019,9 +1021,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                     response_count: Number(editForm.response_count) || 0,
                     order_count: Number(editForm.order_count) || 0,
                     order_cancel_count: Number(editForm.order_cancel_count) || 0,
+                    order_success_count: Number(editForm.order_success_count) || 0,
                     order_go: Number(editForm.order_go) || 0,
                     revenue_actual: Number(editForm.revenue_actual) || 0,
                     revenue_cancel_actual: Number(editForm.revenue_cancel_actual) || 0,
+                    revenue_success: Number(editForm.revenue_success) || 0,
                     revenue_go_actual: Number(editForm.revenue_go_actual) || 0
                 })
                 .eq('id', editingReport.id);
@@ -1574,6 +1578,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                 response_count: acc.response_count + Number(item.response_count || 0),
                 order_count: acc.order_count + Number(item.order_count || 0),
                 order_cancel_count: acc.order_cancel_count + Number(item.order_cancel_count || 0),
+                order_success_count: acc.order_success_count + Number(item.order_success_count || 0),
                 revenue_actual: acc.revenue_actual + Number(item.revenue_actual || 0),
                 revenue_cancel_actual: acc.revenue_cancel_actual + Number(item.revenue_cancel_actual || 0),
                 order_go: acc.order_go + Number(item.order_go || 0),
@@ -1584,6 +1589,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                 response_count: 0,
                 order_count: 0,
                 order_cancel_count: 0,
+                order_success_count: 0,
                 revenue_actual: 0,
                 revenue_cancel_actual: 0,
                 order_go: 0,
@@ -1610,6 +1616,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             'Phản hồi': 'response_count',
             'Số đơn': 'order_count',
             'Số đơn hủy': 'order_cancel_count',
+            'Đơn Ok': 'order_success_count',
             'Doanh số': 'revenue_actual',
             'Doanh số hủy': 'revenue_cancel_actual',
             ...(!isHcm ? { 'Số đơn go': 'order_go', 'Doanh số go': 'revenue_go_actual' } : {}),
@@ -1634,6 +1641,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             'response_count',
             'order_count',
             'order_cancel_count',
+            'order_success_count',
             'revenue_actual',
             'revenue_cancel_actual',
             ...(isHcm ? [] : ['order_go', 'revenue_go_actual']),
@@ -2195,6 +2203,20 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                     </th>
                                     <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Đơn Ok')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Đơn Ok
+                                            {sortColumn === 'Đơn Ok' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Doanh số')}
                                         style={{ userSelect: 'none' }}
                                     >
@@ -2266,6 +2288,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                         <td className="total-value">{formatNumber(reportTableTotals.response_count)}</td>
                                         <td className="total-value">{formatNumber(reportTableTotals.order_count)}</td>
                                         <td className="total-value">{formatNumber(reportTableTotals.order_cancel_count)}</td>
+                                        <td className="total-value">{formatNumber(reportTableTotals.order_success_count)}</td>
                                         <td className="total-value">{formatCurrency(reportTableTotals.revenue_actual)}</td>
                                         <td className="total-value">{formatCurrency(reportTableTotals.revenue_cancel_actual)}</td>
                                         {!isHcm && (
@@ -2279,7 +2302,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                 )}
                                 {sortedReports.length === 0 ? (
                                     <tr>
-                                        <td colSpan={isHcm ? 15 : 17} className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td colSpan={isHcm ? 16 : 18} className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
                                     sortedReports.map((item, index) => (
@@ -2330,6 +2353,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             <td>{formatNumber(item.response_count)}</td>
                                             <td>{formatNumber(item.order_count)}</td>
                                             <td>{formatNumber(item.order_cancel_count || 0)}</td>
+                                            <td>{formatNumber(item.order_success_count || 0)}</td>
                                             <td>{formatCurrency(item.revenue_actual || 0)}</td>
                                             <td>{formatCurrency(item.revenue_cancel_actual || 0)}</td>
                                             {!isHcm && (
@@ -2492,6 +2516,16 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                     type="number"
                                     name="order_cancel_count"
                                     value={editForm.order_cancel_count || 0}
+                                    onChange={handleInputChange}
+                                    className="w-full border rounded px-2 py-1"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Đơn Ok:</label>
+                                <input
+                                    type="number"
+                                    name="order_success_count"
+                                    value={editForm.order_success_count || 0}
                                     onChange={handleInputChange}
                                     className="w-full border rounded px-2 py-1"
                                 />

@@ -16,6 +16,17 @@ export function isCheckResultHuy(val) {
   return ascii === 'huy';
 }
 
+/** Chuẩn hóa để khớp Ok / OK */
+export function isCheckResultOk(val) {
+  const s = String(val ?? '').trim();
+  if (!s) return false;
+  const ascii = s
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+  return ascii === 'ok';
+}
+
 /** Một giá trị VND cho đơn (thứ tự ưu tiên giống báo cáo tay / sales recalc). */
 export function orderAmountVnd(order) {
   const raw =

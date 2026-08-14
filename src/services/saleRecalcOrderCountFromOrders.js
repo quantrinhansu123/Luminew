@@ -1,7 +1,7 @@
 import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, normalizePersonKey } from '../utils/emailFromName';
-import { getCheckResult, isCheckResultHuy, orderAmountVnd } from '../utils/orderCheckAndVnd';
+import { getCheckResult, isCheckResultHuy, isCheckResultOk, orderAmountVnd } from '../utils/orderCheckAndVnd';
 
 function normalizeStr(str) {
   if (str === null || str === undefined) return '';
@@ -274,7 +274,7 @@ function isNetworkError(e) {
 export const SALES_REPORTS_AUTO_CREATE_MISSING_ROWS = true;
 
 /**
- * Từ `orders` ghi `sales_reports`: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).
+ * Từ `orders` ghi `sales_reports`: order_count, revenue_actual, order_cancel_*, order_success_count, revenue_success (đơn check=Ok).
  * Tạo dòng thiếu: mặc định theo {@link SALES_REPORTS_AUTO_CREATE_MISSING_ROWS} (có thể override từng tham số).
  */
 export async function recalcSaleOrderCountFromOrders({
@@ -324,7 +324,7 @@ export async function recalcSaleOrderCountFromOrders({
   ]);
 
   // Bỏ điều kiện ca: cùng một key thì Hết ca/Giữa ca dùng cùng tổng.
-  // Key -> { count, revenueVnd, cancelCount, cancelRevenueVnd, sample }
+  // Key -> { count, revenueVnd, cancelCount, cancelRevenueVnd, okCount, okRevenueVnd, sample }
   const countsAllByKey = new Map();
 
   for (const order of orders || []) {
@@ -332,7 +332,9 @@ export async function recalcSaleOrderCountFromOrders({
     if (!key || !normalizeStr(order.sale_staff)) continue;
 
     const vnd = orderAmountVnd(order);
-    const huy = isCheckResultHuy(getCheckResult(order));
+    const checkResult = getCheckResult(order);
+    const huy = isCheckResultHuy(checkResult);
+    const ok = isCheckResultOk(checkResult);
     const goOrder = !huy && orderHasGoTracking(order);
 
     const exAll = countsAllByKey.get(key);
@@ -342,6 +344,10 @@ export async function recalcSaleOrderCountFromOrders({
       if (huy) {
         exAll.cancelCount += 1;
         exAll.cancelRevenueVnd += vnd;
+      }
+      if (ok) {
+        exAll.okCount += 1;
+        exAll.okRevenueVnd += vnd;
       }
       if (goOrder) {
         exAll.goCount = (exAll.goCount || 0) + 1;
@@ -353,6 +359,8 @@ export async function recalcSaleOrderCountFromOrders({
         revenueVnd: vnd,
         cancelCount: huy ? 1 : 0,
         cancelRevenueVnd: huy ? vnd : 0,
+        okCount: ok ? 1 : 0,
+        okRevenueVnd: ok ? vnd : 0,
         goCount: goOrder ? 1 : 0,
         goRevenueVnd: goOrder ? vnd : 0,
         sample: {
@@ -397,6 +405,8 @@ export async function recalcSaleOrderCountFromOrders({
     const revenueActual = agg?.revenueVnd ?? 0;
     const cancelActual = agg?.cancelCount ?? 0;
     const revenueCancelActual = agg?.cancelRevenueVnd ?? 0;
+    const okActual = agg?.okCount ?? 0;
+    const revenueOkActual = agg?.okRevenueVnd ?? 0;
     const goCount = agg?.goCount ?? 0;
     const goRevenue = agg?.goRevenueVnd ?? 0;
 
@@ -409,6 +419,8 @@ export async function recalcSaleOrderCountFromOrders({
       order_cancel_count: cancelActual,
       order_cancel_count_actual: cancelActual,
       revenue_cancel_actual: revenueCancelActual,
+      order_success_count: okActual,
+      revenue_success: revenueOkActual,
       order_go: goCount,
       revenue_go_actual: goRevenue,
     };
@@ -433,6 +445,8 @@ export async function recalcSaleOrderCountFromOrders({
         revenue_actual: revenueActual,
         order_cancel_count_actual: cancelActual,
         revenue_cancel_actual: revenueCancelActual,
+        order_success_count: okActual,
+        revenue_success: revenueOkActual,
         action: 'update',
       });
     }
@@ -475,6 +489,8 @@ export async function recalcSaleOrderCountFromOrders({
         order_cancel_count: entry.cancelCount ?? 0,
         order_cancel_count_actual: entry.cancelCount ?? 0,
         revenue_cancel_actual: entry.cancelRevenueVnd ?? 0,
+        order_success_count: entry.okCount ?? 0,
+        revenue_success: entry.okRevenueVnd ?? 0,
         order_go: entry.goCount ?? 0,
         revenue_go_actual: entry.goRevenueVnd ?? 0,
       };
@@ -493,6 +509,8 @@ export async function recalcSaleOrderCountFromOrders({
           revenue_actual: row.revenue_actual,
           order_cancel_count_actual: row.order_cancel_count_actual,
           revenue_cancel_actual: row.revenue_cancel_actual,
+          order_success_count: row.order_success_count,
+          revenue_success: row.revenue_success,
           action: 'create',
         });
       }
@@ -503,7 +521,7 @@ export async function recalcSaleOrderCountFromOrders({
     return {
       success: true,
       table: reportsTable,
-      field: 'order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual',
+      field: 'order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual, order_success_count, revenue_success',
       reportsFetched: reportRows.length,
       ordersFetched: orders?.length || 0,
       updatedExisting: updateRows.length,
@@ -558,7 +576,7 @@ export async function recalcSaleOrderCountFromOrders({
   return {
     success: true,
     table: reportsTable,
-    field: 'order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual',
+    field: 'order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual, order_success_count, revenue_success',
     reportsFetched: reportRows.length,
     ordersFetched: orders?.length || 0,
     updatedExisting: updateRows.length,

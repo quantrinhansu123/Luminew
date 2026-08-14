@@ -49,6 +49,18 @@ const LOGO_URL =
   'https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg';
 const CA_FILTER_OPTIONS = ['Hết ca'];
 
+/** Tab báo cáo tay: Số đơn TT / Doanh số TT = đã trừ huỷ; Tỉ lệ chốt = Số đơn TT / Số mess. */
+function netTtAfterCancel(item) {
+  const soDonTT = (Number(item?.soDonThucTe) || 0) - (Number(item?.soDonHoanHuyThucTe) || 0);
+  const dsTT = (Number(item?.doanhThuChotThucTe) || 0) - (Number(item?.doanhSoHoanHuyThucTe) || 0);
+  const mess = Number(item?.mess) || 0;
+  return {
+    soDonTT,
+    dsTT,
+    rateChot: mess > 0 ? soDonTT / mess : 0,
+  };
+}
+
 /** Chuẩn hóa tên nhập nhầm trên stack HCM (xem-bao-cao-sale-hcm). */
 const HCM_RENAME_ANH_NGUYET_FROM = 'Nguyễn Thị Ánh Nguyệt 1';
 const HCM_RENAME_ANH_NGUYET_TO = 'Nguyễn Thị Ánh Nguyệt';
@@ -200,10 +212,13 @@ function SaleStaffProductMarketModal({
       const dsHuy = s.doanhSoHoanHuyThucTe || 0;
       const soDonOk = soDonNb - soDonHuy;
       const doanhSoOk = s.doanhThuChotThucTe - dsHuy;
-      const rateTt = soDonNb > 0 ? soDonOk / soDonNb : 0;
-      const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
+      const rateTt = s.mess > 0 ? soDonOk / s.mess : 0;
+      const rateClass = rateTt >= 0.1 ? 'bg-green' : rateTt > 0.05 ? 'bg-yellow' : '';
       return (
         <>
+          <td>{formatNumber(s.mess)}</td>
+          <td>{formatNumber(s.phanHoi)}</td>
+          <td>{formatCurrency(s.chot)}</td>
           <td>{formatNumber(soDonNb)}</td>
           <td>{formatNumber(soDonOk)}</td>
           <td>{formatCurrency(doanhSoOk)}</td>
@@ -211,19 +226,19 @@ function SaleStaffProductMarketModal({
         </>
       );
     }
-    const rate = s.mess ? s.soDonThucTe / s.mess : 0;
-    const rateClass = rate >= 0.1 ? 'bg-green' : rate > 0.05 ? 'bg-yellow' : '';
+    const { soDonTT, dsTT, rateChot } = netTtAfterCancel(s);
+    const rateClass = rateChot >= 0.1 ? 'bg-green' : rateChot > 0.05 ? 'bg-yellow' : '';
     return (
       <>
         <td>{formatNumber(s.mess)}</td>
         <td>{formatNumber(s.phanHoi)}</td>
         <td>{formatNumber(s.don)}</td>
-        <td>{formatNumber(s.soDonThucTe)}</td>
+        <td>{formatNumber(soDonTT)}</td>
         <td>{formatCurrency(s.chot)}</td>
-        <td>{formatCurrency(s.doanhThuChotThucTe)}</td>
+        <td>{formatCurrency(dsTT)}</td>
         <td>{formatNumber(s.soDonHoanHuyThucTe || 0)}</td>
         <td>{formatCurrency(s.doanhSoHoanHuyThucTe || 0)}</td>
-        <td className={rateClass}>{formatPercent(rate)}</td>
+        <td className={rateClass}>{formatPercent(rateChot)}</td>
       </>
     );
   };
@@ -262,22 +277,25 @@ function SaleStaffProductMarketModal({
                   <th>Thị trường</th>
                   {isSauHuy ? (
                     <>
-                      <th title="Số đơn nội bộ — lên đơn bình thường">Số đơn nb</th>
-                      <th>Số đơn Ok</th>
-                      <th>Doanh số Ok</th>
-                      <th title="Số đơn Ok / Số đơn nb">Tỷ lệ chốt TT</th>
+                      <th title="Số Mess">Mess</th>
+                      <th title="Phản hồi">Phản hồi</th>
+                      <th title="Doanh số (DS Chốt)">DS</th>
+                      <th title="Số đơn nội bộ — lên đơn bình thường">Đơn nb</th>
+                      <th title="Số đơn Ok">Đơn Ok</th>
+                      <th title="Doanh số Ok">DS Ok</th>
+                      <th title="Tỉ lệ chốt = Số đơn Ok / Số mess">TL chốt</th>
                     </>
                   ) : (
                     <>
                       <th>Số Mess</th>
                       <th>Phản hồi</th>
                       <th>Số Đơn</th>
-                      <th>Số đơn TT</th>
+                      <th title="Số đơn TT = Số đơn thực tế − Số đơn huỷ">Số đơn TT</th>
                       <th>DS Chốt</th>
-                      <th>Doanh số TT</th>
+                      <th title="Doanh số TT = Doanh thu chốt thực tế − DS huỷ">Doanh số TT</th>
                       <th>Huỷ — Số đơn</th>
                       <th>Huỷ — DS</th>
-                      <th>Tỉ lệ chốt</th>
+                      <th title="Tỉ lệ chốt = Số đơn TT / Số mess">Tỉ lệ chốt</th>
                     </>
                   )}
                 </tr>
@@ -1308,11 +1326,11 @@ export default function NhanSuSaleLumiMoiView({
     });
     const flatListFiltered = keepTeamNghiRowsForHcmReport ? flatList : flatListFilteredNoTeamNghi(flatList);
     const total = aggregateTotalFromFlatList(flatListFiltered);
-    /* Tổng dòng — Số đơn Ok / Số đơn nb */
+    /* Tổng dòng — Số đơn Ok; Tỉ lệ chốt = Số đơn Ok / Số mess */
     const soDonSauHuyTotal2 = total.soDonThucTe - total.soDonHoanHuyThucTe;
     const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
-    // Tỷ lệ chốt TT = Số đơn Ok / Số đơn nb (nội bộ)
-    const totalRateSauHuy = total.soDonThucTe > 0 ? soDonSauHuyTotal2 / total.soDonThucTe : 0;
+    // Tỉ lệ chốt = Số đơn Ok / Số mess
+    const totalRateSauHuy = total.mess > 0 ? soDonSauHuyTotal2 / total.mess : 0;
     const soDonHuyTotal = total.soDonHoanHuyThucTe || total.soDonThucTe - soDonSauHuyTotal2;
     const dsHuyTotal = total.doanhSoHoanHuyThucTe || 0;
 
@@ -1446,7 +1464,7 @@ export default function NhanSuSaleLumiMoiView({
     dsHuyTotal,
   } = summaryMain;
 
-  const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
+  const totalRateChot = netTtAfterCancel(total).rateChot;
 
   if (!hasPageAccess) {
     return (
@@ -1927,10 +1945,13 @@ restrictedForPopulate,
                     <th>STT</th>
                     <th>Team</th>
                     <th>Sale</th>
-                    <th title="Số đơn nội bộ — lên đơn bình thường">Số đơn nb</th>
-                    <th>Số đơn Ok</th>
-                    <th>Doanh số Ok</th>
-                    <th title="Số đơn Ok / Số đơn nb">Tỷ lệ chốt TT</th>
+                    <th title="Số Mess">Mess</th>
+                    <th title="Phản hồi">Phản hồi</th>
+                    <th title="Doanh số (DS Chốt)">DS</th>
+                    <th title="Số đơn nội bộ — lên đơn bình thường">Đơn nb</th>
+                    <th title="Số đơn Ok">Đơn Ok</th>
+                    <th title="Doanh số Ok">DS Ok</th>
+                    <th title="Tỉ lệ chốt = Số đơn Ok / Số mess">TL chốt</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1938,6 +1959,9 @@ restrictedForPopulate,
                     <td className="total-label" colSpan={3}>
                       TỔNG CỘNG
                     </td>
+                    <td className="total-value">{formatNumber(total.mess)}</td>
+                    <td className="total-value">{formatNumber(total.phanHoi)}</td>
+                    <td className="total-value">{formatCurrency(total.chot)}</td>
                     <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
                     <td className="total-value">{formatNumber(soDonSauHuyTotal2)}</td>
                     <td className="total-value">{formatCurrency(dsSauHuyTTTotal)}</td>
@@ -1949,8 +1973,8 @@ restrictedForPopulate,
                     const dsHuy = item.doanhSoHoanHuyThucTe || 0;
                     const soDonOk = soDonNb - soDonHuy;
                     const doanhSoOk = item.doanhThuChotThucTe - dsHuy;
-                    const rateTt = soDonNb > 0 ? soDonOk / soDonNb : 0;
-                    const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
+                    const rateTt = item.mess > 0 ? soDonOk / item.mess : 0;
+                    const rateClass = rateTt >= 0.1 ? 'bg-green' : rateTt > 0.05 ? 'bg-yellow' : '';
                     const key = `s-${item.name}-${index}`;
                     return (
                       <tr
@@ -1971,6 +1995,9 @@ restrictedForPopulate,
                             onOpen={setStaffDetailName}
                           />
                         </td>
+                        <td>{formatNumber(item.mess)}</td>
+                        <td>{formatNumber(item.phanHoi)}</td>
+                        <td>{formatCurrency(item.chot)}</td>
                         <td>{formatNumber(soDonNb)}</td>
                         <td>{formatNumber(soDonOk)}</td>
                         <td>{formatCurrency(doanhSoOk)}</td>
@@ -2003,11 +2030,11 @@ restrictedForPopulate,
                     <th rowSpan={2}>Số Mess</th>
                     <th rowSpan={2}>Phản hồi</th>
                     <th rowSpan={2}>Số Đơn</th>
-                    <th rowSpan={2}>Số đơn TT</th>
+                    <th rowSpan={2} title="Số đơn TT = Số đơn thực tế − Số đơn huỷ">Số đơn TT</th>
                     <th rowSpan={2}>DS Chốt</th>
-                    <th rowSpan={2}>Doanh số TT</th>
+                    <th rowSpan={2} title="Doanh số TT = Doanh thu chốt thực tế − DS huỷ">Doanh số TT</th>
                     <th colSpan={2}>Trạng thái huỷ</th>
-                    <th rowSpan={2}>Tỉ lệ chốt</th>
+                    <th rowSpan={2} title="Tỉ lệ chốt = Số đơn TT / Số mess">Tỉ lệ chốt</th>
                   </tr>
                   <tr>
                     <th>Số đơn</th>
@@ -2022,16 +2049,16 @@ restrictedForPopulate,
                     <td className="total-value">{formatNumber(total.mess)}</td>
                     <td className="total-value">{formatNumber(total.phanHoi)}</td>
                     <td className="total-value">{formatNumber(total.don)}</td>
-                    <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
+                    <td className="total-value">{formatNumber(soDonSauHuyTotal2)}</td>
                     <td className="total-value">{formatCurrency(total.chot)}</td>
-                    <td className="total-value">{formatCurrency(total.doanhThuChotThucTe)}</td>
+                    <td className="total-value">{formatCurrency(dsSauHuyTTTotal)}</td>
                     <td className="total-value">{formatNumber(soDonHuyTotal)}</td>
                     <td className="total-value">{formatCurrency(dsHuyTotal)}</td>
                     <td className="total-value">{formatPercent(totalRateChot)}</td>
                   </tr>
                   {flatListFiltered.map((item, index) => {
-                    const rate = item.mess ? item.soDonThucTe / item.mess : 0;
-                    const rateClass = rate >= 0.1 ? 'bg-green' : rate > 0.05 ? 'bg-yellow' : '';
+                    const { soDonTT, dsTT, rateChot } = netTtAfterCancel(item);
+                    const rateClass = rateChot >= 0.1 ? 'bg-green' : rateChot > 0.05 ? 'bg-yellow' : '';
                     const key = `c-${item.name}-${index}`;
                     const soDonHuy = item.soDonHoanHuyThucTe || 0;
                     const dsHuy = item.doanhSoHoanHuyThucTe || 0;
@@ -2057,12 +2084,12 @@ restrictedForPopulate,
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
                         <td>{formatNumber(item.don)}</td>
-                        <td>{formatNumber(item.soDonThucTe)}</td>
+                        <td>{formatNumber(soDonTT)}</td>
                         <td>{formatCurrency(item.chot)}</td>
-                        <td>{formatCurrency(item.doanhThuChotThucTe)}</td>
+                        <td>{formatCurrency(dsTT)}</td>
                         <td>{formatNumber(soDonHuy)}</td>
                         <td>{formatCurrency(dsHuy)}</td>
-                        <td className={rateClass}>{formatPercent(rate)}</td>
+                        <td className={rateClass}>{formatPercent(rateChot)}</td>
                       </tr>
                     );
                   })}
@@ -2170,7 +2197,7 @@ function DailyBreakdownSauHuy({
         const dsHuyTotal = total.doanhSoHoanHuyThucTe || 0;
         const soDonOkTotal = soDonNbTotal - soDonHuyTotal;
         const doanhSoOkTotal = total.doanhThuChotThucTe - dsHuyTotal;
-        const totalRateTt = soDonNbTotal > 0 ? soDonOkTotal / soDonNbTotal : 0;
+        const totalRateTt = total.mess > 0 ? soDonOkTotal / total.mess : 0;
         return (
           <div key={date}>
             <h3>Chi tiết ngày: {date}</h3>
@@ -2181,10 +2208,13 @@ function DailyBreakdownSauHuy({
                     <th>STT</th>
                     <th>Team</th>
                     <th>Sale</th>
-                    <th title="Số đơn nội bộ — lên đơn bình thường">Số đơn nb</th>
-                    <th>Số đơn Ok</th>
-                    <th>Doanh số Ok</th>
-                    <th title="Số đơn Ok / Số đơn nb">Tỷ lệ chốt TT</th>
+                    <th title="Số Mess">Mess</th>
+                    <th title="Phản hồi">Phản hồi</th>
+                    <th title="Doanh số (DS Chốt)">DS</th>
+                    <th title="Số đơn nội bộ — lên đơn bình thường">Đơn nb</th>
+                    <th title="Số đơn Ok">Đơn Ok</th>
+                    <th title="Doanh số Ok">DS Ok</th>
+                    <th title="Tỉ lệ chốt = Số đơn Ok / Số mess">TL chốt</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2192,6 +2222,9 @@ function DailyBreakdownSauHuy({
                     <td colSpan={3} className="total-label">
                       TỔNG NGÀY {date}
                     </td>
+                    <td className="total-value">{formatNumber(total.mess)}</td>
+                    <td className="total-value">{formatNumber(total.phanHoi)}</td>
+                    <td className="total-value">{formatCurrency(total.chot)}</td>
                     <td className="total-value">{formatNumber(soDonNbTotal)}</td>
                     <td className="total-value">{formatNumber(soDonOkTotal)}</td>
                     <td className="total-value">{formatCurrency(doanhSoOkTotal)}</td>
@@ -2203,8 +2236,8 @@ function DailyBreakdownSauHuy({
                     const dsHuy = item.doanhSoHoanHuyThucTe || 0;
                     const soDonOk = soDonNb - soDonHuy;
                     const doanhSoOk = item.doanhThuChotThucTe - dsHuy;
-                    const rateTt = soDonNb > 0 ? soDonOk / soDonNb : 0;
-                    const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
+                    const rateTt = item.mess > 0 ? soDonOk / item.mess : 0;
+                    const rateClass = rateTt >= 0.1 ? 'bg-green' : rateTt > 0.05 ? 'bg-yellow' : '';
                     return (
                       <tr key={`${date}-${item.name}`} style={{ '--row-index': index }}>
                         <td className="text-center">{index + 1}</td>
@@ -2223,6 +2256,9 @@ function DailyBreakdownSauHuy({
                             formatSaleName(item.name) || item.name || '—'
                           )}
                         </td>
+                        <td>{formatNumber(item.mess)}</td>
+                        <td>{formatNumber(item.phanHoi)}</td>
+                        <td>{formatCurrency(item.chot)}</td>
                         <td>{formatNumber(soDonNb)}</td>
                         <td>{formatNumber(soDonOk)}</td>
                         <td>{formatCurrency(doanhSoOk)}</td>
@@ -2276,7 +2312,7 @@ function DailyBreakdownChot({
         );
         const flatListFiltered = keepTeamNghiRows ? flatList : flatListFilteredNoTeamNghi(flatList);
         const total = aggregateTotalFromFlatList(flatListFiltered);
-        const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
+        const { soDonTT: soDonTTTotal, dsTT: dsTTTotal, rateChot: totalRateChot } = netTtAfterCancel(total);
         return (
           <div key={date}>
             <h3>Chi tiết ngày: {date}</h3>
@@ -2290,11 +2326,11 @@ function DailyBreakdownChot({
                     <th rowSpan={2}>Số Mess</th>
                     <th rowSpan={2}>Phản hồi</th>
                     <th rowSpan={2}>Số Đơn</th>
-                    <th rowSpan={2}>Số đơn TT</th>
+                    <th rowSpan={2} title="Số đơn TT = Số đơn thực tế − Số đơn huỷ">Số đơn TT</th>
                     <th rowSpan={2}>DS Chốt</th>
-                    <th rowSpan={2}>Doanh số TT</th>
+                    <th rowSpan={2} title="Doanh số TT = Doanh thu chốt thực tế − DS huỷ">Doanh số TT</th>
                     <th colSpan={2}>Trạng thái huỷ</th>
-                    <th rowSpan={2}>Tỉ lệ chốt</th>
+                    <th rowSpan={2} title="Tỉ lệ chốt = Số đơn TT / Số mess">Tỉ lệ chốt</th>
                   </tr>
                   <tr>
                     <th>Số đơn</th>
@@ -2309,16 +2345,16 @@ function DailyBreakdownChot({
                     <td className="total-value">{formatNumber(total.mess)}</td>
                     <td className="total-value">{formatNumber(total.phanHoi)}</td>
                     <td className="total-value">{formatNumber(total.don)}</td>
-                    <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
+                    <td className="total-value">{formatNumber(soDonTTTotal)}</td>
                     <td className="total-value">{formatCurrency(total.chot)}</td>
-                    <td className="total-value">{formatCurrency(total.doanhThuChotThucTe)}</td>
+                    <td className="total-value">{formatCurrency(dsTTTotal)}</td>
                     <td className="total-value">{formatNumber(total.soDonHoanHuyThucTe || 0)}</td>
                     <td className="total-value">{formatCurrency(total.doanhSoHoanHuyThucTe || 0)}</td>
                     <td className="total-value">{formatPercent(totalRateChot)}</td>
                   </tr>
                   {flatListFiltered.map((item, index) => {
-                    const rate = item.mess ? item.soDonThucTe / item.mess : 0;
-                    const rateClass = rate >= 0.1 ? 'bg-green' : rate > 0.05 ? 'bg-yellow' : '';
+                    const { soDonTT, dsTT, rateChot } = netTtAfterCancel(item);
+                    const rateClass = rateChot >= 0.1 ? 'bg-green' : rateChot > 0.05 ? 'bg-yellow' : '';
                     return (
                       <tr key={`${date}-${item.name}`} style={{ '--row-index': index }}>
                         <td className="text-center">{index + 1}</td>
@@ -2340,12 +2376,12 @@ function DailyBreakdownChot({
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
                         <td>{formatNumber(item.don)}</td>
-                        <td>{formatNumber(item.soDonThucTe)}</td>
+                        <td>{formatNumber(soDonTT)}</td>
                         <td>{formatCurrency(item.chot)}</td>
-                        <td>{formatCurrency(item.doanhThuChotThucTe)}</td>
+                        <td>{formatCurrency(dsTT)}</td>
                         <td>{formatNumber(item.soDonHoanHuyThucTe || 0)}</td>
                         <td>{formatCurrency(item.doanhSoHoanHuyThucTe || 0)}</td>
-                        <td className={rateClass}>{formatPercent(rate)}</td>
+                        <td className={rateClass}>{formatPercent(rateChot)}</td>
                       </tr>
                     );
                   })}
