@@ -61,6 +61,27 @@ function netTtAfterCancel(item) {
   };
 }
 
+function safeNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function saleOkMetrics(item) {
+  const okCountRaw = item && Object.prototype.hasOwnProperty.call(item, 'soDonThanhCong')
+    ? Number(item.soDonThanhCong)
+    : Number.NaN;
+  const soDonOk = Number.isFinite(okCountRaw) ? okCountRaw : Math.max(0, safeNumber(item?.soDonThucTe) - safeNumber(item?.soDonHoanHuyThucTe));
+
+  const okRevenueRaw = item && Object.prototype.hasOwnProperty.call(item, 'doanhSoThanhCong')
+    ? Number(item.doanhSoThanhCong)
+    : Number.NaN;
+  const doanhSoOk = Number.isFinite(okRevenueRaw)
+    ? okRevenueRaw
+    : Math.max(0, safeNumber(item?.doanhThuChotThucTe) - safeNumber(item?.doanhSoHoanHuyThucTe));
+
+  return { soDonOk, doanhSoOk };
+}
+
 /** Chuẩn hóa tên nhập nhầm trên stack HCM (xem-bao-cao-sale-hcm). */
 const HCM_RENAME_ANH_NGUYET_FROM = 'Nguyễn Thị Ánh Nguyệt 1';
 const HCM_RENAME_ANH_NGUYET_TO = 'Nguyễn Thị Ánh Nguyệt';
@@ -1326,9 +1347,7 @@ export default function NhanSuSaleLumiMoiView({
     });
     const flatListFiltered = keepTeamNghiRowsForHcmReport ? flatList : flatListFilteredNoTeamNghi(flatList);
     const total = aggregateTotalFromFlatList(flatListFiltered);
-    /* Tổng dòng — Số đơn Ok; Tỉ lệ chốt = Số đơn Ok / Số mess */
-    const soDonSauHuyTotal2 = total.soDonThucTe - total.soDonHoanHuyThucTe;
-    const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
+    const { soDonOk: soDonSauHuyTotal2, doanhSoOk: dsSauHuyTTTotal } = saleOkMetrics(total);
     // Tỉ lệ chốt = Số đơn Ok / Số mess
     const totalRateSauHuy = total.mess > 0 ? soDonSauHuyTotal2 / total.mess : 0;
     const soDonHuyTotal = total.soDonHoanHuyThucTe || total.soDonThucTe - soDonSauHuyTotal2;
@@ -1910,7 +1929,7 @@ restrictedForPopulate,
               className={`tab-button ${activeTab === 'chot' ? 'active' : ''}`}
               onClick={() => onTabClick('chot')}
             >
-              Dữ liệu báo cáo tay
+              Sale sau huỷ
             </button>
             <button
               type="button"
@@ -1969,10 +1988,7 @@ restrictedForPopulate,
                   </tr>
                   {flatListFiltered.map((item, index) => {
                     const soDonNb = item.soDonThucTe;
-                    const soDonHuy = item.soDonHoanHuyThucTe || 0;
-                    const dsHuy = item.doanhSoHoanHuyThucTe || 0;
-                    const soDonOk = soDonNb - soDonHuy;
-                    const doanhSoOk = item.doanhThuChotThucTe - dsHuy;
+                    const { soDonOk, doanhSoOk } = saleOkMetrics(item);
                     const rateTt = item.mess > 0 ? soDonOk / item.mess : 0;
                     const rateClass = rateTt >= 0.1 ? 'bg-green' : rateTt > 0.05 ? 'bg-yellow' : '';
                     const key = `s-${item.name}-${index}`;
@@ -2192,11 +2208,7 @@ function DailyBreakdownSauHuy({
         );
         const flatListFiltered = keepTeamNghiRows ? flatList : flatListFilteredNoTeamNghi(flatList);
         const total = aggregateTotalFromFlatList(flatListFiltered);
-        const soDonNbTotal = total.soDonThucTe;
-        const soDonHuyTotal = total.soDonHoanHuyThucTe || 0;
-        const dsHuyTotal = total.doanhSoHoanHuyThucTe || 0;
-        const soDonOkTotal = soDonNbTotal - soDonHuyTotal;
-        const doanhSoOkTotal = total.doanhThuChotThucTe - dsHuyTotal;
+        const { soDonOk: soDonOkTotal, doanhSoOk: doanhSoOkTotal } = saleOkMetrics(total);
         const totalRateTt = total.mess > 0 ? soDonOkTotal / total.mess : 0;
         return (
           <div key={date}>
@@ -2225,17 +2237,14 @@ function DailyBreakdownSauHuy({
                     <td className="total-value">{formatNumber(total.mess)}</td>
                     <td className="total-value">{formatNumber(total.phanHoi)}</td>
                     <td className="total-value">{formatCurrency(total.chot)}</td>
-                    <td className="total-value">{formatNumber(soDonNbTotal)}</td>
+                    <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
                     <td className="total-value">{formatNumber(soDonOkTotal)}</td>
                     <td className="total-value">{formatCurrency(doanhSoOkTotal)}</td>
                     <td className="total-value">{formatPercent(totalRateTt)}</td>
                   </tr>
                   {flatListFiltered.map((item, index) => {
                     const soDonNb = item.soDonThucTe;
-                    const soDonHuy = item.soDonHoanHuyThucTe || 0;
-                    const dsHuy = item.doanhSoHoanHuyThucTe || 0;
-                    const soDonOk = soDonNb - soDonHuy;
-                    const doanhSoOk = item.doanhThuChotThucTe - dsHuy;
+                    const { soDonOk, doanhSoOk } = saleOkMetrics(item);
                     const rateTt = item.mess > 0 ? soDonOk / item.mess : 0;
                     const rateClass = rateTt >= 0.1 ? 'bg-green' : rateTt > 0.05 ? 'bg-yellow' : '';
                     return (
