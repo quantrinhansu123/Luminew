@@ -2738,8 +2738,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     try {
       const sourceRows = selected.map((row) => makeHistorySourceRow(row, new Map()));
       const historyIds = selected.map(getRowHistoryId);
-      const { error } = await supabase.from(tableName).delete().in('id', historyIds);
-      if (error) throw error;
+      // Không gửi toàn bộ ID trong một URL `.in(...)`: tập lọc lớn có thể vượt
+      // giới hạn request của PostgREST/Vercel và trả về 400 Bad Request.
+      const DELETE_BATCH_SIZE = 100;
+      for (let i = 0; i < historyIds.length; i += DELETE_BATCH_SIZE) {
+        const idBatch = historyIds.slice(i, i + DELETE_BATCH_SIZE);
+        const { error } = await supabase.from(tableName).delete().in('id', idBatch);
+        if (error) throw error;
+      }
 
       const { affectedCount, updatedCount } = await recalculateUploadedHistoryRows(isBill, sourceRows);
       await saveHistoryActionLog({
