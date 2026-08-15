@@ -1204,6 +1204,11 @@ export default function DanhSachBaoCaoTayMKT({
                 return Number(item?.['Số đơn hoàn hủy'] || 0);
             }
 
+            if (sortColumn === 'Đơn Ok') {
+                const rv = mktRealValuesForReportRow(item, realValuesMap, isHcmMarketingReport);
+                return Number(rv.so_don_ok || 0);
+            }
+
             if (sortColumn === 'Doanh số') {
                 const rv = mktRealValuesForReportRow(item, realValuesMap, isHcmMarketingReport);
                 return Number(rv.doanh_so_thuc_te || 0);
@@ -1260,17 +1265,19 @@ export default function DanhSachBaoCaoTayMKT({
             const rv = fromMap || mktRealValuesFallbackFromReportRow(r, { grossSoDon: false });
             const sd = mktSoDonDisplayFromRealValues(rv);
             const sh = Number(rv.so_don_huy ?? 0);
+            const ok = Number(rv.so_don_ok ?? 0);
             const st = Number(r?.['Số đơn'] ?? 0);
             const ds = Number(rv.doanh_so_thuc_te ?? 0);
             const dst = Number(r?.['Doanh số'] ?? 0);
             const prev = byDetailKey.get(k);
             if (!prev) {
-                byDetailKey.set(k, { sd, ds, sh, st, dst });
+                byDetailKey.set(k, { sd, ds, sh, ok, st, dst });
             } else {
                 byDetailKey.set(k, {
                     sd: Math.max(prev.sd, sd),
                     ds: Math.max(prev.ds, ds),
                     sh: Math.max(prev.sh, sh),
+                    ok: Math.max(prev.ok, ok),
                     st: Math.max(prev.st, st),
                     dst: Math.max(prev.dst, dst),
                 });
@@ -1279,17 +1286,19 @@ export default function DanhSachBaoCaoTayMKT({
         let soDon = 0;
         let doanhSo = 0;
         let soDonHuy = 0;
+        let soDonOk = 0;
         let soDonTay = 0;
         let doanhSoTay = 0;
-        for (const { sd, ds, sh, st, dst } of byDetailKey.values()) {
+        for (const { sd, ds, sh, ok, st, dst } of byDetailKey.values()) {
             soDon += sd;
             doanhSo += ds;
             soDonHuy += sh;
+            soDonOk += ok;
             soDonTay += st;
             doanhSoTay += dst;
         }
 
-        return { cpqc, mess, soDon, doanhSo, soDonHuy, soDonTay, doanhSoTay };
+        return { cpqc, mess, soDon, doanhSo, soDonHuy, soDonOk, soDonTay, doanhSoTay };
     }, [reportsAfterFilters, realValuesMap, isHcmMarketingReport]);
 
     // Tính Số đơn TT / Doanh số TT cho toàn bộ dòng đã lọc (phục vụ TỔNG CỘNG đúng dù bảng phân trang).
@@ -2262,6 +2271,13 @@ export default function DanhSachBaoCaoTayMKT({
                                         {sortColumn === 'Số đơn hủy' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                                     </th>
                                     <th
+                                        onClick={() => handleSort('Đơn Ok')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                        title="Số đơn có Kết quả Check = Ok, tính từ đơn hàng giống báo cáo Sale"
+                                    >
+                                        Đơn Ok {sortColumn === 'Đơn Ok' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
                                         onClick={() => handleSort('Số đơn')}
                                         style={{ cursor: 'pointer', userSelect: 'none' }}
                                     >
@@ -2294,7 +2310,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 {reportsAfterFilters.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={16}
+                                            colSpan={17}
                                             className="text-center"
                                         >
                                             {loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}
@@ -2308,6 +2324,9 @@ export default function DanhSachBaoCaoTayMKT({
                                             <td className="total-value">{formatNumber(totalsByFiltered.mess)}</td>
                                             <td className="total-value">
                                                 {formatNumber(totalsByFiltered.soDonHuy)}
+                                            </td>
+                                            <td className="total-value">
+                                                {formatNumber(totalsByFiltered.soDonOk)}
                                             </td>
                                             <td className="total-value">{formatNumber(totalsByFiltered.soDon)}</td>
                                             <td className="total-value">
@@ -2341,6 +2360,7 @@ export default function DanhSachBaoCaoTayMKT({
                                                     <td>{formatNumber(item['CPQC'])}</td>
                                                     <td>{formatNumber(item['Số_Mess_Cmt'])}</td>
                                                     <td>{formatNumber(realValues.so_don_huy ?? 0)}</td>
+                                                    <td>{formatNumber(realValues.so_don_ok ?? 0)}</td>
                                                     <td>{formatNumber(soDonDisplay)}</td>
                                                     <td>{formatNumber(soDonTayDisplay)}</td>
                                                     <td>{formatCurrency(realValues.doanh_so_thuc_te)}</td>

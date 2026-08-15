@@ -1332,7 +1332,7 @@
     </div>
   </div>
   <div class="tab-container">
-    <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
+    <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo sau huỷ</button>
     <button class="tablinks" onclick="openTab(event, 'OkReport')">Báo cáo ok</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
     <button class="tablinks" onclick="openTab(event, 'MarketReport')">Hiệu suất MKT</button>
@@ -1510,18 +1510,34 @@
         </select>
         <label for="start-date-tabok">Từ ngày:</label><input type="date" id="start-date-tabok">
         <label for="end-date-tabok">Đến ngày:</label><input type="date" id="end-date-tabok">
-        <h3>Sản phẩm</h3>
-        <label><input type="checkbox" id="product-all-tabok" checked> Tất cả</label>
-        <div id="product-options-tabok" class="indent"></div>
-        <h3>Ca</h3>
-        <label><input type="checkbox" id="ca-all-tabok" checked> Tất cả</label>
-        <div id="ca-options-tabok" class="indent"></div>
-        <h3>Team</h3>
-        <label><input type="checkbox" id="team-all-tabok" checked> Tất cả</label>
-        <div id="team-options-tabok" class="indent"></div>
-        <h3>Thị trường</h3>
-        <label><input type="checkbox" id="market-all-tabok" checked> Tất cả</label>
-        <div id="market-options-tabok"></div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="product">
+          <h3>Sản phẩm<span class="mkt-filter-dd-count" id="product-count-tabok"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="product-all-tabok" checked> Tất cả</label>
+            <div id="product-options-tabok" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="ca">
+          <h3>Ca<span class="mkt-filter-dd-count" id="ca-count-tabok"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="ca-all-tabok" checked> Tất cả</label>
+            <div id="ca-options-tabok" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="team">
+          <h3>Team<span class="mkt-filter-dd-count" id="team-count-tabok"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="team-all-tabok" checked> Tất cả</label>
+            <div id="team-options-tabok" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="market">
+          <h3>Thị trường<span class="mkt-filter-dd-count" id="market-count-tabok"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="market-all-tabok" checked> Tất cả</label>
+            <div id="market-options-tabok"></div>
+          </div>
+        </div>
       </div>
       <div class="main-content-area">
         <div class="header">
@@ -1531,24 +1547,21 @@
           <h2>BÁO CÁO OK</h2>
         </div>
         <p style="margin:0 0 10px;font-size:13px;color:#555;">
-          Số đơn Ok / Doanh số Ok lấy từ chỉ số TT của Báo cáo chi tiết (đã trừ hủy). Tỷ lệ chốt TT = Số đơn Ok ÷ Số đơn nb.
+          Số đơn Ok / Doanh số Ok lấy từ chỉ số TT của Báo cáo sau huỷ (đã trừ hủy). Tỷ lệ chốt TT = Số đơn Ok ÷ Số đơn nb.
         </p>
         <div class="table-responsive-container">
-          <table id="ok-summary-table" class="sortable-table sale-ok-like-table">
+          <table id="ok-summary-table" class="sortable-table">
             <thead>
               <tr>
-                <th class="green-header" rowspan="2">STT<span class="sort-icon"></span></th>
-                <th class="green-header" rowspan="2">Team<span class="sort-icon"></span></th>
-                <th class="green-header" rowspan="2">Marketing<span class="sort-icon"></span></th>
-                <th class="green-header" rowspan="2" title="Số đơn nội bộ = Ok + Huỷ">Số đơn nb<span class="sort-icon"></span></th>
-                <th class="blue-header" colspan="2">Trạng thái huỷ</th>
-                <th class="green-header" rowspan="2">Số đơn Ok<span class="sort-icon"></span></th>
-                <th class="green-header" rowspan="2">Doanh số Ok<span class="sort-icon"></span></th>
-                <th class="yellow-header" rowspan="2" title="Số đơn Ok / Số đơn nb">Tỷ lệ chốt TT<span class="sort-icon"></span></th>
-              </tr>
-              <tr>
-                <th class="blue-header">Số đơn<span class="sort-icon"></span></th>
-                <th class="blue-header">DS<span class="sort-icon"></span></th>
+                <th class="green-header">STT<span class="sort-icon"></span></th>
+                <th class="green-header">Team<span class="sort-icon"></span></th>
+                <th class="green-header">Marketing<span class="sort-icon"></span></th>
+                <th class="green-header">Số Mess<span class="sort-icon"></span></th>
+                <th class="green-header">CPQC<span class="sort-icon"></span></th>
+                <th class="green-header" title="Số đơn nội bộ = Ok + Huỷ">Số Đơn<span class="sort-icon"></span></th>
+                <th class="green-header">Số Đơn Ok<span class="sort-icon"></span></th>
+                <th class="green-header">Doanh Số Ok<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="Số đơn Ok / Số đơn nội bộ">Tỷ Lệ Chốt (TT)<span class="sort-icon"></span></th>
               </tr>
             </thead>
             <tbody id="ok-summary-body"></tbody>
@@ -1864,7 +1877,7 @@
         </div>
       </div>
       <div id="alert-metric-counts" class="alert-metric-counts"></div>
-      <p class="alert-tab-hint">Danh sách cảnh báo được tổng hợp từ dữ liệu đang hiển thị ở tab «Báo cáo chi tiết» (theo bộ lọc hiện tại). Cột <strong>Trạng thái</strong> = loại KPI (Tỉ lệ chốt / CPS / %CP/DS / Giá Mess); cột <strong>Mức độ</strong> = Nghiêm trọng / Cảnh báo / Thông tin.</p>
+      <p class="alert-tab-hint">Danh sách cảnh báo được tổng hợp từ dữ liệu đang hiển thị ở tab «Báo cáo sau huỷ» (theo bộ lọc hiện tại). Cột <strong>Trạng thái</strong> = loại KPI (Tỉ lệ chốt / CPS / %CP/DS / Giá Mess); cột <strong>Mức độ</strong> = Nghiêm trọng / Cảnh báo / Thông tin.</p>
       <div class="table-responsive-container">
         <table id="alert-table" class="sortable-table">
           <thead>
@@ -1882,7 +1895,7 @@
             </tr>
           </thead>
           <tbody id="alert-table-body">
-            <tr><td colspan="10" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo chi tiết» để tải dữ liệu.</td></tr>
+            <tr><td colspan="10" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo sau huỷ» để tải dữ liệu.</td></tr>
           </tbody>
         </table>
       </div>
@@ -2048,6 +2061,10 @@
         { all: 'ca-all-tab1', cls: 'filter-ca-tab1', count: 'ca-count-tab1' },
         { all: 'team-all-tab1', cls: 'filter-team-tab1', count: 'team-count-tab1' },
         { all: 'market-all-tab1', cls: 'filter-market-tab1', count: 'market-count-tab1' },
+        { all: 'product-all-tabok', cls: 'filter-product-tabok', count: 'product-count-tabok' },
+        { all: 'ca-all-tabok', cls: 'filter-ca-tabok', count: 'ca-count-tabok' },
+        { all: 'team-all-tabok', cls: 'filter-team-tabok', count: 'team-count-tabok' },
+        { all: 'market-all-tabok', cls: 'filter-market-tabok', count: 'market-count-tabok' },
       ];
       groups.forEach(({ all, cls, count }) => {
         const countEl = document.getElementById(count);
@@ -3772,6 +3789,7 @@
       handleCheckbox('team-all-tabok', 'filter-team-tabok', target);
       handleCheckbox('market-all-tabok', 'filter-market-tabok', target);
       applyOkReportFilters();
+      updateMktFilterDdCounts();
       persistMktFilterStatesFromDom();
     }
 
@@ -4399,7 +4417,10 @@
         applyTab1Filters({ immediate: true });
         updateMktFilterDdCounts();
       }
-      else if (tabId === 'OkReport') applyOkReportFilters();
+      else if (tabId === 'OkReport') {
+        applyOkReportFilters();
+        updateMktFilterDdCounts();
+      }
       else if (tabId === 'KpiReport') applyTab3Filters();
       else if (tabId === 'MarketReport') applyTab4Filters();
     }
@@ -4642,9 +4663,9 @@
             team: teamDisp,
             name: nameDisp,
             seenDetailKeys: new Set(),
+            soMess: 0,
+            cpqc: 0,
             soDonNb: 0,
-            soDonHuy: 0,
-            dsHuy: 0,
             soDonOk: 0,
             doanhSoOk: 0,
           };
@@ -4657,18 +4678,17 @@
         const soDonOk = Number(r.soDonThucTe) || 0;
         const doanhSoOk = Number(r.dsChotThucTe) || 0;
         const soDonHuy = Number(r.soDonHuyThucTe) || 0;
-        const dsHuy = Number(r.dsHoanHuyThucTe) || 0;
+        S.soMess += Number(r.soMessCmt) || 0;
+        S.cpqc += Number(r.cpqc) || 0;
         S.soDonOk += soDonOk;
         S.doanhSoOk += doanhSoOk;
-        S.soDonHuy += soDonHuy;
-        S.dsHuy += dsHuy;
         S.soDonNb += soDonOk + soDonHuy;
       });
       return Object.values(summary).map(({ seenDetailKeys, ...rest }) => rest);
     }
 
     function generateOkSummaryTableHTML(dataList) {
-      const total = { soDonNb: 0, soDonHuy: 0, dsHuy: 0, soDonOk: 0, doanhSoOk: 0 };
+      const total = { soMess: 0, cpqc: 0, soDonNb: 0, soDonOk: 0, doanhSoOk: 0 };
       const bodyRowsHtml = dataList
         .map((s, index) => {
           Object.keys(total).forEach((k) => {
@@ -4680,9 +4700,9 @@
             <td class="text-center">${index + 1}</td>
             <td class="text-left">${escapeHtml(s.team)}</td>
             <td class="text-left"><button type="button" class="mkt-staff-link" data-mkt-staff-name="${escapeHtml(s.name)}" title="Xem chi tiết SP &amp; thị trường">${escapeHtml(s.name)}</button></td>
+            <td>${formatNumber(s.soMess)}</td>
+            <td>${formatCurrency(s.cpqc)}</td>
             <td>${formatNumber(s.soDonNb)}</td>
-            <td>${formatNumber(s.soDonHuy)}</td>
-            <td>${formatCurrency(s.dsHuy)}</td>
             <td>${formatNumber(s.soDonOk)}</td>
             <td>${formatCurrency(s.doanhSoOk)}</td>
             <td class="${rateClass}">${formatPercent(rateTt)}</td>
@@ -4692,9 +4712,9 @@
       const tRate = total.soDonNb > 0 ? total.soDonOk / total.soDonNb : 0;
       const footHtml = `<tr class="total-row">
         <td class="total-label" colspan="3">TỔNG CỘNG</td>
+        <td class="total-value">${formatNumber(total.soMess)}</td>
+        <td class="total-value">${formatCurrency(total.cpqc)}</td>
         <td class="total-value">${formatNumber(total.soDonNb)}</td>
-        <td class="total-value">${formatNumber(total.soDonHuy)}</td>
-        <td class="total-value">${formatCurrency(total.dsHuy)}</td>
         <td class="total-value">${formatNumber(total.soDonOk)}</td>
         <td class="total-value">${formatCurrency(total.doanhSoOk)}</td>
         <td class="total-value">${formatPercent(tRate)}</td>
@@ -4714,9 +4734,9 @@
       0: { prop: null, type: 'number' },
       1: { prop: 'team', type: 'string' },
       2: { prop: 'name', type: 'string' },
-      3: { prop: 'soDonNb', type: 'number' },
-      4: { prop: 'soDonHuy', type: 'number' },
-      5: { prop: 'dsHuy', type: 'number' },
+      3: { prop: 'soMess', type: 'number' },
+      4: { prop: 'cpqc', type: 'number' },
+      5: { prop: 'soDonNb', type: 'number' },
       6: { prop: 'soDonOk', type: 'number' },
       7: { prop: 'doanhSoOk', type: 'number' },
       8: { prop: (s) => (s.soDonNb > 0 ? s.soDonOk / s.soDonNb : 0), type: 'number' },
@@ -4759,19 +4779,19 @@
           return `<div>
             <h3>Chi tiết ngày: ${escapeHtml(date)}</h3>
             <div class="table-responsive-container">
-              <table class="sale-ok-like-table">
+              <table class="sortable-table daily-summary-table">
                 <thead>
                   <tr>
-                    <th rowspan="2">STT</th>
-                    <th rowspan="2">Team</th>
-                    <th rowspan="2">Marketing</th>
-                    <th rowspan="2">Số đơn nb</th>
-                    <th colspan="2">Trạng thái huỷ</th>
-                    <th rowspan="2">Số đơn Ok</th>
-                    <th rowspan="2">Doanh số Ok</th>
-                    <th rowspan="2">Tỷ lệ chốt TT</th>
+                    <th class="green-header">STT</th>
+                    <th class="green-header">Team</th>
+                    <th class="green-header">Marketing</th>
+                    <th class="green-header">Số Mess</th>
+                    <th class="green-header">CPQC</th>
+                    <th class="green-header">Số Đơn</th>
+                    <th class="green-header">Số Đơn Ok</th>
+                    <th class="green-header">Doanh Số Ok</th>
+                    <th class="yellow-header">Tỷ Lệ Chốt (TT)</th>
                   </tr>
-                  <tr><th>Số đơn</th><th>DS</th></tr>
                 </thead>
                 <tbody>${footHtml}${bodyHtml}</tbody>
               </table>
