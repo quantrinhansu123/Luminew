@@ -1547,7 +1547,7 @@
           <h2>BÁO CÁO OK</h2>
         </div>
         <p style="margin:0 0 10px;font-size:13px;color:#555;">
-          Số đơn Ok / Doanh số Ok lấy từ chỉ số TT của Báo cáo sau huỷ (đã trừ hủy). Tỷ lệ chốt TT = Số đơn Ok ÷ Số đơn nb.
+          Số đơn OK / DS OK lấy từ chỉ số TT đã trừ huỷ. Tỷ lệ chốt (TT) = Số đơn OK ÷ Số Mess; CPQC/DS OK = CPQC ÷ DS OK.
         </p>
         <div class="table-responsive-container">
           <table id="ok-summary-table" class="sortable-table">
@@ -1558,10 +1558,15 @@
                 <th class="green-header">Marketing<span class="sort-icon"></span></th>
                 <th class="green-header">Số Mess<span class="sort-icon"></span></th>
                 <th class="green-header">CPQC<span class="sort-icon"></span></th>
-                <th class="green-header" title="Số đơn nội bộ = Ok + Huỷ">Số Đơn<span class="sort-icon"></span></th>
-                <th class="green-header">Số Đơn Ok<span class="sort-icon"></span></th>
-                <th class="green-header">Doanh Số Ok<span class="sort-icon"></span></th>
-                <th class="yellow-header" title="Số đơn Ok / Số đơn nội bộ">Tỷ Lệ Chốt (TT)<span class="sort-icon"></span></th>
+                <th class="green-header">Số Đơn<span class="sort-icon"></span></th>
+                <th class="blue-header">Số Đơn OK<span class="sort-icon"></span></th>
+                <th class="green-header">DS Chốt<span class="sort-icon"></span></th>
+                <th class="blue-header">DS OK<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="Số đơn / Số Mess">Tỷ Lệ Chốt<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="Số đơn OK / Số Mess">Tỷ Lệ Chốt (TT)<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="CPQC / Số Mess">Giá Mess<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="CPQC / Số đơn OK">CPS<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="CPQC / DS OK">CPQC/DS OK<span class="sort-icon"></span></th>
               </tr>
             </thead>
             <tbody id="ok-summary-body"></tbody>
@@ -4648,9 +4653,8 @@
     }
 
     /**
-     * Báo cáo ok: TT trên MKT đã net sau hủy.
-     * Số đơn Ok = soDonThucTe; Doanh số Ok = dsChotThucTe;
-     * Số đơn nb = Ok + hủy; Tỷ lệ = Ok / nb.
+     * Báo cáo OK giữ bố cục bảng MKT; các cột TT được hiển thị thành Số đơn OK / DS OK.
+     * Tỷ lệ chốt TT = Số đơn OK / Số Mess; CPQC/DS OK = CPQC / DS OK.
      */
     function generateOkSummaryTableData(data) {
       const summary = {};
@@ -4665,8 +4669,9 @@
             seenDetailKeys: new Set(),
             soMess: 0,
             cpqc: 0,
-            soDonNb: 0,
+            soDon: 0,
             soDonOk: 0,
+            dsChot: 0,
             doanhSoOk: 0,
           };
         }
@@ -4677,47 +4682,65 @@
         S.seenDetailKeys.add(detailKey);
         const soDonOk = Number(r.soDonThucTe) || 0;
         const doanhSoOk = Number(r.dsChotThucTe) || 0;
-        const soDonHuy = Number(r.soDonHuyThucTe) || 0;
         S.soMess += Number(r.soMessCmt) || 0;
         S.cpqc += Number(r.cpqc) || 0;
+        S.soDon += Number(r.soDon) || 0;
         S.soDonOk += soDonOk;
+        S.dsChot += Number(r.dsChot) || 0;
         S.doanhSoOk += doanhSoOk;
-        S.soDonNb += soDonOk + soDonHuy;
       });
       return Object.values(summary).map(({ seenDetailKeys, ...rest }) => rest);
     }
 
     function generateOkSummaryTableHTML(dataList) {
-      const total = { soMess: 0, cpqc: 0, soDonNb: 0, soDonOk: 0, doanhSoOk: 0 };
+      const total = { soMess: 0, cpqc: 0, soDon: 0, soDonOk: 0, dsChot: 0, doanhSoOk: 0 };
       const bodyRowsHtml = dataList
         .map((s, index) => {
           Object.keys(total).forEach((k) => {
             total[k] += Number(s[k]) || 0;
           });
-          const rateTt = s.soDonNb > 0 ? s.soDonOk / s.soDonNb : 0;
-          const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
+          const rate = s.soMess > 0 ? s.soDon / s.soMess : 0;
+          const rateTt = s.soMess > 0 ? s.soDonOk / s.soMess : 0;
+          const giaMess = s.soMess > 0 ? s.cpqc / s.soMess : 0;
+          const cps = s.soDonOk > 0 ? s.cpqc / s.soDonOk : 0;
+          const cpqcDsOk = s.doanhSoOk > 0 ? s.cpqc / s.doanhSoOk : 0;
+          const rateClass = rateTt > 0.1 ? 'bg-green' : rateTt > 0.05 ? 'bg-yellow' : '';
           return `<tr>
             <td class="text-center">${index + 1}</td>
             <td class="text-left">${escapeHtml(s.team)}</td>
             <td class="text-left"><button type="button" class="mkt-staff-link" data-mkt-staff-name="${escapeHtml(s.name)}" title="Xem chi tiết SP &amp; thị trường">${escapeHtml(s.name)}</button></td>
             <td>${formatNumber(s.soMess)}</td>
             <td>${formatCurrency(s.cpqc)}</td>
-            <td>${formatNumber(s.soDonNb)}</td>
+            <td>${formatNumber(s.soDon)}</td>
             <td>${formatNumber(s.soDonOk)}</td>
+            <td>${formatCurrency(s.dsChot)}</td>
             <td>${formatCurrency(s.doanhSoOk)}</td>
+            <td>${formatPercent(rate)}</td>
             <td class="${rateClass}">${formatPercent(rateTt)}</td>
+            <td>${formatCurrency(giaMess)}</td>
+            <td>${formatCurrency(cps)}</td>
+            <td>${formatPercent(cpqcDsOk)}</td>
           </tr>`;
         })
         .join('');
-      const tRate = total.soDonNb > 0 ? total.soDonOk / total.soDonNb : 0;
+      const tRate = total.soMess > 0 ? total.soDon / total.soMess : 0;
+      const tRateTt = total.soMess > 0 ? total.soDonOk / total.soMess : 0;
+      const tGiaMess = total.soMess > 0 ? total.cpqc / total.soMess : 0;
+      const tCps = total.soDonOk > 0 ? total.cpqc / total.soDonOk : 0;
+      const tCpqcDsOk = total.doanhSoOk > 0 ? total.cpqc / total.doanhSoOk : 0;
       const footHtml = `<tr class="total-row">
         <td class="total-label" colspan="3">TỔNG CỘNG</td>
         <td class="total-value">${formatNumber(total.soMess)}</td>
         <td class="total-value">${formatCurrency(total.cpqc)}</td>
-        <td class="total-value">${formatNumber(total.soDonNb)}</td>
+        <td class="total-value">${formatNumber(total.soDon)}</td>
         <td class="total-value">${formatNumber(total.soDonOk)}</td>
+        <td class="total-value">${formatCurrency(total.dsChot)}</td>
         <td class="total-value">${formatCurrency(total.doanhSoOk)}</td>
         <td class="total-value">${formatPercent(tRate)}</td>
+        <td class="total-value">${formatPercent(tRateTt)}</td>
+        <td class="total-value">${formatCurrency(tGiaMess)}</td>
+        <td class="total-value">${formatCurrency(tCps)}</td>
+        <td class="total-value">${formatPercent(tCpqcDsOk)}</td>
       </tr>`;
       return { bodyHtml: bodyRowsHtml, footHtml };
     }
@@ -4736,10 +4759,15 @@
       2: { prop: 'name', type: 'string' },
       3: { prop: 'soMess', type: 'number' },
       4: { prop: 'cpqc', type: 'number' },
-      5: { prop: 'soDonNb', type: 'number' },
+      5: { prop: 'soDon', type: 'number' },
       6: { prop: 'soDonOk', type: 'number' },
-      7: { prop: 'doanhSoOk', type: 'number' },
-      8: { prop: (s) => (s.soDonNb > 0 ? s.soDonOk / s.soDonNb : 0), type: 'number' },
+      7: { prop: 'dsChot', type: 'number' },
+      8: { prop: 'doanhSoOk', type: 'number' },
+      9: { prop: (s) => (s.soMess > 0 ? s.soDon / s.soMess : 0), type: 'number' },
+      10: { prop: (s) => (s.soMess > 0 ? s.soDonOk / s.soMess : 0), type: 'number' },
+      11: { prop: (s) => (s.soMess > 0 ? s.cpqc / s.soMess : 0), type: 'number' },
+      12: { prop: (s) => (s.soDonOk > 0 ? s.cpqc / s.soDonOk : 0), type: 'number' },
+      13: { prop: (s) => (s.doanhSoOk > 0 ? s.cpqc / s.doanhSoOk : 0), type: 'number' },
     };
 
     function applyOkReportFilters() {
@@ -4788,9 +4816,14 @@
                     <th class="green-header">Số Mess</th>
                     <th class="green-header">CPQC</th>
                     <th class="green-header">Số Đơn</th>
-                    <th class="green-header">Số Đơn Ok</th>
-                    <th class="green-header">Doanh Số Ok</th>
+                    <th class="blue-header">Số Đơn OK</th>
+                    <th class="green-header">DS Chốt</th>
+                    <th class="blue-header">DS OK</th>
+                    <th class="yellow-header">Tỷ Lệ Chốt</th>
                     <th class="yellow-header">Tỷ Lệ Chốt (TT)</th>
+                    <th class="yellow-header">Giá Mess</th>
+                    <th class="yellow-header">CPS</th>
+                    <th class="yellow-header">CPQC/DS OK</th>
                   </tr>
                 </thead>
                 <tbody>${footHtml}${bodyHtml}</tbody>

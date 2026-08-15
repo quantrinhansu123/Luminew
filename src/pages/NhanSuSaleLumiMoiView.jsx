@@ -49,10 +49,10 @@ const LOGO_URL =
   'https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg';
 const CA_FILTER_OPTIONS = ['Hết ca'];
 
-/** Tab báo cáo tay: Số đơn TT / Doanh số TT = đã trừ huỷ; Tỉ lệ chốt = Số đơn TT / Số mess. */
+/** Tab báo cáo tay: Tỷ lệ chốt = Số đơn sau huỷ / Số mess. */
 function netTtAfterCancel(item) {
-  const soDonTT = (Number(item?.soDonThucTe) || 0) - (Number(item?.soDonHoanHuyThucTe) || 0);
-  const dsTT = (Number(item?.doanhThuChotThucTe) || 0) - (Number(item?.doanhSoHoanHuyThucTe) || 0);
+  const soDonTT = (Number(item?.don) || 0) - (Number(item?.soDonHoanHuyThucTe) || 0);
+  const dsTT = (Number(item?.chot) || 0) - (Number(item?.doanhSoHoanHuyThucTe) || 0);
   const mess = Number(item?.mess) || 0;
   return {
     soDonTT,
@@ -67,10 +67,8 @@ function safeNumber(value) {
 }
 
 function saleOkMetrics(item) {
-  const okCountRaw = item && Object.prototype.hasOwnProperty.call(item, 'soDonThanhCong')
-    ? Number(item.soDonThanhCong)
-    : Number.NaN;
-  const soDonOk = Number.isFinite(okCountRaw) ? okCountRaw : Math.max(0, safeNumber(item?.soDonThucTe) - safeNumber(item?.soDonHoanHuyThucTe));
+  // Đơn OK chỉ lấy từ cột «Số đơn thành công»; thiếu dữ liệu thì bằng 0.
+  const soDonOk = safeNumber(item?.soDonThanhCong);
 
   const okRevenueRaw = item && Object.prototype.hasOwnProperty.call(item, 'doanhSoThanhCong')
     ? Number(item.doanhSoThanhCong)
@@ -311,12 +309,12 @@ function SaleStaffProductMarketModal({
                       <th>Số Mess</th>
                       <th>Phản hồi</th>
                       <th>Số Đơn</th>
-                      <th title="Số đơn TT = Số đơn thực tế − Số đơn huỷ">Số đơn TT</th>
+                      <th title="Số đơn sau huỷ = Số đơn − Đơn huỷ">Số đơn sau huỷ</th>
                       <th>DS Chốt</th>
-                      <th title="Doanh số TT = Doanh thu chốt thực tế − DS huỷ">Doanh số TT</th>
+                      <th title="Doanh số sau huỷ = Doanh số − Doanh số huỷ">Doanh số sau huỷ</th>
                       <th>Huỷ — Số đơn</th>
                       <th>Huỷ — DS</th>
-                      <th title="Tỉ lệ chốt = Số đơn TT / Số mess">Tỉ lệ chốt</th>
+                      <th title="Tỷ lệ chốt = Số đơn sau huỷ / Số mess">Tỷ lệ chốt</th>
                     </>
                   )}
                 </tr>
@@ -1337,6 +1335,9 @@ export default function NhanSuSaleLumiMoiView({
         soDonSauHuyTotal2: 0,
         dsSauHuyTTTotal: 0,
         totalRateSauHuy: 0,
+        soDonOkTotal: 0,
+        doanhSoOkTotal: 0,
+        totalRateOk: 0,
         soDonHuyTotal: 0,
         dsHuyTotal: 0,
       };
@@ -1347,10 +1348,20 @@ export default function NhanSuSaleLumiMoiView({
     });
     const flatListFiltered = keepTeamNghiRowsForHcmReport ? flatList : flatListFilteredNoTeamNghi(flatList);
     const total = aggregateTotalFromFlatList(flatListFiltered);
-    const { soDonOk: soDonSauHuyTotal2, doanhSoOk: dsSauHuyTTTotal } = saleOkMetrics(total);
-    // Tỉ lệ chốt = Số đơn Ok / Số mess
+    const { soDonTT: soDonSauHuyTotal2, dsTT: dsSauHuyTTTotal } = netTtAfterCancel(total);
+    const okTotals = flatListFiltered.reduce(
+      (acc, item) => {
+        const { soDonOk, doanhSoOk } = saleOkMetrics(item);
+        acc.soDonOkTotal += soDonOk;
+        acc.doanhSoOkTotal += doanhSoOk;
+        return acc;
+      },
+      { soDonOkTotal: 0, doanhSoOkTotal: 0 }
+    );
+    const totalRateOk = total.mess > 0 ? okTotals.soDonOkTotal / total.mess : 0;
+    // Tỷ lệ chốt = Số đơn sau huỷ / Số mess
     const totalRateSauHuy = total.mess > 0 ? soDonSauHuyTotal2 / total.mess : 0;
-    const soDonHuyTotal = total.soDonHoanHuyThucTe || total.soDonThucTe - soDonSauHuyTotal2;
+    const soDonHuyTotal = total.soDonHoanHuyThucTe || 0;
     const dsHuyTotal = total.doanhSoHoanHuyThucTe || 0;
 
     return {
@@ -1359,6 +1370,8 @@ export default function NhanSuSaleLumiMoiView({
       soDonSauHuyTotal2,
       dsSauHuyTTTotal,
       totalRateSauHuy,
+      ...okTotals,
+      totalRateOk,
       soDonHuyTotal,
       dsHuyTotal,
     };
@@ -1479,6 +1492,9 @@ export default function NhanSuSaleLumiMoiView({
     soDonSauHuyTotal2,
     dsSauHuyTTTotal,
     totalRateSauHuy,
+    soDonOkTotal,
+    doanhSoOkTotal,
+    totalRateOk,
     soDonHuyTotal,
     dsHuyTotal,
   } = summaryMain;
@@ -1982,9 +1998,9 @@ restrictedForPopulate,
                     <td className="total-value">{formatNumber(total.phanHoi)}</td>
                     <td className="total-value">{formatCurrency(total.chot)}</td>
                     <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
-                    <td className="total-value">{formatNumber(soDonSauHuyTotal2)}</td>
-                    <td className="total-value">{formatCurrency(dsSauHuyTTTotal)}</td>
-                    <td className="total-value">{formatPercent(totalRateSauHuy)}</td>
+                    <td className="total-value">{formatNumber(soDonOkTotal)}</td>
+                    <td className="total-value">{formatCurrency(doanhSoOkTotal)}</td>
+                    <td className="total-value">{formatPercent(totalRateOk)}</td>
                   </tr>
                   {flatListFiltered.map((item, index) => {
                     const soDonNb = item.soDonThucTe;
@@ -2046,11 +2062,11 @@ restrictedForPopulate,
                     <th rowSpan={2}>Số Mess</th>
                     <th rowSpan={2}>Phản hồi</th>
                     <th rowSpan={2}>Số Đơn</th>
-                    <th rowSpan={2} title="Số đơn TT = Số đơn thực tế − Số đơn huỷ">Số đơn TT</th>
+                    <th rowSpan={2} title="Số đơn sau huỷ = Số đơn − Đơn huỷ">Số đơn sau huỷ</th>
                     <th rowSpan={2}>DS Chốt</th>
-                    <th rowSpan={2} title="Doanh số TT = Doanh thu chốt thực tế − DS huỷ">Doanh số TT</th>
+                    <th rowSpan={2} title="Doanh số sau huỷ = Doanh số − Doanh số huỷ">Doanh số sau huỷ</th>
                     <th colSpan={2}>Trạng thái huỷ</th>
-                    <th rowSpan={2} title="Tỉ lệ chốt = Số đơn TT / Số mess">Tỉ lệ chốt</th>
+                    <th rowSpan={2} title="Tỷ lệ chốt = Số đơn sau huỷ / Số mess">Tỷ lệ chốt</th>
                   </tr>
                   <tr>
                     <th>Số đơn</th>
@@ -2335,11 +2351,11 @@ function DailyBreakdownChot({
                     <th rowSpan={2}>Số Mess</th>
                     <th rowSpan={2}>Phản hồi</th>
                     <th rowSpan={2}>Số Đơn</th>
-                    <th rowSpan={2} title="Số đơn TT = Số đơn thực tế − Số đơn huỷ">Số đơn TT</th>
+                    <th rowSpan={2} title="Số đơn sau huỷ = Số đơn − Đơn huỷ">Số đơn sau huỷ</th>
                     <th rowSpan={2}>DS Chốt</th>
-                    <th rowSpan={2} title="Doanh số TT = Doanh thu chốt thực tế − DS huỷ">Doanh số TT</th>
+                    <th rowSpan={2} title="Doanh số sau huỷ = Doanh số − Doanh số huỷ">Doanh số sau huỷ</th>
                     <th colSpan={2}>Trạng thái huỷ</th>
-                    <th rowSpan={2} title="Tỉ lệ chốt = Số đơn TT / Số mess">Tỉ lệ chốt</th>
+                    <th rowSpan={2} title="Tỷ lệ chốt = Số đơn sau huỷ / Số mess">Tỷ lệ chốt</th>
                   </tr>
                   <tr>
                     <th>Số đơn</th>
