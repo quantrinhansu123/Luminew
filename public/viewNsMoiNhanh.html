@@ -4800,8 +4800,9 @@
       const { bodyHtml, footHtml } = generateOkSummaryTableHTML(dataList);
       const bodyEl = document.getElementById('ok-summary-body');
       const footEl = document.getElementById('ok-summary-foot');
-      if (bodyEl) bodyEl.innerHTML = bodyHtml;
-      if (footEl) footEl.innerHTML = footHtml;
+      // Dòng TỔNG CỘNG ở đầu bảng (khớp chi tiết theo ngày bên dưới).
+      if (bodyEl) bodyEl.innerHTML = footHtml + bodyHtml;
+      if (footEl) footEl.innerHTML = '';
     }
 
     const okColumnSortKeys = {
