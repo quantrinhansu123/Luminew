@@ -546,7 +546,8 @@ export const BCVH_DRILL_METRIC_LABELS = {
     tongNoiBoAmount: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ — Doanh số',
     tongDonLenVanHanh: 'TỔNG ĐƠN LÊN VẬN HÀNH — Số đơn',
     tongDonLenVanHanhAmount: 'TỔNG ĐƠN LÊN VẬN HÀNH — Doanh số',
-    chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (trống mã, check OK; orders: đã có ĐVVC)',
+    chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (trống mã, check OK; orders: đã có ĐVVC) — Số đơn',
+    doanhSoDonChuaMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (trống mã, check OK; orders: đã có ĐVVC) — Doanh số',
     giaoTC: 'Giao thành công',
     dangGiao: 'Đang giao',
     chuaGiao: 'Chưa giao',
@@ -587,6 +588,7 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
         case 'tongDonLenVanHanhAmount':
             return slice.filter((r) => rowLenVhDonViForDrill(r) > 0);
         case 'chuaCoMa':
+        case 'doanhSoDonChuaMa':
             return slice.filter(
                 (r) =>
                     rowPassesChuaCoMaLenVhGate(r) &&

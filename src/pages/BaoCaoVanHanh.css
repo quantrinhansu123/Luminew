@@ -437,6 +437,311 @@ table.bcvh-metric-colsync thead th {
     min-width: 0;
 }
 
+/* Tab6 — cột trái: TỔNG + lọc + Đã TT (bill) */
+.bcvh-tab6-filter-pane {
+    flex: 0 0 28%;
+    width: 28%;
+    max-width: 28%;
+    min-width: 0;
+    border-right: 2px solid var(--bcvh-border-strong);
+}
+
+.bcvh-tab6-filter-scroll {
+    width: 100%;
+}
+
+.bcvh-tab6-filter-table {
+    width: 100%;
+    table-layout: auto;
+    min-width: max-content;
+}
+
+.bcvh-tab6-paid-group {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 800;
+    padding: 2px 6px;
+    line-height: 1.1;
+    vertical-align: middle;
+    white-space: nowrap;
+    border-left: 2px solid var(--bcvh-header-border);
+}
+
+.bcvh-tab6-filter-title {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 800;
+    padding: 2px 6px;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.bcvh-tab6-filter-cell {
+    vertical-align: middle;
+    padding: 0 4px;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.bcvh-tab6-filter-inline {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.15fr);
+    gap: 2px;
+    align-items: center;
+    min-width: 0;
+}
+
+.bcvh-tab6-filter-date {
+    width: 100%;
+    min-width: 0;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 0 1px;
+    line-height: 1;
+    height: 18px;
+    border: 1px solid #d1d5db;
+    border-radius: 3px;
+    background: #fff;
+}
+
+.bcvh-tab6-filter-tt {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 2px;
+}
+
+.bcvh-tab6-filter-tt > .relative {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.bcvh-tab6-filter-pane .bcvh-tab6-filter-inline button {
+    min-height: 18px !important;
+    height: 18px !important;
+    padding: 0 3px !important;
+    font-size: 10px !important;
+    line-height: 1 !important;
+    border-radius: 3px;
+}
+
+.bcvh-tab6-filter-remove {
+    width: 16px;
+    height: 16px;
+    padding: 0 !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bcvh-tab6-filter-table tr.bcvh-total-row > .bcvh-tab6-filter-cell {
+    vertical-align: middle;
+    text-align: center;
+}
+
+.bcvh-tab6-metrics {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 72%;
+    padding: 4px 0 10px;
+}
+
+.bcvh-tab6-band {
+    width: 100%;
+    min-width: 0;
+}
+
+.bcvh-tab6-band .bcvh-tab6-cluster-table {
+    width: 100%;
+    min-width: max-content;
+}
+
+.bcvh-tab6-band-top .bcvh-tab6-cluster-table {
+    margin-bottom: 0;
+}
+
+.bcvh-tab6-band-bottom .bcvh-tab6-cluster-table {
+    margin-top: 0;
+}
+
+/* @deprecated — giữ cho tương thích cũ nếu còn tham chiếu */
+.bcvh-tab6-split {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 72%;
+    padding: 4px 0 10px;
+}
+
+.bcvh-tab6-section-group {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 800;
+    padding: 2px 6px;
+    line-height: 1.1;
+    vertical-align: middle;
+    white-space: nowrap;
+    border-right: 2px solid var(--bcvh-header-border);
+}
+
+.bcvh-tab6-section-group-row th:last-child,
+.bcvh-tab6-cluster-table thead .bcvh-section-head-row th:last-child {
+    border-right: none;
+}
+
+.bcvh-tab6-cluster-table tbody tr.bcvh-tab6-data-row:not(.bcvh-total-row) > .bcvh-cell {
+    border-bottom: 1px solid var(--bcvh-border) !important;
+}
+
+.bcvh-tab6-cluster-table tbody tr.bcvh-total-row > .bcvh-cell {
+    border-top: 2px solid var(--bcvh-row-separator) !important;
+}
+
+/* Legacy section stack (tab6 dùng cluster-table theo dòng) */
+.bcvh-tab6-col .bcvh-section-stack {
+    min-width: 0;
+    width: 100%;
+}
+
+.bcvh-tab6-col .bcvh-section-block {
+    min-width: 0;
+    width: 100%;
+}
+
+.bcvh-tab6-col .bcvh-section-table {
+    width: 100%;
+    min-width: 0;
+}
+
+/* Nhiều bảng con xếp dọc — mỗi nhóm metric một bảng */
+.bcvh-section-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 2px 0 6px;
+    min-width: max-content;
+}
+
+.bcvh-section-block {
+    width: max-content;
+    min-width: 100%;
+}
+
+.bcvh-section-table {
+    width: max-content;
+    min-width: 100%;
+}
+
+.bcvh-section-table .bcvh-section-title {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 800;
+    padding: 2px 6px;
+    line-height: 1.1;
+    vertical-align: middle;
+    white-space: nowrap;
+    min-width: 6.5rem;
+    border-right: 2px solid var(--bcvh-header-border);
+}
+
+.bcvh-section-table tr.bcvh-section-head-row .bcvh-section-col {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 800;
+    padding: 1px 6px;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.bcvh-section-table.bcvh-metric-table tbody tr:not(.bcvh-total-row) > .bcvh-cell {
+    border-bottom: 1px solid var(--bcvh-border) !important;
+}
+
+.bcvh-section-table.bcvh-metric-table tbody tr.bcvh-total-row > .bcvh-cell {
+    border-top: 2px solid var(--bcvh-row-separator) !important;
+}
+
+.bcvh-section-table tbody tr:not(.bcvh-total-row) > .bcvh-cell {
+    background: #fff;
+}
+
+.bcvh-section-table tbody tr.bcvh-total-row > .bcvh-cell {
+    border-top: 2px solid var(--bcvh-row-separator);
+}
+
+.bcvh-section-num {
+    text-align: right !important;
+    vertical-align: middle !important;
+    white-space: nowrap;
+    font-size: 17px;
+    font-weight: 900;
+    line-height: 1 !important;
+    padding: 0 8px !important;
+}
+
+.bcvh-section-table.bcvh-metric-table .bcvh-cell.bcvh-section-num {
+    padding: 0 8px !important;
+    line-height: 1 !important;
+}
+
+/* Tab6 — số liệu và % cách xa nhau, ô sát chiều cao chữ */
+.bcvh-section-table .bcvh-section-val-pct {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 6.5rem;
+    line-height: 1;
+}
+
+.bcvh-section-table .bcvh-section-val,
+.bcvh-section-table .bcvh-section-val-pct .bcvh-section-val {
+    font-size: 17px;
+    font-weight: 900;
+    line-height: 1;
+    flex: 0 0 auto;
+    padding: 0;
+    margin: 0;
+    underline-offset: 1px;
+}
+
+.bcvh-section-table .bcvh-section-val .bcvh-amount-display {
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+}
+
+.bcvh-section-table .bcvh-section-pct {
+    font-size: 15px;
+    font-weight: 800;
+    color: #334155;
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding-left: 0.35rem;
+    white-space: nowrap;
+    line-height: 1;
+}
+
+.bcvh-section-table tbody tr.bcvh-total-row .bcvh-section-val {
+    font-size: 17px;
+    font-weight: 900;
+}
+
+.bcvh-section-table tbody tr.bcvh-total-row .bcvh-section-pct {
+    font-size: 15px;
+    font-weight: 800;
+    color: #1e293b;
+}
+
 .bcvh-metric-vertical-compact {
     padding: 3px 2px !important;
 }
@@ -478,7 +783,7 @@ table.bcvh-metric-colsync thead th {
 
 .bcvh-metric-vertical,
 .bcvh-delivery-vertical {
-    padding: 5px 4px !important;
+    padding: 8px 6px !important;
     vertical-align: top;
     font-family: 'Times New Roman', Times, serif;
 }
@@ -494,7 +799,7 @@ table.bcvh-metric-colsync thead th {
 
 .bcvh-metric-vertical-val {
     text-align: left;
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 800;
     color: #0f172a;
     font-family: 'Times New Roman', Times, serif;
@@ -505,26 +810,26 @@ table.bcvh-metric-colsync thead th {
 .bcvh-metric-vertical-list {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 5px;
 }
 
 .bcvh-metric-vertical-row {
     display: grid;
     grid-template-columns: max-content max-content;
-    gap: 1px 4px;
+    gap: 2px 6px;
     align-items: baseline;
-    line-height: 1.25;
-    padding: 3px 5px;
+    line-height: 1.3;
+    padding: 5px 8px;
     border-radius: 4px;
     border-bottom: none;
-    font-size: 11px;
+    font-size: 13px;
     width: max-content;
     max-width: 100%;
 }
 
 .bcvh-metric-vertical-row.has-pct {
     grid-template-columns: max-content max-content max-content;
-    gap: 1px 4px;
+    gap: 2px 6px;
 }
 
 .bcvh-metric-vertical-row:nth-child(5n + 1) {
@@ -549,7 +854,7 @@ table.bcvh-metric-colsync thead th {
 
 .bcvh-metric-vertical-label {
     grid-column: 1;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 800;
     color: #0f172a;
     text-align: left;
@@ -559,7 +864,7 @@ table.bcvh-metric-colsync thead th {
 }
 
 .bcvh-metric-vertical-row .bcvh-cell-pct {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 800;
     color: #334155;
     font-variant-numeric: tabular-nums;
@@ -601,23 +906,23 @@ table.bcvh-metric-colsync thead th {
 }
 
 .bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-label {
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-val,
 .bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-row button {
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 800;
 }
 
 .bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-row .bcvh-cell-pct {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 800;
 }
 
 .bcvh-metric-compact.bcvh-metric-colsync .bcvh-metric-vertical-row {
-    gap: 1px 4px;
-    padding: 3px 5px;
+    gap: 2px 6px;
+    padding: 5px 8px;
 }
 
 .bcvh-cell-inline {

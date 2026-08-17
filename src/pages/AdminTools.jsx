@@ -4167,21 +4167,48 @@ const AdminTools = () => {
                                     </div>
                                 </div>
                                 {/* --- Báo cáo phân bổ (trang riêng) --- */}
-                                <div className="mt-6 flex justify-center">
-                                    <button
-                                        type="button"
-                                        onClick={() => navigate('/bao-cao-phan-bo-don-hang')}
-                                        className="group flex items-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:scale-105 active:scale-95"
-                                    >
-                                        <div className="bg-white/20 p-2 rounded-xl">
-                                            <BarChart3 className="w-6 h-6" />
-                                        </div>
-                                        <div className="text-left">
-                                            <p className="text-sm">Xem Thống kê &</p>
-                                            <p className="text-lg leading-tight">Báo cáo Chia đơn Chi tiết</p>
-                                        </div>
-                                        <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />
-                                    </button>
+                                <div className="mt-6 space-y-3">
+                                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/xem-bao-cao-mkt')}
+                                            className="group flex items-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-semibold shadow-md shadow-emerald-200 transition-all hover:scale-[1.01] active:scale-95"
+                                        >
+                                            <div className="bg-white/20 p-2 rounded-lg">
+                                                <BarChart3 className="w-5 h-5" />
+                                            </div>
+                                            <span>Xem MK</span>
+                                            <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-1 transition-transform" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/xem-bao-cao-mkt-hcm')}
+                                            className="group flex items-center gap-3 bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-3 rounded-xl font-semibold shadow-md shadow-cyan-200 transition-all hover:scale-[1.01] active:scale-95"
+                                        >
+                                            <div className="bg-white/20 p-2 rounded-lg">
+                                                <BarChart3 className="w-5 h-5" />
+                                            </div>
+                                            <span>Xem MK HCM</span>
+                                            <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-1 transition-transform" />
+                                        </button>
+                                    </div>
+
+                                    <div className="flex justify-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/bao-cao-phan-bo-don-hang')}
+                                            className="group flex items-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:scale-105 active:scale-95"
+                                        >
+                                            <div className="bg-white/20 p-2 rounded-xl">
+                                                <BarChart3 className="w-6 h-6" />
+                                            </div>
+                                            <div className="text-left">
+                                                <p className="text-sm">Xem Thống kê &</p>
+                                                <p className="text-lg leading-tight">Báo cáo Chia đơn Chi tiết</p>
+                                            </div>
+                                            <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />
+                                        </button>
+                                    </div>
                                 </div>
 
 
@@ -4330,6 +4357,22 @@ const AdminTools = () => {
                             >
                                 <Upload className="w-4 h-4" />
                                 {accountImportLoading ? 'Đang tải lên...' : 'Tải lên'}
+                            </button>
+                            <button
+                                onClick={() => navigate('/xem-bao-cao-mkt')}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium transition-colors flex items-center gap-2"
+                                title="Mở báo cáo Marketing"
+                            >
+                                <BarChart3 className="w-4 h-4" />
+                                Xem MK
+                            </button>
+                            <button
+                                onClick={() => navigate('/xem-bao-cao-mkt-hcm')}
+                                className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 font-medium transition-colors flex items-center gap-2"
+                                title="Mở báo cáo Marketing HCM"
+                            >
+                                <BarChart3 className="w-4 h-4" />
+                                Xem MK HCM
                             </button>
                             <input
                                 ref={accountImportInputRef}

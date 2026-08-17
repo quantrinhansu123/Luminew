@@ -13,6 +13,7 @@ import BaoCaoHieuSuatKPI from './pages/BaoCaoHieuSuatKPI';
 import BaoCaoMarketing from './pages/BaoCaoMarketing';
 import BaoCaoSale from './pages/BaoCaoSale';
 import NhanSuSaleLumiMoiView from './pages/NhanSuSaleLumiMoiView';
+import XemBaoCaoSaleHcm from './pages/XemBaoCaoSaleHcm';
 import ChamCong from './pages/ChamCong';
 import QuanLyChamCong from './pages/QuanLyChamCong';
 import BaoCaoVanDon from './pages/BaoCaoVanDon';
@@ -159,13 +160,7 @@ function AppShell() {
               path="/xem-bao-cao-sale-hcm"
               element={
                 <ProtectedRoute>
-                  <NhanSuSaleLumiMoiView
-                    reportTableName="sale_report_hcm"
-                    hcmXemBaoCaoSaleTeamFilter
-                    showPersonnelNameFilter
-                    hideBoPhanFilter
-                    pageAccessCodes={['SALE_VIEW_HCM']}
-                  />
+                  <XemBaoCaoSaleHcm />
                 </ProtectedRoute>
               }
             />
