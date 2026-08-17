@@ -637,6 +637,31 @@ function mktCreateRowFromAggEntry(
   return row;
 }
 
+/** Cache cột tùy chọn theo bảng (tránh lỗi PGRST204 khi migration chưa chạy trên Supabase). */
+const mktOptionalColumnSupportCache = new Map();
+
+async function getMktOptionalColumnSupport(reportsTable) {
+  const table = String(reportsTable || 'detail_reports').trim() || 'detail_reports';
+  if (mktOptionalColumnSupportCache.has(table)) {
+    return mktOptionalColumnSupportCache.get(table);
+  }
+  const { error } = await supabase.from(table).select('id,"Doanh số Ok"').limit(1);
+  const support = { doanhSoOk: !error };
+  mktOptionalColumnSupportCache.set(table, support);
+  if (!support.doanhSoOk) {
+    console.warn(
+      `[${table}] Cột "Doanh số Ok" chưa có trên DB — bỏ qua khi ghi báo cáo. Chạy migration 20260817100000_mkt_reports_add_doanh_so_ok.sql trên Supabase.`
+    );
+  }
+  return support;
+}
+
+function stripUnsupportedMktPatchFields(patch, support) {
+  if (support?.doanhSoOk || !patch || !('Doanh số Ok' in patch)) return patch;
+  const { 'Doanh số Ok': _drop, ...rest } = patch;
+  return rest;
+}
+
 /** Gắn nhãn bảng + gợi ý khi lỗi mạng (Failed to fetch). */
 function wrapRecalcReadError(table, err) {
   const raw = err?.message || err?.hint || String(err);
@@ -1458,6 +1483,8 @@ export async function recalcMktSoDonThucTeFromOrders({
     };
   }
 
+  const optionalColumnSupport = await getMktOptionalColumnSupport(reportsTable);
+
   // Cập nhật từng dòng — đồng thời thấp; lỗi mạng thì fallback từng dòng
   const UPDATE_CONCURRENCY = 4;
   let touched = 0;
@@ -1468,7 +1495,8 @@ export async function recalcMktSoDonThucTeFromOrders({
       const results = await Promise.all(
         chunk.map((row) => {
           const { id, ...rest } = row;
-          return supabase.from(reportsTable).update(rest).eq('id', id);
+          const patch = stripUnsupportedMktPatchFields(rest, optionalColumnSupport);
+          return supabase.from(reportsTable).update(patch).eq('id', id);
         })
       );
       const firstErr = results.find((r) => r.error)?.error;
@@ -1481,7 +1509,8 @@ export async function recalcMktSoDonThucTeFromOrders({
       if (!isNetwork) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, e);
       for (const row of chunk) {
         const { id, ...rest } = row;
-        const { error } = await supabase.from(reportsTable).update(rest).eq('id', id);
+        const patch = stripUnsupportedMktPatchFields(rest, optionalColumnSupport);
+        const { error } = await supabase.from(reportsTable).update(patch).eq('id', id);
         if (error) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, error);
       }
     }
@@ -1490,7 +1519,9 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   const INSERT_CHUNK = 200;
   for (let i = 0; i < createRows.length; i += INSERT_CHUNK) {
-    const chunk = createRows.slice(i, i + INSERT_CHUNK);
+    const chunk = createRows
+      .slice(i, i + INSERT_CHUNK)
+      .map((row) => stripUnsupportedMktPatchFields(row, optionalColumnSupport));
     const { error } = await supabase.from(reportsTable).insert(chunk);
     if (error) throw error;
     touched += chunk.length;
