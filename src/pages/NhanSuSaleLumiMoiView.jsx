@@ -20,7 +20,6 @@ import {
   NSSL_KPI_FILTERS_MSG_TYPE,
   NSSL_KPI_READY_MSG_TYPE,
   buildKpiEmbedUrl,
-  buildVanDonEmbedUrl,
   fetchLatestSalesReportNDayRange,
   fetchSalesReportsMapped,
   getLastNDaysRangeLocal,
@@ -566,10 +565,8 @@ export default function NhanSuSaleLumiMoiView({
   }, [activeTab]);
 
   const [iframeKpi, setIframeKpi] = useState(() => buildKpiEmbedUrl(''));
-  const [iframeVanDon, setIframeVanDon] = useState(() => buildVanDonEmbedUrl(''));
   const [iframeThuCong, setIframeThuCong] = useState('about:blank');
   const kpiIframeRef = useRef(null);
-  const vanDonIframeRef = useRef(null);
 
   /**
    * Tên nhân sự được phép xem (users.selected_personnel → khớp cột name/ten trên dòng báo cáo).
@@ -951,7 +948,6 @@ export default function NhanSuSaleLumiMoiView({
       setCurrentUserInfo(null);
       setShowThuCongTab(false);
       setIframeKpi(buildKpiEmbedUrl(''));
-      setIframeVanDon(buildVanDonEmbedUrl(''));
       setReportTitle('DỮ LIỆU TỔNG HỢP');
       setAllowedUserEmail(null);
       if (mapped.length === 0) {
@@ -1049,7 +1045,6 @@ export default function NhanSuSaleLumiMoiView({
     setShowThuCongTab(showThu);
 
     setIframeKpi(buildKpiEmbedUrl(idFromUrl));
-    setIframeVanDon(buildVanDonEmbedUrl(idFromUrl));
 
     if (!currentUserRecord) {
       lastFullFilterResetIdRef.current = null;
@@ -1450,18 +1445,9 @@ export default function NhanSuSaleLumiMoiView({
     );
   }, [postMessageToIframe, buildSidebarFilterMessage]);
 
-  const postVanDonSidebarFilters = useCallback(() => {
-    // Nhân sự Vận đơn — không dùng lọc Team/Tên Sale (team Sale ≠ team Vận đơn)
-    postMessageToIframe(
-      vanDonIframeRef,
-      buildSidebarFilterMessage({ includeNameFilter: false, includeTeamFilter: false })
-    );
-  }, [postMessageToIframe, buildSidebarFilterMessage]);
-
   useEffect(() => {
     if (activeTab === 'kpi-sale') postKpiSidebarFilters();
-    else if (activeTab === 'van-don-sale') postVanDonSidebarFilters();
-  }, [activeTab, postKpiSidebarFilters, postVanDonSidebarFilters]);
+  }, [activeTab, postKpiSidebarFilters]);
 
   useEffect(() => {
     const onMessage = (event) => {
@@ -1470,11 +1456,10 @@ export default function NhanSuSaleLumiMoiView({
       if (!data || typeof data !== 'object') return;
       if (data.type !== NSSL_KPI_READY_MSG_TYPE) return;
       if (activeTab === 'kpi-sale') postKpiSidebarFilters();
-      else if (activeTab === 'van-don-sale') postVanDonSidebarFilters();
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [activeTab, postKpiSidebarFilters, postVanDonSidebarFilters]);
+  }, [activeTab, postKpiSidebarFilters]);
 
   const toggleMaster = (all, setAll, setSel) => {
     if (all) {
@@ -1954,13 +1939,6 @@ restrictedForPopulate,
             >
               KPIs Sale
             </button>
-            <button
-              type="button"
-              className={`tab-button ${activeTab === 'van-don-sale' ? 'active' : ''}`}
-              onClick={() => onTabClick('van-don-sale')}
-            >
-              Vận đơn Sale
-            </button>
             {showThuCongTab && (
               <button
                 type="button"
@@ -2143,25 +2121,12 @@ restrictedForPopulate,
             {activeTab === 'kpi-sale' && (
               <iframe
                 ref={kpiIframeRef}
-                title="KPIs Sale — KPIs vận đơn"
+                title="KPIs Sale"
                 className="nssl-iframe-kpi"
                 src={iframeKpi}
                 loading="lazy"
                 allow="clipboard-read; clipboard-write"
                 onLoad={postKpiSidebarFilters}
-              />
-            )}
-          </div>
-          <div id="tab-van-don-sale" className={`tab-content ${activeTab === 'van-don-sale' ? 'active' : ''}`}>
-            {activeTab === 'van-don-sale' && (
-              <iframe
-                ref={vanDonIframeRef}
-                title="Vận đơn Sale — KPIs vận đơn"
-                className="nssl-iframe-van"
-                src={iframeVanDon}
-                loading="lazy"
-                allow="clipboard-read; clipboard-write"
-                onLoad={postVanDonSidebarFilters}
               />
             )}
           </div>

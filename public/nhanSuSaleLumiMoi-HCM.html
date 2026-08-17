@@ -84,7 +84,6 @@
 
         /* CẬP NHẬT CSS: Thêm ID iframe-kpi-sale vào danh sách style */
         #iframe-thu-cong,
-        #iframe-van-don-sale,
         #iframe-kpi-sale {
             width: 100%;
             height: 80vh;
@@ -467,7 +466,6 @@
                 <button class="tab-button" data-tab="chot">Dữ liệu báo cáo tay</button>
                 <!-- Thêm Button KPIs Sale -->
                 <button class="tab-button" data-tab="kpi-sale">KPIs Sale</button>
-                <button class="tab-button" data-tab="van-don-sale">Vận đơn Sale</button>
                 <button class="tab-button" data-tab="thu-cong" id="tab-btn-thu-cong" style="display: none;">Báo cáo thủ
                     công</button>
             </div>
@@ -527,12 +525,7 @@
                 <iframe id="iframe-kpi-sale" src="about:blank" title="KPIs Sale" frameborder="0"></iframe>
             </div>
 
-            <!-- Tab 4: Vận đơn Sale -->
-            <div id="tab-van-don-sale" class="tab-content">
-                <iframe id="iframe-van-don-sale" src="about:blank" title="Vận đơn Sale" frameborder="0"></iframe>
-            </div>
-
-            <!-- Tab 5: Báo cáo thủ công -->
+            <!-- Tab 4: Báo cáo thủ công -->
             <div id="tab-thu-cong" class="tab-content">
                 <iframe id="iframe-thu-cong" src="about:blank" frameborder="0"></iframe>
             </div>
@@ -594,20 +587,10 @@
             const q = idParam ? `?id=${encodeURIComponent(idParam)}` : '';
             return `${window.location.origin}/embed/bao-cao-hieu-suat-kpi${q}`;
         }
-        function embedVanDonUrl(idParam) {
-            if (!isAppSameOriginEmbeds()) {
-                return idParam
-                    ? `https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html?id=${encodeURIComponent(idParam)}`
-                    : 'https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html';
-            }
-            const q = idParam ? `?id=${encodeURIComponent(idParam)}` : '';
-            return `${window.location.origin}/embed/bao-cao-van-don${q}`;
-        }
 
         document.addEventListener('DOMContentLoaded', () => {
             const idInit = getUrlParameter('id');
             document.getElementById('iframe-kpi-sale').src = embedKpiUrl(idInit || '');
-            document.getElementById('iframe-van-don-sale').src = embedVanDonUrl(idInit || '');
             addEventListeners();
             setDefaultDates();
             fetchAndProcessData();
@@ -790,11 +773,9 @@
                 const hcmFullData = getUrlParameter('hcmFullData') === '1' || getUrlParameter('hcmFullData') === 'true';
 
                 if (idFromUrl) {
-                    const vanDonIframe = document.getElementById('iframe-van-don-sale');
                     const kpiIframe = document.getElementById('iframe-kpi-sale');
-                    vanDonIframe.src = embedVanDonUrl(idFromUrl);
                     kpiIframe.src = embedKpiUrl(idFromUrl);
-                    console.log('Set iframes URLs with ID:', idFromUrl);
+                    console.log('Set iframe URL with ID:', idFromUrl);
                 }
 
                 if (idFromUrl && !hcmFullData) {

@@ -36,23 +36,21 @@ const SALES_REPORTS_SELECT = [
 
 export const SALES_REPORTS_API_BASE = 'https://lumidataapi.vercel.app';
 /**
- * KPIs Sale — dùng trang KPIs vận đơn (same-origin), thay KPisale.html / embed cũ
- * (github.io CORS + BaoCaoHieuSuatKPI phụ thuộc API ngoài hay timeout).
+ * KPIs Sale — `KPISale.html` (cột Nhân viên = tên Sale).
+ * KPIVandon.html vẫn dùng cho báo cáo Bộ phận Vận đơn.
  */
-export const NSSL_KPI_EMBED_PATH = '/baocao-vandon-nv/KPIVandon.html';
-/** Cùng trang KPIVandon — lọc nhân sự Bộ phận Vận đơn (thay embed `/embed/bao-cao-van-don` cũ). */
-export const NSSL_VAN_DON_EMBED_PATH = NSSL_KPI_EMBED_PATH;
+export const NSSL_KPI_EMBED_PATH = '/baocao-vandon-nv/KPISale.html';
 export const NSSL_IFRAME_THU_CONG = 'https://nguyenbatyads37.github.io/static-html-show-data/baoCaoThuCong.html';
-/** Host `/xem-bao-cao-sale` → iframe KPIs / Vận đơn: đồng bộ bộ lọc thanh trái. */
+/** Host `/xem-bao-cao-sale` → iframe KPIs: đồng bộ bộ lọc thanh trái. */
 export const NSSL_KPI_FILTERS_MSG_TYPE = 'LUMINEW_NSSL_KPI_FILTERS';
-/** Iframe KPIs / Vận đơn sẵn sàng nhận bộ lọc từ parent. */
+/** Iframe KPIs sẵn sàng nhận bộ lọc từ parent. */
 export const NSSL_KPI_READY_MSG_TYPE = 'LUMINEW_NSSL_KPI_READY';
 
-function buildKpiVandonEmbedUrl(idAppsheet, dept, title) {
+function buildKpiSaleEmbedUrl(idAppsheet, title) {
   const params = new URLSearchParams({
     view: 'vandon',
     table: 'orders',
-    dept,
+    dept: 'Sale',
     hideFilters: '1',
   });
   if (title) params.set('title', title);
@@ -63,14 +61,9 @@ function buildKpiVandonEmbedUrl(idAppsheet, dept, title) {
   return `${window.location.origin}${NSSL_KPI_EMBED_PATH}?${params.toString()}`;
 }
 
-/** URL iframe Vận đơn Sale = KPIVandon, chỉ nhân sự Bộ phận Vận đơn. */
-export function buildVanDonEmbedUrl(idAppsheet) {
-  return buildKpiVandonEmbedUrl(idAppsheet, 'Vận đơn', 'Chỉ số vận đơn của Team Vận đơn');
-}
-
-/** URL iframe KPIs Sale = KPIVandon, nhân sự Bộ phận Sale. */
+/** URL iframe KPIs Sale = KPISale.html, nhân sự Bộ phận Sale. */
 export function buildKpiEmbedUrl(idAppsheet) {
-  return buildKpiVandonEmbedUrl(idAppsheet, 'Sale', 'Chỉ số vận đơn của Sale');
+  return buildKpiSaleEmbedUrl(idAppsheet, 'KPI Sale');
 }
 
 export function formatCurrency(value) {
