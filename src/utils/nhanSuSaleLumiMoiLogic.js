@@ -2,7 +2,7 @@
  * Logic trích từ nhanSuSaleLumiMoi.html (giữ nguyên công thức / lọc / gom nhóm).
  */
 
-import { REPORT_CA_COMBINED } from '../constants/reportShifts';
+import { canonicalizeReportCa } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import { convertDateToAPIFormat } from '../services/ordersApiService';
 
@@ -541,6 +541,7 @@ export function mapSupabaseSalesReportRow(row) {
   const oc = Number(row.order_count) || 0;
   const rm = Number(row.revenue_mess ?? 0) || 0;
   const ra = Number(row.revenue_actual) || 0;
+  const revenue = ra || rm;
   const rca = Number(row.revenue_cancel_actual) || 0;
   return {
     chucVu: String(row.position ?? '').trim(),
@@ -549,12 +550,12 @@ export function mapSupabaseSalesReportRow(row) {
     team,
     chiNhanh: displayChiNhanhFromBranchAndTeam(row.branch, row.team),
     ngay: row.date ?? '',
-    ca: row.shift || REPORT_CA_COMBINED,
+    ca: canonicalizeReportCa(row.shift),
     sanPham: row.product || '',
     thiTruong: row.market || '',
     soMessCmt: Number(row.mess_count) || 0,
     soDon: oc,
-    dsChot: rm,
+    dsChot: revenue,
     phanHoi: Number(row.response_count) || 0,
     doanhSoDi: Number(row.revenue_go_actual) || 0,
     soDonHuy: Number(row.order_cancel_count) || 0,
@@ -562,11 +563,11 @@ export function mapSupabaseSalesReportRow(row) {
     soDonThanhCong: Number(row.order_success_count) || 0,
     doanhSoThanhCong: Number(row.revenue_success) || 0,
     soDonThucTe: oc,
-    doanhThuChotThucTe: ra,
+    doanhThuChotThucTe: revenue,
     doanhSoDiThucTe: Number(row.revenue_go_actual) || 0,
     soDonHoanHuyThucTe: Number(row.order_cancel_count_actual) || 0,
     doanhSoHoanHuyThucTe: rca,
-    doanhSoSauHoanHuyThucTe: ra - rca,
+    doanhSoSauHoanHuyThucTe: revenue - rca,
   };
 }
 
@@ -585,7 +586,7 @@ export function mapLumidataSalesReportRow(item) {
     team,
     chiNhanh: displayChiNhanhFromBranchAndTeam(item.branch, item.team),
     ngay: item.date ?? '',
-    ca: item.ca || REPORT_CA_COMBINED,
+    ca: canonicalizeReportCa(item.ca),
     sanPham: item.san_pham || '',
     thiTruong: item.thi_truong || '',
     soMessCmt: Number(item.mess_count) || 0,
@@ -1044,21 +1045,10 @@ export function filterRawData({
 
   const rowMatchesShiftSelection = (rowCa, selectedShiftsList) => {
     if (!Array.isArray(selectedShiftsList) || selectedShiftsList.length === 0) return true;
-    const rowNorm = normalizeCaForFilter(rowCa);
-    const rowHasHet = rowNorm.includes('het ca');
-    const rowHasGiua = rowNorm.includes('giua ca');
-    const rowIsCombined = rowHasHet && rowHasGiua;
-
+    const rowNorm = normalizeCaForFilter(canonicalizeReportCa(rowCa));
     return selectedShiftsList.some((selected) => {
-      const s = normalizeCaForFilter(selected);
-      if (!s) return false;
-      // Chọn "Hết ca" => khớp cả dòng thuần Hết và dòng gộp Giữa+Hết.
-      if (s.includes('het ca') && !s.includes('giua ca')) return rowHasHet;
-      // Chọn "Giữa ca" => khớp cả dòng thuần Giữa và dòng gộp.
-      if (s.includes('giua ca') && !s.includes('het ca')) return rowHasGiua;
-      // Chọn nhãn gộp => chỉ khớp dòng gộp.
-      if (s.includes('het ca') && s.includes('giua ca')) return rowIsCombined;
-      return rowNorm === s;
+      const s = normalizeCaForFilter(canonicalizeReportCa(selected));
+      return !!s && rowNorm === s;
     });
   };
 

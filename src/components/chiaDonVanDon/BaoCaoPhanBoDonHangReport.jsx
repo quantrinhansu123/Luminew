@@ -80,7 +80,7 @@ function buildStaffLowCountReasons({ name, count, maxCount, nkTarget, activeBran
     reasons.push({
       icon: '🚫',
       title: 'Vắng mặt ở một số phiên',
-      detail: `Không tham gia phiên: ${missedSessions.map((s) => `Vòng ${s}`).join(', ')}. Có thể do trạng thái không phải U1 hoặc chưa được bật tại thời điểm chia.`,
+                    detail: `Không tham gia phiên: ${missedSessions.map((s) => `Vòng ${s}`).join(', ')}. Có thể do trạng thái không phải U1/U2 hoặc chưa được bật tại thời điểm chia.`,
       severity: 'high',
     });
   }
