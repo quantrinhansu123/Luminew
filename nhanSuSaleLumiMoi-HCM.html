@@ -913,7 +913,60 @@
             }
         }
 
-        function summarizeAndSortSalesData(data) {
+        function numMax(a, b) {
+            const x = Number(a) || 0;
+            const y = Number(b) || 0;
+            return Math.max(x, y);
+        }
+        /**
+         * Khóa Ngày + Tên + SP + TT (không gồm ca). Recalc ghi cùng order_count vào mọi ca
+         * → cộng dồn sẽ x2; gộp bằng max giống /xem-bao-cao-sale (React).
+         */
+        function buildSalesReportRowDedupeKey(r) {
+            const ngay = String(r?.ngay ?? '').trim().slice(0, 10);
+            const ten = normalizeViAscii(r?.ten ?? '');
+            const sp = normalizeViAscii(r?.sanPham ?? '');
+            const tt = normalizeViAscii(r?.thiTruong ?? '');
+            return `${ngay}|${ten}|${sp}|${tt}`;
+        }
+        function mergeDuplicateSalesReportRows(prev, next) {
+            const merged = {
+                ...prev,
+                soMessCmt: numMax(prev.soMessCmt, next.soMessCmt),
+                soDon: numMax(prev.soDon, next.soDon),
+                dsChot: numMax(prev.dsChot, next.dsChot),
+                phanHoi: numMax(prev.phanHoi, next.phanHoi),
+                doanhSoDi: numMax(prev.doanhSoDi, next.doanhSoDi),
+                soDonHuy: numMax(prev.soDonHuy, next.soDonHuy),
+                doanhSoHuy: numMax(prev.doanhSoHuy, next.doanhSoHuy),
+                soDonThanhCong: numMax(prev.soDonThanhCong, next.soDonThanhCong),
+                doanhSoThanhCong: numMax(prev.doanhSoThanhCong, next.doanhSoThanhCong),
+                soDonThucTe: numMax(prev.soDonThucTe, next.soDonThucTe),
+                doanhThuChotThucTe: numMax(prev.doanhThuChotThucTe, next.doanhThuChotThucTe),
+                doanhSoDiThucTe: numMax(prev.doanhSoDiThucTe, next.doanhSoDiThucTe),
+                soDonHoanHuyThucTe: numMax(prev.soDonHoanHuyThucTe, next.soDonHoanHuyThucTe),
+                doanhSoHoanHuyThucTe: numMax(prev.doanhSoHoanHuyThucTe, next.doanhSoHoanHuyThucTe),
+            };
+            merged.doanhSoSauHoanHuyThucTe =
+                (Number(merged.doanhThuChotThucTe) || 0) - (Number(merged.doanhSoHoanHuyThucTe) || 0);
+            return merged;
+        }
+        function dedupeSalesReportRowsByTTKey(rows) {
+            if (!Array.isArray(rows) || rows.length === 0) return rows;
+            const map = new Map();
+            for (const r of rows) {
+                const k = buildSalesReportRowDedupeKey(r);
+                if (!map.has(k)) {
+                    map.set(k, { ...r });
+                    continue;
+                }
+                map.set(k, mergeDuplicateSalesReportRows(map.get(k), r));
+            }
+            return Array.from(map.values());
+        }
+        function summarizeAndSortSalesData(data, options = {}) {
+            const rawList = options.rawRowsForMess;
+            const useRawMessSum = Array.isArray(rawList) && rawList.length > 0;
             const summaryData = {};
             const initialSummary = {
                 mess: 0, don: 0, chot: 0, phanHoi: 0,
@@ -931,7 +984,9 @@
                         ...JSON.parse(JSON.stringify(initialSummary))
                     };
                 }
-                summaryData[name].mess += r.soMessCmt;
+                if (!useRawMessSum) {
+                    summaryData[name].mess += r.soMessCmt;
+                }
                 summaryData[name].don += r.soDon;
                 summaryData[name].chot += r.doanhThuChotThucTe;
                 summaryData[name].phanHoi += r.phanHoi;
@@ -946,6 +1001,18 @@
                 summaryData[name].doanhSoThanhCong += r.doanhSoThanhCong;
             });
 
+            if (useRawMessSum) {
+                const messByName = {};
+                for (const r of rawList) {
+                    const name = r.ten;
+                    if (!name) continue;
+                    messByName[name] = (messByName[name] || 0) + (Number(r.soMessCmt) || 0);
+                }
+                Object.keys(summaryData).forEach((name) => {
+                    summaryData[name].mess = messByName[name] ?? 0;
+                });
+            }
+
             const flatList = Object.keys(summaryData).map(name => ({ name, ...summaryData[name] }))
                 .sort((a, b) => a.team.localeCompare(b.team) || b.chot - a.chot || a.name.localeCompare(b.name));
 
@@ -955,6 +1022,10 @@
             }, JSON.parse(JSON.stringify(initialSummary)));
 
             return { flatList, total };
+        }
+        function summarizeHcmReport(filtered) {
+            const deduped = dedupeSalesReportRowsByTTKey(filtered);
+            return summarizeAndSortSalesData(deduped, { rawRowsForMess: filtered });
         }
 
         function populateAllFilters(data) {
@@ -1044,7 +1115,7 @@
         }
 
         function renderSummary(data) {
-            const { flatList, total } = summarizeAndSortSalesData(data);
+            const { flatList, total } = summarizeHcmReport(data);
 
             // Lọc bỏ team "Đã nghỉ"
             const flatListFiltered = flatList.filter(item => {
@@ -1057,7 +1128,7 @@
             const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
             const totalRateSauHuy = total.mess ? soDonSauHuyTotal / total.mess : 0;
             // Lấy flatList báo cáo tay để đồng bộ số đơn và doanh số
-            const { flatList: flatListChot } = summarizeAndSortSalesData(data);
+            const { flatList: flatListChot } = summarizeHcmReport(data);
             const soDonMap = {};
             const doanhSoMap = {};
             const soDonTTMap = {};
@@ -1121,7 +1192,7 @@
 
             sortedDates.forEach(date => {
                 const dailyData = groupedByDate[date];
-                const { flatList, total } = summarizeAndSortSalesData(dailyData);
+                const { flatList, total } = summarizeHcmReport(dailyData);
 
                 // Lọc bỏ team "Đã nghỉ"
                 const flatListFiltered = flatList.filter(item => {
