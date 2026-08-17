@@ -275,24 +275,25 @@ export async function fetchMktOrdersInDateRange(startDate, endDate, tableName = 
 
 /**
  * Tính Số đơn TT / Doanh số TT cho một dòng báo cáo — cùng logic `recalcMktSoDonThucTeFromOrders`.
- * @returns {{ so_don_thuc_te: number, so_don_huy: number, so_don_ok: number, doanh_so_thuc_te: number, so_don_gross: number }}
+ * @returns {{ so_don_thuc_te: number, so_don_huy: number, so_don_ok: number, doanh_so_ok: number, doanh_so_thuc_te: number, so_don_gross: number }}
  */
 export function computeMktOrderMetricsForReportRow(report, ordersList) {
   const r = report || {};
   const caGroups = reportCaGroupsForRecalc(r.ca ?? r['Ca'] ?? '');
   if (!caGroups.length) {
-    return { so_don_thuc_te: 0, so_don_huy: 0, so_don_ok: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
+    return { so_don_thuc_te: 0, so_don_huy: 0, so_don_ok: 0, doanh_so_ok: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
   }
 
   const ek = effectiveKeyPartsForReportRow(r, ordersList);
   const key = ek.key;
   if (!key) {
-    return { so_don_thuc_te: 0, so_don_huy: 0, so_don_ok: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
+    return { so_don_thuc_te: 0, so_don_huy: 0, so_don_ok: 0, doanh_so_ok: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
   }
 
   let grossCount = 0;
   let cancelCount = 0;
   let okCount = 0;
+  let okRevenueVnd = 0;
   let totalRevenueVnd = 0;
   let cancelRevenueVnd = 0;
 
@@ -313,7 +314,10 @@ export function computeMktOrderMetricsForReportRow(report, ordersList) {
     if (vnd <= 0) continue;
 
     const checkResult = getCheckResult(order);
-    if (isCheckResultOk(checkResult)) okCount += 1;
+    if (isCheckResultOk(checkResult)) {
+      okCount += 1;
+      okRevenueVnd += vnd;
+    }
     const huy = isCheckResultHuy(checkResult);
     grossCount += 1;
     totalRevenueVnd += vnd;
@@ -330,6 +334,7 @@ export function computeMktOrderMetricsForReportRow(report, ordersList) {
     so_don_thuc_te: netCount,
     so_don_huy: cancelCount,
     so_don_ok: okCount,
+    doanh_so_ok: okRevenueVnd,
     doanh_so_thuc_te: netRevenue,
     so_don_gross: grossCount,
   };
@@ -348,6 +353,7 @@ export function mktRealValuesFallbackFromReportRow(item, { grossSoDon = false } 
     so_don_thuc_te: grossSoDon ? net + huy : net,
     so_don_huy: huy,
     so_don_ok: Number(item?.['Đơn Ok'] ?? item?.['Số đơn Ok'] ?? item?.so_don_ok ?? 0),
+    doanh_so_ok: Number(item?.['Doanh số Ok'] ?? item?.doanh_so_ok ?? 0),
     doanh_so_thuc_te: dsTT,
     so_don_gross: net + huy,
   };
@@ -620,6 +626,7 @@ function mktCreateRowFromAggEntry(
     'Số đơn hoàn hủy': cc,
     'Số đơn hoàn hủy thực tế': cc,
     'Đơn Ok': entry.okCount ?? 0,
+    'Doanh số Ok': entry.okRevenueVnd ?? 0,
     'Doanh số hoàn hủy thực tế': crv,
   };
   if (reportsTableName !== 'marketing_report_hcm' && resolved.department) {
@@ -1107,7 +1114,10 @@ export async function recalcMktSoDonThucTeFromOrders({
       const existing = mapForGroup.get(key);
       if (existing) {
         if (vnd > 0) {
-          if (ok) existing.okCount += 1;
+          if (ok) {
+            existing.okCount += 1;
+            existing.okRevenueVnd += vnd;
+          }
           existing.count += 1;
           existing.totalRevenueVnd += vnd;
           if (huy) {
@@ -1122,6 +1132,7 @@ export async function recalcMktSoDonThucTeFromOrders({
           cancelCount: vnd > 0 && huy ? 1 : 0,
           cancelRevenueVnd: vnd > 0 && huy ? vnd : 0,
           okCount: vnd > 0 && ok ? 1 : 0,
+          okRevenueVnd: vnd > 0 && ok ? vnd : 0,
           sample: {
             date: normalizeDateStr(order.order_date),
             name: String(order.marketing_staff || '').trim(),
@@ -1179,6 +1190,7 @@ export async function recalcMktSoDonThucTeFromOrders({
       soDonHoanHuyTT,
       dsHoanHuyTT,
       soDonOk: agg?.okCount ?? 0,
+      dsOk: agg?.okRevenueVnd ?? 0,
     };
   }
 
@@ -1196,6 +1208,7 @@ export async function recalcMktSoDonThucTeFromOrders({
         'Số đơn hoàn hủy': patch['Số đơn hoàn hủy'],
         'Số đơn hoàn hủy thực tế': patch['Số đơn hoàn hủy thực tế'],
         'Đơn Ok': patch['Đơn Ok'],
+        'Doanh số Ok': patch['Doanh số Ok'],
         'Doanh số hoàn hủy thực tế': patch['Doanh số hoàn hủy thực tế'],
         action: 'update',
         autoFilledKey: ek.patchProduct || ek.patchMarket || !hadExplicitCa || autoFilledKeyExtra,
@@ -1226,6 +1239,7 @@ export async function recalcMktSoDonThucTeFromOrders({
         'Số đơn hoàn hủy': m.soDonHoanHuyTT,
         'Số đơn hoàn hủy thực tế': m.soDonHoanHuyTT,
         'Đơn Ok': m.soDonOk,
+        'Doanh số Ok': m.dsOk,
         'Doanh số hoàn hủy thực tế': m.dsHoanHuyTT,
       };
       if (!hadExplicitCa) {
@@ -1312,6 +1326,7 @@ export async function recalcMktSoDonThucTeFromOrders({
       'Số đơn hoàn hủy': m.soDonHoanHuyTT,
       'Số đơn hoàn hủy thực tế': m.soDonHoanHuyTT,
       'Đơn Ok': m.soDonOk,
+      'Doanh số Ok': m.dsOk,
       'Doanh số hoàn hủy thực tế': m.dsHoanHuyTT,
     };
     if (ek.patchProduct) patch['Sản_phẩm'] = ek.product;
@@ -1364,6 +1379,7 @@ export async function recalcMktSoDonThucTeFromOrders({
               'Số đơn hoàn hủy': cc,
               'Số đơn hoàn hủy thực tế': cc,
               'Đơn Ok': newRow['Đơn Ok'],
+              'Doanh số Ok': newRow['Doanh số Ok'],
               'Doanh số hoàn hủy thực tế': newRow['Doanh số hoàn hủy thực tế'],
               action: 'create',
             });
@@ -1417,6 +1433,7 @@ export async function recalcMktSoDonThucTeFromOrders({
             'Số đơn hoàn hủy': cc,
             'Số đơn hoàn hủy thực tế': cc,
             'Đơn Ok': row['Đơn Ok'],
+            'Doanh số Ok': row['Doanh số Ok'],
             'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
             action: 'create',
           });

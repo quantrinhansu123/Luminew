@@ -1547,7 +1547,7 @@
           <h2>BÁO CÁO OK</h2>
         </div>
         <p style="margin:0 0 10px;font-size:13px;color:#555;">
-          Số đơn OK / DS OK lấy từ chỉ số TT đã trừ huỷ. Tỷ lệ chốt (TT) = Số đơn OK ÷ Số Mess; CPQC/DS OK = CPQC ÷ DS OK.
+          Số đơn OK / DS OK = các đơn có Kết quả Check = Ok (cột Đơn Ok). Tỷ lệ chốt (TT) = Số đơn OK ÷ Số Mess; CPQC/DS OK = CPQC ÷ DS OK.
         </p>
         <div class="table-responsive-container">
           <table id="ok-summary-table" class="sortable-table">
@@ -2438,6 +2438,8 @@
         'Số_Mess_Cmt': parseIntegerVi(item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0),
         'Số đơn': parseIntegerVi(item['Số đơn'] ?? item.so_don ?? 0),
         'Số đơn thực tế': parseIntegerVi(item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0),
+        'Đơn Ok': parseIntegerVi(item['Đơn Ok'] ?? item['Số đơn Ok'] ?? item.so_don_ok ?? 0),
+        'Doanh số Ok': parseMoneyNumber(item['Doanh số Ok'] ?? item.doanh_so_ok ?? 0),
         'Doanh số': item['Doanh số'] ?? item.doanh_so ?? 0,
         /** DS Chốt (TT) — chỉ «Doanh số TT» / doanh_so_tt; không fallback cột legacy. */
         'Doanh số TT': parseMoneyNumber(
@@ -2559,6 +2561,16 @@
       return parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
     }
 
+    function parseDonOkFromRow(row) {
+      if (!row) return 0;
+      return parseIntegerVi(row['Đơn Ok'] ?? row['Số đơn Ok'] ?? row.so_don_ok ?? 0);
+    }
+
+    function parseDoanhSoOkFromRow(row) {
+      if (!row) return 0;
+      return parseMoneyNumber(row['Doanh số Ok'] ?? row.doanh_so_ok ?? 0);
+    }
+
     function parseDoanhSoChotTTFromRow(row) {
       if (!row) return 0;
       return parseMoneyNumber(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0);
@@ -2621,6 +2633,8 @@
       for (const row of merged) {
         const k = buildMktDetailReportRowKey(row);
         const sd = parseSoDonThucTeFromRow(row);
+        const sok = parseDonOkFromRow(row);
+        const dsok = parseDoanhSoOkFromRow(row);
         const sh = parseSoDonHoanHuyFromRow(row);
         const sm = parseSoDonNhapTayFromRow(row);
         const ds = parseDoanhSoChotTTFromRow(row);
@@ -2631,11 +2645,13 @@
 
         const prev = byKey.get(k);
         if (!prev) {
-          byKey.set(k, { row, sd, sh, sm, ds, dsh, cpqc, mess, dso });
+          byKey.set(k, { row, sd, sok, dsok, sh, sm, ds, dsh, cpqc, mess, dso });
           continue;
         }
 
         const mergedSd = Math.max(prev.sd, sd);
+        const mergedSok = Math.max(prev.sok, sok);
+        const mergedDsok = Math.max(prev.dsok, dsok);
         const mergedSh = Math.max(prev.sh, sh);
         const mergedSm = prev.sm + sm;
         const mergedDs = Math.max(prev.ds, ds);
@@ -2645,6 +2661,8 @@
         const mergedDso = prev.dso + dso;
 
         prev.sd = mergedSd;
+        prev.sok = mergedSok;
+        prev.dsok = mergedDsok;
         prev.sh = mergedSh;
         prev.sm = mergedSm;
         prev.ds = mergedDs;
@@ -2653,6 +2671,8 @@
         prev.mess = mergedMess;
         prev.dso = mergedDso;
         prev.row['Số đơn thực tế'] = mergedSd;
+        prev.row['Đơn Ok'] = mergedSok;
+        prev.row['Doanh số Ok'] = mergedDsok;
         prev.row['Số đơn hoàn hủy'] = mergedSh;
         prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
         prev.row['Số đơn'] = mergedSm;
@@ -2662,6 +2682,8 @@
         prev.row['CPQC'] = mergedCpqc;
         prev.row['Số_Mess_Cmt'] = mergedMess;
         if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
+        if (prev.row.so_don_ok != null) prev.row.so_don_ok = mergedSok;
+        if (prev.row.doanh_so_ok != null) prev.row.doanh_so_ok = mergedDsok;
         if (prev.row.so_don_hoan_huy != null) prev.row.so_don_hoan_huy = mergedSh;
         if (prev.row.so_don_hoan_huy_thuc_te != null) prev.row.so_don_hoan_huy_thuc_te = mergedSh;
         if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
@@ -2919,7 +2941,7 @@
     const MKT_TAB1_FILTER_DEBOUNCE_MS = 150;
     /** Cột detail_reports cho báo cáo MKT (gồm DS Chốt TT). */
     const MKT_DETAIL_REPORTS_SELECT =
-      'id,"Ngày","Team","Tên","Email","Sản_phẩm","Thị_trường","CPQC","Số_Mess_Cmt","Số đơn","Số đơn thực tế","Doanh số","Doanh số TT",doanh_so_tt,"Doanh thu chốt thực tế","Số đơn hoàn hủy","Số đơn hoàn hủy thực tế","Doanh số hoàn hủy thực tế","DS sau hoàn hủy","Doanh số sau hoàn hủy thực tế","Doanh số sau ship","Doanh số TC","KPIs","Doanh số đi thực tế",ca,id_NS,department';
+      'id,"Ngày","Team","Tên","Email","Sản_phẩm","Thị_trường","CPQC","Số_Mess_Cmt","Số đơn","Số đơn thực tế","Đơn Ok","Doanh số Ok","Doanh số","Doanh số TT",doanh_so_tt,"Doanh thu chốt thực tế","Số đơn hoàn hủy","Số đơn hoàn hủy thực tế","Doanh số hoàn hủy thực tế","DS sau hoàn hủy","Doanh số sau hoàn hủy thực tế","Doanh số sau ship","Doanh số TC","KPIs","Doanh số đi thực tế",ca,id_NS,department';
     let mktDetailReportsSelectActive = MKT_DETAIL_REPORTS_SELECT;
     const mktApiCache = new Map();
     const charts = {};
@@ -3500,6 +3522,16 @@
       return ascii === 'huy';
     }
 
+    function isOrderOkForActualOverlay(order) {
+      const s = String(order?.check_result ?? '').trim();
+      if (!s) return false;
+      const ascii = s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      return ascii === 'ok';
+    }
+
     function buildHnActualsByReportKey(orders) {
       const counts = new Map();
       for (const order of orders || []) {
@@ -3514,16 +3546,21 @@
 
         const amount = orderAmountVndForActualOverlay(order);
         const isHuy = isOrderHuyForActualOverlay(order);
+        const isOk = isOrderOkForActualOverlay(order);
         for (const group of orderShiftGroupsForActualOverlay(order.shift)) {
           const key = `${baseKey}|${caSegmentFromGroupLabel(group)}`;
           const prev =
             counts.get(key) ||
-            { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0 };
+            { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0, okCount: 0, okRevenueVnd: 0 };
           prev.count += 1;
           prev.totalRevenueVnd += amount;
           if (isHuy) {
             prev.cancelCount += 1;
             prev.cancelRevenueVnd += amount;
+          }
+          if (isOk) {
+            prev.okCount += 1;
+            prev.okRevenueVnd += amount;
           }
           counts.set(key, prev);
         }
@@ -3538,6 +3575,8 @@
       const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
       const netCount = Math.max(0, count - cancelCount);
       const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
+      const okCount = actual?.okCount || 0;
+      const okRevenueVnd = actual?.okRevenueVnd || 0;
       return {
         ...row,
         'Số đơn thực tế': netCount,
@@ -3553,6 +3592,10 @@
         'Doanh số hoàn hủy thực tế': cancelRevenueVnd,
         doanh_so_hoan_huy_thuc_te:
           row.doanh_so_hoan_huy_thuc_te != null ? cancelRevenueVnd : row.doanh_so_hoan_huy_thuc_te,
+        'Đơn Ok': okCount,
+        so_don_ok: okCount,
+        'Doanh số Ok': okRevenueVnd,
+        doanh_so_ok: okRevenueVnd,
       };
     }
 
@@ -3702,6 +3745,8 @@
               dsThanhCong: Number(r['Doanh số TC']) || 0,
               kpiValue: Number(r['KPIs']) || 0,
               soDonThucTe: donTT,
+              soDonOk: parseIntegerVi(r['Đơn Ok'] ?? r.so_don_ok ?? 0),
+              dsOk: parseMoneyNumber(r['Doanh số Ok'] ?? r.doanh_so_ok ?? 0),
               dsChotThucTe: dsChotTT,
               dsHoanHuyThucTe: dsHuyVnd,
               soDonHuyThucTe: parseIntegerVi(r['Số đơn hoàn hủy thực tế']),
@@ -4653,7 +4698,7 @@
     }
 
     /**
-     * Báo cáo OK giữ bố cục bảng MKT; các cột TT được hiển thị thành Số đơn OK / DS OK.
+     * Báo cáo OK: Số đơn OK / DS OK lấy từ cột Đơn Ok (check_result = Ok), không lấy Số đơn TT / DS TT.
      * Tỷ lệ chốt TT = Số đơn OK / Số Mess; CPQC/DS OK = CPQC / DS OK.
      */
     function generateOkSummaryTableData(data) {
@@ -4680,8 +4725,8 @@
         const detailKey = mktDetailRowKeyForTotals(r);
         if (S.seenDetailKeys.has(detailKey)) return;
         S.seenDetailKeys.add(detailKey);
-        const soDonOk = Number(r.soDonThucTe) || 0;
-        const doanhSoOk = Number(r.dsChotThucTe) || 0;
+        const soDonOk = Number(r.soDonOk ?? r['Đơn Ok']) || 0;
+        const doanhSoOk = Number(r.dsOk ?? r['Doanh số Ok']) || 0;
         S.soMess += Number(r.soMessCmt) || 0;
         S.cpqc += Number(r.cpqc) || 0;
         S.soDon += Number(r.soDon) || 0;
