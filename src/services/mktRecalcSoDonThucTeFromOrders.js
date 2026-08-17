@@ -120,10 +120,11 @@ function orderShiftToGroups(shiftVal) {
     if (seg.includes('giữa ca') || seg.includes('giua ca')) hasGua = true;
   }
 
-  const groups = [];
-  if (hasHet) groups.push('Hết ca');
-  if (hasGua) groups.push('Giữa ca');
-  return groups;
+  // Đơn ghi cả «Giữa ca,Hết ca» chỉ gán 1 nhóm (ưu tiên Hết ca) — tránh đếm trùng khi cộng Báo cáo OK theo người.
+  if (hasHet && hasGua) return ['Hết ca'];
+  if (hasHet) return ['Hết ca'];
+  if (hasGua) return ['Giữa ca'];
+  return [];
 }
 
 /**
@@ -232,17 +233,16 @@ function buildKey(dateStr, name, product, market) {
 }
 
 /**
- * Chuẩn ca về segment key (Ngày|Tên|SP|TT|ca) — cùng logic tách phẩy với orderShiftToGroups.
- * «Giữa ca,Hết ca» (dòng gộp legacy) → `gua` để dedupe với dòng «Giữa ca» thuần trước khi recalc tách dòng.
+ * Chuẩn ca về segment key (Ngày|Tên|SP|TT|ca).
+ * «Giữa ca,Hết ca» (dòng gộp legacy) → `het` (khớp đơn ca gộp chỉ gán Hết ca).
  * Chỉ «Hết ca» → `het`; chỉ «Giữa ca» → `gua`; trống → `het`.
  */
 function normalizeCaForRowKey(caVal) {
   const s = normalizeFieldForKey(caVal);
   if (!s) return 'het';
-  const g = orderShiftToGroups(caVal);
-  const hasHet = g.includes('Hết ca');
-  const hasGua = g.includes('Giữa ca');
-  if (hasHet && hasGua) return 'gua';
+  const hasHet = s.includes('hết ca') || s.includes('het ca');
+  const hasGua = s.includes('giữa ca') || s.includes('giua ca');
+  if (hasHet && hasGua) return 'het';
   if (hasHet) return 'het';
   if (hasGua) return 'gua';
   return s;
@@ -311,14 +311,16 @@ export function computeMktOrderMetricsForReportRow(report, ordersList) {
     if (!matchesCa) continue;
 
     const vnd = orderAmountVndHcmOverlay(order);
-    if (vnd <= 0) continue;
-
-    const checkResult = getCheckResult(order);
-    if (isCheckResultOk(checkResult)) {
+    // Đơn Ok: khớp Danh sách đơn / Sale — chỉ check_result = Ok, kể cả đơn 0đ.
+    const ok = isCheckResultOk(order?.check_result);
+    if (ok) {
       okCount += 1;
       okRevenueVnd += vnd;
     }
-    const huy = isCheckResultHuy(checkResult);
+    // Số đơn TT / DS TT vẫn chỉ lấy đơn VND > 0.
+    if (vnd <= 0) continue;
+
+    const huy = isCheckResultHuy(getCheckResult(order));
     grossCount += 1;
     totalRevenueVnd += vnd;
     if (huy) {
@@ -1082,8 +1084,9 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   /*
    * Ca (shift) và số liệu:
-   * - Đơn: tách nhóm Hết ca / Giữa ca (kể cả shift gộp trên đơn → đếm vào cả hai nhóm).
+   * - Đơn: Hết ca / Giữa ca; ca gộp «Giữa ca,Hết ca» chỉ gán Hết ca (tránh đếm trùng khi cộng theo người).
    * - Báo cáo: mỗi dòng một ca — «Hết ca» hoặc «Giữa ca» (không còn một ô «Giữa ca,Hết ca»).
+   * - Đơn Ok: check_result = Ok (kể cả 0đ); Số đơn TT vẫn chỉ đơn VND > 0.
    * - Dòng gộp legacy: tách — ưu tiên gán id hiện có cho ca còn thiếu; tạo thêm một dòng nếu thiếu phía kia và có số liệu.
    * - Thiếu dòng (createMissingRows): tối đa 2 dòng / key (Hết + Giữa), chỉ khi có đơn trong nhóm tương ứng và chưa có dòng đó.
    * - Ca trống khi recalc: coi là Hết ca để gom đơn; auto-điền cột ca = «Hết ca».
@@ -1107,17 +1110,18 @@ export async function recalcMktSoDonThucTeFromOrders({
     const vnd = orderAmountVndHcmOverlay(order);
     const checkResult = getCheckResult(order);
     const huy = isCheckResultHuy(checkResult);
-    const ok = isCheckResultOk(checkResult);
+    // Đơn Ok: chỉ cột check_result = Ok (không fallback payment_status); kể cả đơn 0đ.
+    const ok = isCheckResultOk(order?.check_result);
 
     for (const group of groups) {
       const mapForGroup = countsByGroup[group];
       const existing = mapForGroup.get(key);
       if (existing) {
+        if (ok) {
+          existing.okCount += 1;
+          existing.okRevenueVnd += vnd;
+        }
         if (vnd > 0) {
-          if (ok) {
-            existing.okCount += 1;
-            existing.okRevenueVnd += vnd;
-          }
           existing.count += 1;
           existing.totalRevenueVnd += vnd;
           if (huy) {
@@ -1131,8 +1135,8 @@ export async function recalcMktSoDonThucTeFromOrders({
           totalRevenueVnd: vnd > 0 ? vnd : 0,
           cancelCount: vnd > 0 && huy ? 1 : 0,
           cancelRevenueVnd: vnd > 0 && huy ? vnd : 0,
-          okCount: vnd > 0 && ok ? 1 : 0,
-          okRevenueVnd: vnd > 0 && ok ? vnd : 0,
+          okCount: ok ? 1 : 0,
+          okRevenueVnd: ok ? vnd : 0,
           sample: {
             date: normalizeDateStr(order.order_date),
             name: String(order.marketing_staff || '').trim(),

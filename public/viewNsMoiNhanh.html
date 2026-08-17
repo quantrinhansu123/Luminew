@@ -1547,7 +1547,7 @@
           <h2>BÁO CÁO OK</h2>
         </div>
         <p style="margin:0 0 10px;font-size:13px;color:#555;">
-          Số đơn OK / DS OK = các đơn có Kết quả Check = Ok (cột Đơn Ok). Tỷ lệ chốt (TT) = Số đơn OK ÷ Số Mess; CPQC/DS OK = CPQC ÷ DS OK.
+          Số đơn OK / DS OK = đơn có cột Kết quả Check = Ok (kể cả đơn 0đ; đơn ca gộp chỉ đếm 1 lần). Tỷ lệ chốt (TT) = Số đơn OK ÷ Số Mess; CPQC/DS OK = CPQC ÷ DS OK.
         </p>
         <div class="table-responsive-container">
           <table id="ok-summary-table" class="sortable-table">
@@ -2515,11 +2515,11 @@
 
     function normalizeCaForRowKey(caVal) {
       const s = normalizeFieldForKey(caVal);
-      // Ca trống → het. «Giữa ca,Hết ca» → chỉ gua (không coi là het — tránh sai số khi gộp key).
+      // Ca trống → het. «Giữa ca,Hết ca» → het (khớp đơn ca gộp chỉ gán Hết ca).
       if (!s) return 'het';
       const hasHet = s.includes('hết ca') || s.includes('het ca');
       const hasGua = s.includes('giữa ca') || s.includes('giua ca');
-      if (hasHet && hasGua) return 'gua';
+      if (hasHet && hasGua) return 'het';
       if (hasHet) return 'het';
       if (hasGua) return 'gua';
       return s;
@@ -3425,10 +3425,11 @@
         if (seg.includes('hết ca') || seg.includes('het ca')) hasHet = true;
         if (seg.includes('giữa ca') || seg.includes('giua ca')) hasGua = true;
       }
-      const groups = [];
-      if (hasHet) groups.push('Hết ca');
-      if (hasGua) groups.push('Giữa ca');
-      return groups;
+      // Đơn ghi cả «Giữa ca,Hết ca» chỉ gán 1 nhóm (ưu tiên Hết ca) — tránh đếm trùng Số Đơn OK khi cộng theo người.
+      if (hasHet && hasGua) return ['Hết ca'];
+      if (hasHet) return ['Hết ca'];
+      if (hasGua) return ['Giữa ca'];
+      return [];
     }
 
     async function fetchAllHnOrdersForActualOverlay(dateRange) {
@@ -3535,7 +3536,6 @@
     function buildHnActualsByReportKey(orders) {
       const counts = new Map();
       for (const order of orders || []) {
-        if (!isMktActualOrderCountable(order)) continue;
         const baseKey = buildMktActualBaseKey(
           order.order_date,
           order.marketing_staff,
@@ -3546,17 +3546,23 @@
 
         const amount = orderAmountVndForActualOverlay(order);
         const isHuy = isOrderHuyForActualOverlay(order);
+        // Đơn Ok: chỉ check_result = Ok (không cần VND > 0).
         const isOk = isOrderOkForActualOverlay(order);
+        const countableTt = isMktActualOrderCountable(order);
+        if (!countableTt && !isOk) continue;
+
         for (const group of orderShiftGroupsForActualOverlay(order.shift)) {
           const key = `${baseKey}|${caSegmentFromGroupLabel(group)}`;
           const prev =
             counts.get(key) ||
             { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0, okCount: 0, okRevenueVnd: 0 };
-          prev.count += 1;
-          prev.totalRevenueVnd += amount;
-          if (isHuy) {
-            prev.cancelCount += 1;
-            prev.cancelRevenueVnd += amount;
+          if (countableTt) {
+            prev.count += 1;
+            prev.totalRevenueVnd += amount;
+            if (isHuy) {
+              prev.cancelCount += 1;
+              prev.cancelRevenueVnd += amount;
+            }
           }
           if (isOk) {
             prev.okCount += 1;
