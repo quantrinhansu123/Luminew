@@ -240,10 +240,11 @@ export default function XemBaoCaoMKTLegacy({
     };
   }, [role]);
 
-  const iframeSrc = useMemo(
-    () => `/viewNsMoiNhanh.html${location.search || ''}`,
-    [location.search]
-  );
+  const iframeSrc = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    params.set('ui', 'bao-cao-ok-mess-cpqc');
+    return `/viewNsMoiNhanh.html?${params.toString()}`;
+  }, [location.search]);
 
   if (!hasAccess) {
     return (

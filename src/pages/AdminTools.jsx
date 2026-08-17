@@ -1741,9 +1741,10 @@ const AdminTools = () => {
                     rawBranch: branchRaw,
                     detectedBranch: detectedBranch,
                     isU1: status === 'U1',
-                    isValid: isValid && status === 'U1'
+                    isU2: status === 'U2',
+                    isValid: isValid && (status === 'U1' || status === 'U2')
                 };
-            }).filter(p => p.isU1); // Chỉ xem những người đang để U1
+            }).filter(p => p.isU1 || p.isU2);
 
             setActiveStaffPreview(processed);
         } catch (err) {
@@ -4109,15 +4110,15 @@ const AdminTools = () => {
                                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                     <p className="text-xs text-gray-700 mb-2"><strong>Logic chia đơn vận đơn (Đã cập nhật: Chia tiếp sức xuyên suốt):</strong></p>
                                     <ol className="list-decimal list-inside space-y-1 text-xs text-gray-600">
-                                        <li>Lọc nhân viên có trạng thái "U1" từ danh sách vận đơn</li>
+                                        <li>Lọc nhân viên có trạng thái "U1" hoặc "U2" từ danh sách vận đơn. <strong>U1 được chia 1 lượt</strong>, <strong>U2 được chia 2 lượt liên tiếp</strong> (ví dụ: U1 → U2 → U2 → U1)</li>
                                         <li>Phân loại theo chi nhánh (HCM và Hà Nội)</li>
                                         <li>
                                             <strong>Carry-over + vòng trong phiên:</strong> Dò đơn đã chia gần nhất trong dữ liệu tham chiếu để xác định “cuối vòng” trước phiên; phiên mới bắt đầu từ{' '}
-                                            <strong>người đứng kế trong thứ tự U1</strong>. Mỗi đơn: NV khớp team/chi nhánh xếp hàng — chọn đầu hàng rồi người đó{' '}
+                                            <strong>ô kế tiếp trong hàng đợi U1/U2</strong> (U2 còn dở 2 lượt thì phiên sau tiếp tục lượt còn lại). Mỗi đơn: NV khớp team/chi nhánh xếp hàng — chọn đầu hàng rồi ô đó{' '}
                                             <strong>xuống cuối hàng trong phiên</strong>. Không ép cân bằng tải — số đơn có thể lệch nếu team không đều; xem mục Logic phiên trong Báo cáo chia đơn.
                                         </li>
                                         <li>Lọc đơn: delivery_staff trống, loại trừ "Nhật Bản" và "CĐ Nhật Bản"</li>
-                                        <li>Chỉ gán khi team đơn khớp chi nhánh của NV U1</li>
+                                        <li>Chỉ gán khi team đơn khớp chi nhánh của NV U1/U2</li>
                                         <li>Tự động dò tìm Team dựa trên Sale Staff nếu đơn trống thông tin Team</li>
                                     </ol>
                                 </div>
@@ -4162,26 +4163,53 @@ const AdminTools = () => {
                                             className="w-full mt-2 bg-white border border-blue-600 text-blue-600 hover:bg-blue-50 rounded-lg px-4 py-2 text-xs font-bold transition-all flex items-center justify-center gap-2"
                                         >
                                             <Users className="w-4 h-4" />
-                                            Kiểm tra danh sách U1 đang đi làm
+                                            Kiểm tra danh sách U1/U2 đang đi làm
                                         </button>
                                     </div>
                                 </div>
                                 {/* --- Báo cáo phân bổ (trang riêng) --- */}
-                                <div className="mt-6 flex justify-center">
-                                    <button
-                                        type="button"
-                                        onClick={() => navigate('/bao-cao-phan-bo-don-hang')}
-                                        className="group flex items-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:scale-105 active:scale-95"
-                                    >
-                                        <div className="bg-white/20 p-2 rounded-xl">
-                                            <BarChart3 className="w-6 h-6" />
-                                        </div>
-                                        <div className="text-left">
-                                            <p className="text-sm">Xem Thống kê &</p>
-                                            <p className="text-lg leading-tight">Báo cáo Chia đơn Chi tiết</p>
-                                        </div>
-                                        <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />
-                                    </button>
+                                <div className="mt-6 space-y-3">
+                                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/xem-bao-cao-mkt')}
+                                            className="group flex items-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-semibold shadow-md shadow-emerald-200 transition-all hover:scale-[1.01] active:scale-95"
+                                        >
+                                            <div className="bg-white/20 p-2 rounded-lg">
+                                                <BarChart3 className="w-5 h-5" />
+                                            </div>
+                                            <span>Xem MK</span>
+                                            <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-1 transition-transform" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/xem-bao-cao-mkt-hcm')}
+                                            className="group flex items-center gap-3 bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-3 rounded-xl font-semibold shadow-md shadow-cyan-200 transition-all hover:scale-[1.01] active:scale-95"
+                                        >
+                                            <div className="bg-white/20 p-2 rounded-lg">
+                                                <BarChart3 className="w-5 h-5" />
+                                            </div>
+                                            <span>Xem MK HCM</span>
+                                            <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-1 transition-transform" />
+                                        </button>
+                                    </div>
+
+                                    <div className="flex justify-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/bao-cao-phan-bo-don-hang')}
+                                            className="group flex items-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:scale-105 active:scale-95"
+                                        >
+                                            <div className="bg-white/20 p-2 rounded-xl">
+                                                <BarChart3 className="w-6 h-6" />
+                                            </div>
+                                            <div className="text-left">
+                                                <p className="text-sm">Xem Thống kê &</p>
+                                                <p className="text-lg leading-tight">Báo cáo Chia đơn Chi tiết</p>
+                                            </div>
+                                            <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />
+                                        </button>
+                                    </div>
                                 </div>
 
 
@@ -4207,7 +4235,7 @@ const AdminTools = () => {
                                     <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
                                         <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
                                             <Users className="w-5 h-5 text-blue-600" />
-                                            Danh sách nhân sự U1 đang đi làm
+                                            Danh sách nhân sự U1/U2 đang đi làm
                                         </h3>
                                         <button onClick={() => setShowStaffPreviewModal(false)} className="p-1 hover:bg-gray-200 rounded-full transition-colors">
                                             <X className="w-6 h-6 text-gray-400" />
@@ -4241,20 +4269,22 @@ const AdminTools = () => {
                                                             </span>
                                                         </div>
                                                         <div className="col-span-3 text-right">
-                                                            <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-[10px] font-bold">U1</span>
+                                                            <span className={`px-2 py-1 rounded text-[10px] font-bold ${p.isU2 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                                                                {p.isU2 ? 'U2 ×2' : 'U1'}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                 ))}
                                             </div>
                                         ) : (
                                             <div className="py-12 text-center text-gray-400 italic">
-                                                Không tìm thấy nhân sự nào đang để trạng thái U1.
+                                                Không tìm thấy nhân sự nào đang để trạng thái U1 hoặc U2.
                                             </div>
                                         )}
                                     </div>
                                     
                                     <div className="p-4 bg-blue-50 text-[11px] text-blue-700 leading-relaxed border-t">
-                                        💡 <strong>Mẹo:</strong> Nếu nhân sự không có tên ở đây, hãy kiểm tra cột "Trạng thái chia" trong bảng vận đơn. Nếu tên hiển thị đỏ, hãy sửa lại cột "Chi nhánh" cho đúng (Hà Nội hoặc HCM).
+                                        💡 <strong>Mẹo:</strong> Nếu nhân sự không có tên ở đây, hãy kiểm tra cột "Trạng thái chia" trong bảng vận đơn (U1 = 1 lượt, U2 = 2 lượt liên tiếp). Nếu tên hiển thị đỏ, hãy sửa lại cột "Chi nhánh" cho đúng (Hà Nội hoặc HCM).
                                     </div>
                                     
                                     <div className="p-4 flex justify-end">
@@ -4330,6 +4360,22 @@ const AdminTools = () => {
                             >
                                 <Upload className="w-4 h-4" />
                                 {accountImportLoading ? 'Đang tải lên...' : 'Tải lên'}
+                            </button>
+                            <button
+                                onClick={() => navigate('/xem-bao-cao-mkt')}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium transition-colors flex items-center gap-2"
+                                title="Mở báo cáo Marketing"
+                            >
+                                <BarChart3 className="w-4 h-4" />
+                                Xem MK
+                            </button>
+                            <button
+                                onClick={() => navigate('/xem-bao-cao-mkt-hcm')}
+                                className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 font-medium transition-colors flex items-center gap-2"
+                                title="Mở báo cáo Marketing HCM"
+                            >
+                                <BarChart3 className="w-4 h-4" />
+                                Xem MK HCM
                             </button>
                             <input
                                 ref={accountImportInputRef}

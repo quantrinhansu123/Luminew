@@ -2764,7 +2764,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     const pages = new Set();
     let hasEmpty = false;
     allData.forEach((row) => {
-      const p = row['Page'] ?? row.page_name;
+      const p = row['Tên Page'] ?? row['Page'] ?? row.page_name;
       if (p != null && String(p).trim()) {
         pages.add(String(p).trim());
       } else {
@@ -3059,10 +3059,10 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
     }
 
-    // Page (page_name) — multi-select + tìm trong dropdown
+    // Page (page_name → «Tên Page») — multi-select + tìm trong dropdown
     if (filterPageNames.length > 0) {
       data = data.filter((row) => {
-        const pageVal = row['Page'] ?? row.page_name;
+        const pageVal = row['Tên Page'] ?? row['Page'] ?? row.page_name;
         const pageStr = pageVal != null ? String(pageVal).trim() : '';
         if (filterPageNames.includes('(Trống)')) {
           if (!pageStr) return true;

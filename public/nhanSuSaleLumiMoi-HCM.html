@@ -84,7 +84,6 @@
 
         /* CẬP NHẬT CSS: Thêm ID iframe-kpi-sale vào danh sách style */
         #iframe-thu-cong,
-        #iframe-van-don-sale,
         #iframe-kpi-sale {
             width: 100%;
             height: 80vh;
@@ -467,7 +466,6 @@
                 <button class="tab-button" data-tab="chot">Dữ liệu báo cáo tay</button>
                 <!-- Thêm Button KPIs Sale -->
                 <button class="tab-button" data-tab="kpi-sale">KPIs Sale</button>
-                <button class="tab-button" data-tab="van-don-sale">Vận đơn Sale</button>
                 <button class="tab-button" data-tab="thu-cong" id="tab-btn-thu-cong" style="display: none;">Báo cáo thủ
                     công</button>
             </div>
@@ -527,12 +525,7 @@
                 <iframe id="iframe-kpi-sale" src="about:blank" title="KPIs Sale" frameborder="0"></iframe>
             </div>
 
-            <!-- Tab 4: Vận đơn Sale -->
-            <div id="tab-van-don-sale" class="tab-content">
-                <iframe id="iframe-van-don-sale" src="about:blank" title="Vận đơn Sale" frameborder="0"></iframe>
-            </div>
-
-            <!-- Tab 5: Báo cáo thủ công -->
+            <!-- Tab 4: Báo cáo thủ công -->
             <div id="tab-thu-cong" class="tab-content">
                 <iframe id="iframe-thu-cong" src="about:blank" frameborder="0"></iframe>
             </div>
@@ -554,8 +547,9 @@
         const SUPABASE_URL = window.__SUPABASE_HCM_URL__ || 'https://gsjhsmxyxjyiqovauyrp.supabase.co';
         const SUPABASE_ANON_KEY = window.__SUPABASE_HCM_KEY__ || 'sb_publishable_vXBSa3eP8cvjIK2qLWI6Ug_FoYm4CNy';
         const HCM_REPORT_TABLE = 'sale_report_hcm';
+        /** Khớp `SALES_REPORTS_SELECT` React — không gồm revenue_mess (PGRST204 nếu cột chưa có trên DB). */
         const SALES_HCM_SELECT =
-            'name,email,team,branch,position,date,shift,product,market,mess_count,response_count,order_count,revenue_mess,revenue_actual,revenue_go_actual,order_cancel_count,revenue_cancel,order_success_count,revenue_success,order_cancel_count_actual,revenue_cancel_actual,id';
+            'name,email,team,branch,position,date,shift,product,market,mess_count,response_count,order_count,revenue_actual,revenue_go_actual,order_cancel_count,revenue_cancel,order_success_count,revenue_success,order_cancel_count_actual,revenue_cancel_actual';
 
         function getUrlParameter(name) {
             const urlParams = new URLSearchParams(window.location.search);
@@ -594,20 +588,10 @@
             const q = idParam ? `?id=${encodeURIComponent(idParam)}` : '';
             return `${window.location.origin}/embed/bao-cao-hieu-suat-kpi${q}`;
         }
-        function embedVanDonUrl(idParam) {
-            if (!isAppSameOriginEmbeds()) {
-                return idParam
-                    ? `https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html?id=${encodeURIComponent(idParam)}`
-                    : 'https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html';
-            }
-            const q = idParam ? `?id=${encodeURIComponent(idParam)}` : '';
-            return `${window.location.origin}/embed/bao-cao-van-don${q}`;
-        }
 
         document.addEventListener('DOMContentLoaded', () => {
             const idInit = getUrlParameter('id');
             document.getElementById('iframe-kpi-sale').src = embedKpiUrl(idInit || '');
-            document.getElementById('iframe-van-don-sale').src = embedVanDonUrl(idInit || '');
             addEventListeners();
             setDefaultDates();
             fetchAndProcessData();
@@ -687,6 +671,26 @@
             if (/can\s*tho/.test(t)) return 'Cần Thơ';
             return b || 'Không xác định';
         }
+        /** «Giữa ca,Hết ca» (và biến thể) luôn tính / hiện như «Hết ca». */
+        function canonicalizeSaleCa(shift) {
+            const raw = String(shift ?? '').replace(/\u00a0/g, ' ').trim().replace(/\s+/g, ' ');
+            if (!raw) return 'Hết ca';
+            const folded = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            if (folded.includes('het ca') && folded.includes('giua ca')) return 'Hết ca';
+            return raw;
+        }
+        function parseMoneyHcm(v) {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : 0;
+        }
+        /** DS chốt / Doanh số: ưu tiên revenue_actual (bảng HCM luôn có); revenue_mess thường = 0. */
+        function pickHcmRevenue(row) {
+            const actual = parseMoneyHcm(row?.revenue_actual);
+            if (actual !== 0) return actual;
+            const mess = parseMoneyHcm(row?.revenue_mess);
+            if (mess !== 0) return mess;
+            return actual;
+        }
         function mapSupabaseRowToRaw(row) {
             if (!row || typeof row !== 'object') return null;
             const ten = String(row.name ?? '').trim();
@@ -694,10 +698,9 @@
             const branchRaw = String(row.branch ?? '').trim();
             const team = teamRaw || branchRaw || 'Không xác định';
             if (!ten) return null;
-            const oc = Number(row.order_count) || 0;
-            const rm = Number(row.revenue_mess) || 0;
-            const ra = Number(row.revenue_actual) || 0;
-            const rca = Number(row.revenue_cancel_actual) || 0;
+            const oc = parseMoneyHcm(row.order_count);
+            const ra = pickHcmRevenue(row);
+            const rca = parseMoneyHcm(row.revenue_cancel_actual);
             return {
                 chucVu: String(row.position ?? '').trim(),
                 ten,
@@ -705,44 +708,63 @@
                 team,
                 chiNhanh: displayChiNhanhFromBranchAndTeam(row.branch, row.team),
                 ngay: row.date ?? '',
-                ca: row.shift || 'Hết ca',
+                ca: canonicalizeSaleCa(row.shift),
                 sanPham: row.product || '',
                 thiTruong: row.market || '',
-                soMessCmt: Number(row.mess_count) || 0,
+                soMessCmt: parseMoneyHcm(row.mess_count),
                 soDon: oc,
-                dsChot: rm,
-                phanHoi: Number(row.response_count) || 0,
-                doanhSoDi: Number(row.revenue_go_actual) || 0,
-                soDonHuy: Number(row.order_cancel_count) || 0,
-                doanhSoHuy: Number(row.revenue_cancel) || 0,
-                soDonThanhCong: Number(row.order_success_count) || 0,
-                doanhSoThanhCong: Number(row.revenue_success) || 0,
+                dsChot: ra,
+                phanHoi: parseMoneyHcm(row.response_count),
+                doanhSoDi: parseMoneyHcm(row.revenue_go_actual),
+                soDonHuy: parseMoneyHcm(row.order_cancel_count),
+                doanhSoHuy: parseMoneyHcm(row.revenue_cancel),
+                soDonThanhCong: parseMoneyHcm(row.order_success_count),
+                doanhSoThanhCong: parseMoneyHcm(row.revenue_success),
                 soDonThucTe: oc,
                 doanhThuChotThucTe: ra,
-                doanhSoDiThucTe: Number(row.revenue_go_actual) || 0,
-                soDonHoanHuyThucTe: Number(row.order_cancel_count_actual) || 0,
+                doanhSoDiThucTe: parseMoneyHcm(row.revenue_go_actual),
+                soDonHoanHuyThucTe: parseMoneyHcm(row.order_cancel_count_actual),
                 doanhSoHoanHuyThucTe: rca,
                 doanhSoSauHoanHuyThucTe: ra - rca,
             };
         }
-        async function fetchSaleReportHcmFromSupabase(supabase, startDateStr, endDateStr) {
+        async function paginateSaleReportHcm(supabase, startDateStr, endDateStr, buildQuery) {
             const PAGE = 1000;
             const rows = [];
             let from = 0;
             while (true) {
-                const { data, error } = await supabase
-                    .from(HCM_REPORT_TABLE)
-                    .select(SALES_HCM_SELECT)
-                    .gte('date', startDateStr)
-                    .lte('date', endDateStr)
-                    .order('date', { ascending: false })
-                    .order('id', { ascending: true })
-                    .range(from, from + PAGE - 1);
+                const { data, error } = await buildQuery(supabase, from, PAGE);
                 if (error) throw error;
                 const chunk = data || [];
                 rows.push(...chunk);
                 if (chunk.length < PAGE) break;
                 from += PAGE;
+            }
+            return rows;
+        }
+        async function fetchSaleReportHcmFromSupabase(supabase, startDateStr, endDateStr) {
+            const buildStrict = (client, from, page) =>
+                client
+                    .from(HCM_REPORT_TABLE)
+                    .select(SALES_HCM_SELECT)
+                    .gte('date', startDateStr)
+                    .lte('date', endDateStr)
+                    .order('date', { ascending: false })
+                    .range(from, from + page - 1);
+            const buildLoose = (client, from, page) =>
+                client
+                    .from(HCM_REPORT_TABLE)
+                    .select('*')
+                    .gte('date', startDateStr)
+                    .lte('date', endDateStr)
+                    .order('date', { ascending: false })
+                    .range(from, from + page - 1);
+            let rows;
+            try {
+                rows = await paginateSaleReportHcm(supabase, startDateStr, endDateStr, buildStrict);
+            } catch (e) {
+                console.warn('[HCM HTML] Truy vấn chuẩn lỗi — thử select *:', e?.message || e);
+                rows = await paginateSaleReportHcm(supabase, startDateStr, endDateStr, buildLoose);
             }
             return rows.map(mapSupabaseRowToRaw).filter(Boolean);
         }
@@ -790,11 +812,9 @@
                 const hcmFullData = getUrlParameter('hcmFullData') === '1' || getUrlParameter('hcmFullData') === 'true';
 
                 if (idFromUrl) {
-                    const vanDonIframe = document.getElementById('iframe-van-don-sale');
                     const kpiIframe = document.getElementById('iframe-kpi-sale');
-                    vanDonIframe.src = embedVanDonUrl(idFromUrl);
                     kpiIframe.src = embedKpiUrl(idFromUrl);
-                    console.log('Set iframes URLs with ID:', idFromUrl);
+                    console.log('Set iframe URL with ID:', idFromUrl);
                 }
 
                 if (idFromUrl && !hcmFullData) {
@@ -883,8 +903,10 @@
                 applyFilters();
             } catch (err) {
                 console.error('Lỗi khi tải dữ liệu (Supabase sale_report_hcm):', err);
+                const detail = err?.message || err?.error_description || String(err || '');
                 alert(
-                    'Không thể tải dữ liệu từ Supabase (bảng sale_report_hcm). Kiểm tra mạng, RLS hoặc khóa anon.'
+                    'Không thể tải dữ liệu từ Supabase (bảng sale_report_hcm).' +
+                        (detail ? `\nChi tiết: ${detail}` : '\nKiểm tra mạng, RLS hoặc khóa anon.')
                 );
             } finally {
                 hideLoader();
@@ -911,7 +933,7 @@
                 }
                 summaryData[name].mess += r.soMessCmt;
                 summaryData[name].don += r.soDon;
-                summaryData[name].chot += r.dsChot;
+                summaryData[name].chot += r.doanhThuChotThucTe;
                 summaryData[name].phanHoi += r.phanHoi;
                 summaryData[name].soDonThucTe += r.soDonThucTe;
                 summaryData[name].doanhThuChotThucTe += r.doanhThuChotThucTe;
@@ -939,7 +961,10 @@
             const populate = (key, containerId, className) => {
                 const container = document.getElementById(containerId);
                 if (!container) return;
-                const uniqueValues = [...new Set(data.map(r => r[key]).filter(Boolean))].sort();
+                const uniqueValues = [...new Set(data.map(r => {
+                    const v = key === 'ca' ? canonicalizeSaleCa(r[key]) : r[key];
+                    return v;
+                }).filter(Boolean))].sort();
                 container.innerHTML = uniqueValues.map(val =>
                     `<label><input type='checkbox' class='${className}' value='${val}' checked> ${val}</label>`
                 ).join('');
@@ -1009,7 +1034,7 @@
                 const isDateOk = (!startDate || recordDate >= startDate) && (!endDate || recordDate <= endDate);
                 const isProductOk = !selectedProducts || selectedProducts.includes(r.sanPham);
                 const isMarketOk = !selectedMarkets || selectedMarkets.includes(r.thiTruong);
-                const isShiftOk = !selectedShifts || selectedShifts.includes(String(r.ca));
+                const isShiftOk = !selectedShifts || selectedShifts.includes(canonicalizeSaleCa(r.ca));
                 const isTeamOk = !selectedTeams || selectedTeams.includes(String(r.team));
                 return isDateOk && isProductOk && isMarketOk && isShiftOk && isTeamOk;
             });
@@ -1044,7 +1069,7 @@
             // Tính tổng số đơn hủy và tỉ lệ hủy
             const soDonHuyTotal = total.soDonThucTe - soDonSauHuyTotal;
             const tiLeHuyTotal = total.soDonThucTe > 0 ? (soDonHuyTotal / total.soDonThucTe) : 0;
-            const totalRowHtmlSauHuy = `<tr class="total-row"><td class="total-label" colspan="4">TỔNG CỘNG</td><td class="total-value">${formatNumber(soDonHuyTotal)}</td><td class="total-value">${formatNumber(total.soDonThucTe)}</td><td class="total-value">${formatNumber(soDonSauHuyTotal)}</td><td class="total-value"></td><td class="total-value">${formatCurrency(dsSauHuyTTTotal)}</td><td class="total-value">${formatPercent(totalRateSauHuy)}</td><td class="total-value">${formatPercent(tiLeHuyTotal)}</td></tr>`;
+            const totalRowHtmlSauHuy = `<tr class="total-row"><td class="total-label" colspan="4">TỔNG CỘNG</td><td class="total-value">${formatNumber(soDonHuyTotal)}</td><td class="total-value">${formatNumber(total.soDonThucTe)}</td><td class="total-value">${formatNumber(soDonSauHuyTotal)}</td><td class="total-value">${formatCurrency(total.chot)}</td><td class="total-value">${formatCurrency(dsSauHuyTTTotal)}</td><td class="total-value">${formatPercent(totalRateSauHuy)}</td><td class="total-value">${formatPercent(tiLeHuyTotal)}</td></tr>`;
             const bodyRowsHtmlSauHuy = flatListFiltered.map((item, index) => {
                 const soDonSauHuy = item.soDonThucTe - item.soDonHoanHuyThucTe;
                 const dsSauHuyTT = item.doanhThuChotThucTe - item.doanhSoHoanHuyThucTe;

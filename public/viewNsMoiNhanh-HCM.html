@@ -824,7 +824,7 @@
     </div>
   </div>
   <div class="tab-container">
-    <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
+    <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo sau huỷ</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
     <button class="tablinks" onclick="openTab(event, 'MarketReport')">Hiệu suất MKT</button>
     <!-- TAB MỚI: Báo cáo thủ công, ẩn mặc định -->
@@ -3510,20 +3510,20 @@
         if (seg.includes('hết ca') || seg.includes('het ca')) hasHet = true;
         if (seg.includes('giữa ca') || seg.includes('giua ca')) hasGua = true;
       }
-      const groups = [];
-      if (hasHet) groups.push('Hết ca');
-      if (hasGua) groups.push('Giữa ca');
-      return groups;
+      // Đơn ca gộp chỉ gán 1 nhóm (Hết ca) — tránh đếm trùng khi cộng theo người.
+      if (hasHet && hasGua) return ['Hết ca'];
+      if (hasHet) return ['Hết ca'];
+      if (hasGua) return ['Giữa ca'];
+      return [];
     }
 
-    /** Khớp mktRecalcSoDonThucTeFromOrders: «Giữa ca,Hết ca» → gua; chỉ Hết ca → het; chỉ Giữa ca → gua; trống → het. */
+    /** Khớp mktRecalcSoDonThucTeFromOrders: «Giữa ca,Hết ca» → het; chỉ Hết ca → het; chỉ Giữa ca → gua; trống → het. */
     function normalizeCaForRowKey(caVal) {
       const s = normalizeFieldForKey(caVal);
       if (!s) return 'het';
-      const g = orderShiftToGroupsForMktKey(caVal);
-      const hasHet = g.includes('Hết ca');
-      const hasGua = g.includes('Giữa ca');
-      if (hasHet && hasGua) return 'gua';
+      const hasHet = s.includes('hết ca') || s.includes('het ca');
+      const hasGua = s.includes('giữa ca') || s.includes('giua ca');
+      if (hasHet && hasGua) return 'het';
       if (hasHet) return 'het';
       if (hasGua) return 'gua';
       return s;

@@ -444,6 +444,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const [billTrackingDetailKey, setBillTrackingDetailKey] = useState(null);
   const [deletingBillDetailRowId, setDeletingBillDetailRowId] = useState(null);
   const [deletingCuocDetailRowId, setDeletingCuocDetailRowId] = useState(null);
+  const [deletingFilteredRows, setDeletingFilteredRows] = useState(false);
   
   /** Modal kết quả import Excel - hiển thị dòng trùng hoàn toàn */
   const [importResultData, setImportResultData] = useState(null); // { duplicateRows: [], newRows: [], tableName: '' }
@@ -2737,8 +2738,14 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     try {
       const sourceRows = selected.map((row) => makeHistorySourceRow(row, new Map()));
       const historyIds = selected.map(getRowHistoryId);
-      const { error } = await supabase.from(tableName).delete().in('id', historyIds);
-      if (error) throw error;
+      // Không gửi toàn bộ ID trong một URL `.in(...)`: tập lọc lớn có thể vượt
+      // giới hạn request của PostgREST/Vercel và trả về 400 Bad Request.
+      const DELETE_BATCH_SIZE = 100;
+      for (let i = 0; i < historyIds.length; i += DELETE_BATCH_SIZE) {
+        const idBatch = historyIds.slice(i, i + DELETE_BATCH_SIZE);
+        const { error } = await supabase.from(tableName).delete().in('id', idBatch);
+        if (error) throw error;
+      }
 
       const { affectedCount, updatedCount } = await recalculateUploadedHistoryRows(isBill, sourceRows);
       await saveHistoryActionLog({
@@ -2769,6 +2776,81 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     } finally {
       setHistoryActionLoading(false);
       setHistoryActionRowId(null);
+    }
+  };
+
+  const hasActiveFilteredDeleteScope = () => {
+    if (hasTableFilters) return true;
+    if (activeTab === 'bill_view') {
+      return Boolean(
+        parseMaDonHangFilterTokens(billUploadedMaDonFilter).length ||
+        billUploadedSyncDateFrom ||
+        billUploadedSyncDateTo
+      );
+    }
+    if (activeTab === 'cuoc_view') {
+      return Boolean(
+        parseMaDonHangFilterTokens(cuocUploadedMaDonFilter).length ||
+        cuocUploadedSyncDateFrom ||
+        cuocUploadedSyncDateTo
+      );
+    }
+    return false;
+  };
+
+  /** Xoá toàn bộ dòng khớp bộ lọc hiện tại, không giới hạn ở trang phân trang đang xem. */
+  const handleDeleteAllFilteredRows = async () => {
+    if (!hasActiveFilteredDeleteScope()) {
+      alert('Hãy bật ít nhất một điều kiện lọc trước khi xoá.');
+      return;
+    }
+
+    const filteredRows = getCurrentData();
+    if (filteredRows.length === 0) {
+      alert('Không có dòng nào khớp bộ lọc để xoá.');
+      return;
+    }
+
+    if (activeTab === 'bill_view' || activeTab === 'cuoc_view') {
+      await handleDeleteUploadedHistoryRows(filteredRows);
+      return;
+    }
+
+    const isBill = activeTab === 'bill';
+    const tableName = isBill ? 'chi_tiet_bill_tien' : 'chitiet_cuoc';
+    const ids = [...new Set(filteredRows.map((row) => row?.id).filter((id) => id != null))];
+    if (ids.length === 0) {
+      alert('Các dòng đang lọc không có ID hợp lệ để xoá.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Bạn sắp XOÁ ${ids.length} dòng đang khớp bộ lọc khỏi ${tableName}.\n\n` +
+      'Chỉ dữ liệu tạm đang lọc bị xoá; bảng đơn hàng không bị ảnh hưởng.\nThao tác không thể hoàn tác. Tiếp tục?'
+    );
+    if (!confirmed) return;
+
+    setDeletingFilteredRows(true);
+    try {
+      for (let i = 0; i < ids.length; i += 500) {
+        const { error } = await supabase.from(tableName).delete().in('id', ids.slice(i, i + 500));
+        if (error) throw error;
+      }
+      setPendingChanges((prev) => {
+        const next = new Map(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+      setSelectedRows(new Set());
+      setCurrentPage(1);
+      if (isBill) await loadBillData();
+      else await loadCuocData();
+      alert(`Đã xoá ${ids.length} dòng theo bộ lọc hiện tại.`);
+    } catch (err) {
+      console.error('Error deleting filtered rows:', err);
+      alert(`Lỗi khi xoá dữ liệu theo bộ lọc: ${err?.message || String(err)}`);
+    } finally {
+      setDeletingFilteredRows(false);
     }
   };
 
@@ -4955,14 +5037,38 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                       {activeFilterCount > 0 ? `Đang bật ${activeFilterCount} điều kiện lọc` : 'Lọc nhanh theo các trường hay đối soát'}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={resetTableFilters}
-                    disabled={!hasTableFilters}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    Xóa bộ lọc
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDeleteAllFilteredRows}
+                      disabled={
+                        !hasActiveFilteredDeleteScope() ||
+                        getCurrentData().length === 0 ||
+                        deletingFilteredRows ||
+                        historyActionLoading ||
+                        loading
+                      }
+                      title="Xoá toàn bộ bản ghi khớp bộ lọc hiện tại, kể cả các trang chưa hiển thị"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                    >
+                      {deletingFilteredRows ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      {deletingFilteredRows
+                        ? 'Đang xoá...'
+                        : `Xoá tất cả sau khi lọc (${getCurrentData().length})`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetTableFilters}
+                      disabled={!hasTableFilters}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                    >
+                      Xóa bộ lọc
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">

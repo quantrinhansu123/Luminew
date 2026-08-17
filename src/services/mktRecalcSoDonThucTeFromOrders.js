@@ -1,7 +1,7 @@
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName } from '../utils/emailFromName';
 import { mergeUniqueRowsById, parseSmartDate } from '../utils/dateParsing';
-import { getCheckResult, isCheckResultHuy } from '../utils/orderCheckAndVnd';
+import { getCheckResult, isCheckResultHuy, isCheckResultOk } from '../utils/orderCheckAndVnd';
 import { parseIntegerVi, parseMoneyNumber } from '../utils/mktNormalizeDetailReportRows';
 
 function normalizeStr(str) {
@@ -120,10 +120,11 @@ function orderShiftToGroups(shiftVal) {
     if (seg.includes('giữa ca') || seg.includes('giua ca')) hasGua = true;
   }
 
-  const groups = [];
-  if (hasHet) groups.push('Hết ca');
-  if (hasGua) groups.push('Giữa ca');
-  return groups;
+  // Đơn ghi cả «Giữa ca,Hết ca» chỉ gán 1 nhóm (ưu tiên Hết ca) — tránh đếm trùng khi cộng Báo cáo OK theo người.
+  if (hasHet && hasGua) return ['Hết ca'];
+  if (hasHet) return ['Hết ca'];
+  if (hasGua) return ['Giữa ca'];
+  return [];
 }
 
 /**
@@ -232,17 +233,16 @@ function buildKey(dateStr, name, product, market) {
 }
 
 /**
- * Chuẩn ca về segment key (Ngày|Tên|SP|TT|ca) — cùng logic tách phẩy với orderShiftToGroups.
- * «Giữa ca,Hết ca» (dòng gộp legacy) → `gua` để dedupe với dòng «Giữa ca» thuần trước khi recalc tách dòng.
+ * Chuẩn ca về segment key (Ngày|Tên|SP|TT|ca).
+ * «Giữa ca,Hết ca» (dòng gộp legacy) → `het` (khớp đơn ca gộp chỉ gán Hết ca).
  * Chỉ «Hết ca» → `het`; chỉ «Giữa ca» → `gua`; trống → `het`.
  */
 function normalizeCaForRowKey(caVal) {
   const s = normalizeFieldForKey(caVal);
   if (!s) return 'het';
-  const g = orderShiftToGroups(caVal);
-  const hasHet = g.includes('Hết ca');
-  const hasGua = g.includes('Giữa ca');
-  if (hasHet && hasGua) return 'gua';
+  const hasHet = s.includes('hết ca') || s.includes('het ca');
+  const hasGua = s.includes('giữa ca') || s.includes('giua ca');
+  if (hasHet && hasGua) return 'het';
   if (hasHet) return 'het';
   if (hasGua) return 'gua';
   return s;
@@ -275,23 +275,25 @@ export async function fetchMktOrdersInDateRange(startDate, endDate, tableName = 
 
 /**
  * Tính Số đơn TT / Doanh số TT cho một dòng báo cáo — cùng logic `recalcMktSoDonThucTeFromOrders`.
- * @returns {{ so_don_thuc_te: number, so_don_huy: number, doanh_so_thuc_te: number, so_don_gross: number }}
+ * @returns {{ so_don_thuc_te: number, so_don_huy: number, so_don_ok: number, doanh_so_ok: number, doanh_so_thuc_te: number, so_don_gross: number }}
  */
 export function computeMktOrderMetricsForReportRow(report, ordersList) {
   const r = report || {};
   const caGroups = reportCaGroupsForRecalc(r.ca ?? r['Ca'] ?? '');
   if (!caGroups.length) {
-    return { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
+    return { so_don_thuc_te: 0, so_don_huy: 0, so_don_ok: 0, doanh_so_ok: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
   }
 
   const ek = effectiveKeyPartsForReportRow(r, ordersList);
   const key = ek.key;
   if (!key) {
-    return { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
+    return { so_don_thuc_te: 0, so_don_huy: 0, so_don_ok: 0, doanh_so_ok: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
   }
 
   let grossCount = 0;
   let cancelCount = 0;
+  let okCount = 0;
+  let okRevenueVnd = 0;
   let totalRevenueVnd = 0;
   let cancelRevenueVnd = 0;
 
@@ -304,12 +306,19 @@ export function computeMktOrderMetricsForReportRow(report, ordersList) {
     );
     if (orderKey !== key) continue;
 
-    const vnd = orderAmountVndHcmOverlay(order);
-    if (vnd <= 0) continue;
-
     const orderGroups = orderShiftGroupsForRecalc(order.shift);
     const matchesCa = orderGroups.some((g) => caGroups.includes(g));
     if (!matchesCa) continue;
+
+    const vnd = orderAmountVndHcmOverlay(order);
+    // Đơn Ok: khớp Danh sách đơn / Sale — chỉ check_result = Ok, kể cả đơn 0đ.
+    const ok = isCheckResultOk(order?.check_result);
+    if (ok) {
+      okCount += 1;
+      okRevenueVnd += vnd;
+    }
+    // Số đơn TT / DS TT vẫn chỉ lấy đơn VND > 0.
+    if (vnd <= 0) continue;
 
     const huy = isCheckResultHuy(getCheckResult(order));
     grossCount += 1;
@@ -326,6 +335,8 @@ export function computeMktOrderMetricsForReportRow(report, ordersList) {
   return {
     so_don_thuc_te: netCount,
     so_don_huy: cancelCount,
+    so_don_ok: okCount,
+    doanh_so_ok: okRevenueVnd,
     doanh_so_thuc_te: netRevenue,
     so_don_gross: grossCount,
   };
@@ -343,6 +354,8 @@ export function mktRealValuesFallbackFromReportRow(item, { grossSoDon = false } 
   return {
     so_don_thuc_te: grossSoDon ? net + huy : net,
     so_don_huy: huy,
+    so_don_ok: Number(item?.['Đơn Ok'] ?? item?.['Số đơn Ok'] ?? item?.so_don_ok ?? 0),
+    doanh_so_ok: Number(item?.['Doanh số Ok'] ?? item?.doanh_so_ok ?? 0),
     doanh_so_thuc_te: dsTT,
     so_don_gross: net + huy,
   };
@@ -614,12 +627,39 @@ function mktCreateRowFromAggEntry(
     'Doanh số TT': netDoanhSoTT,
     'Số đơn hoàn hủy': cc,
     'Số đơn hoàn hủy thực tế': cc,
+    'Đơn Ok': entry.okCount ?? 0,
+    'Doanh số Ok': entry.okRevenueVnd ?? 0,
     'Doanh số hoàn hủy thực tế': crv,
   };
   if (reportsTableName !== 'marketing_report_hcm' && resolved.department) {
     row['department'] = resolved.department;
   }
   return row;
+}
+
+/** Cache cột tùy chọn theo bảng (tránh lỗi PGRST204 khi migration chưa chạy trên Supabase). */
+const mktOptionalColumnSupportCache = new Map();
+
+async function getMktOptionalColumnSupport(reportsTable) {
+  const table = String(reportsTable || 'detail_reports').trim() || 'detail_reports';
+  if (mktOptionalColumnSupportCache.has(table)) {
+    return mktOptionalColumnSupportCache.get(table);
+  }
+  const { error } = await supabase.from(table).select('id,"Doanh số Ok"').limit(1);
+  const support = { doanhSoOk: !error };
+  mktOptionalColumnSupportCache.set(table, support);
+  if (!support.doanhSoOk) {
+    console.warn(
+      `[${table}] Cột "Doanh số Ok" chưa có trên DB — bỏ qua khi ghi báo cáo. Chạy migration 20260817100000_mkt_reports_add_doanh_so_ok.sql trên Supabase.`
+    );
+  }
+  return support;
+}
+
+function stripUnsupportedMktPatchFields(patch, support) {
+  if (support?.doanhSoOk || !patch || !('Doanh số Ok' in patch)) return patch;
+  const { 'Doanh số Ok': _drop, ...rest } = patch;
+  return rest;
 }
 
 /** Gắn nhãn bảng + gợi ý khi lỗi mạng (Failed to fetch). */
@@ -1069,13 +1109,14 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   /*
    * Ca (shift) và số liệu:
-   * - Đơn: tách nhóm Hết ca / Giữa ca (kể cả shift gộp trên đơn → đếm vào cả hai nhóm).
+   * - Đơn: Hết ca / Giữa ca; ca gộp «Giữa ca,Hết ca» chỉ gán Hết ca (tránh đếm trùng khi cộng theo người).
    * - Báo cáo: mỗi dòng một ca — «Hết ca» hoặc «Giữa ca» (không còn một ô «Giữa ca,Hết ca»).
+   * - Đơn Ok: check_result = Ok (kể cả 0đ); Số đơn TT vẫn chỉ đơn VND > 0.
    * - Dòng gộp legacy: tách — ưu tiên gán id hiện có cho ca còn thiếu; tạo thêm một dòng nếu thiếu phía kia và có số liệu.
    * - Thiếu dòng (createMissingRows): tối đa 2 dòng / key (Hết + Giữa), chỉ khi có đơn trong nhóm tương ứng và chưa có dòng đó.
    * - Ca trống khi recalc: coi là Hết ca để gom đơn; auto-điền cột ca = «Hết ca».
    */
-  // countsByGroup: Map value { count, totalRevenueVnd, cancelCount, cancelRevenueVnd, sample }
+  // countsByGroup: Map value { count, totalRevenueVnd, cancelCount, cancelRevenueVnd, okCount, sample }
   const countsByGroup = {
     'Hết ca': new Map(),
     'Giữa ca': new Map(),
@@ -1092,25 +1133,35 @@ export async function recalcMktSoDonThucTeFromOrders({
     if (!key) continue;
 
     const vnd = orderAmountVndHcmOverlay(order);
-    if (vnd <= 0) continue;
-    const huy = isCheckResultHuy(getCheckResult(order));
+    const checkResult = getCheckResult(order);
+    const huy = isCheckResultHuy(checkResult);
+    // Đơn Ok: chỉ cột check_result = Ok (không fallback payment_status); kể cả đơn 0đ.
+    const ok = isCheckResultOk(order?.check_result);
 
     for (const group of groups) {
       const mapForGroup = countsByGroup[group];
       const existing = mapForGroup.get(key);
       if (existing) {
-        existing.count += 1;
-        existing.totalRevenueVnd += vnd;
-        if (huy) {
-          existing.cancelCount += 1;
-          existing.cancelRevenueVnd += vnd;
+        if (ok) {
+          existing.okCount += 1;
+          existing.okRevenueVnd += vnd;
+        }
+        if (vnd > 0) {
+          existing.count += 1;
+          existing.totalRevenueVnd += vnd;
+          if (huy) {
+            existing.cancelCount += 1;
+            existing.cancelRevenueVnd += vnd;
+          }
         }
       } else {
         mapForGroup.set(key, {
-          count: 1,
-          totalRevenueVnd: vnd,
-          cancelCount: huy ? 1 : 0,
-          cancelRevenueVnd: huy ? vnd : 0,
+          count: vnd > 0 ? 1 : 0,
+          totalRevenueVnd: vnd > 0 ? vnd : 0,
+          cancelCount: vnd > 0 && huy ? 1 : 0,
+          cancelRevenueVnd: vnd > 0 && huy ? vnd : 0,
+          okCount: ok ? 1 : 0,
+          okRevenueVnd: ok ? vnd : 0,
           sample: {
             date: normalizeDateStr(order.order_date),
             name: String(order.marketing_staff || '').trim(),
@@ -1167,6 +1218,8 @@ export async function recalcMktSoDonThucTeFromOrders({
       doanhSoTT: Math.max(0, grossDoanhSoTT - dsHoanHuyTT),
       soDonHoanHuyTT,
       dsHoanHuyTT,
+      soDonOk: agg?.okCount ?? 0,
+      dsOk: agg?.okRevenueVnd ?? 0,
     };
   }
 
@@ -1183,6 +1236,8 @@ export async function recalcMktSoDonThucTeFromOrders({
         'Doanh số TT': patch['Doanh số TT'],
         'Số đơn hoàn hủy': patch['Số đơn hoàn hủy'],
         'Số đơn hoàn hủy thực tế': patch['Số đơn hoàn hủy thực tế'],
+        'Đơn Ok': patch['Đơn Ok'],
+        'Doanh số Ok': patch['Doanh số Ok'],
         'Doanh số hoàn hủy thực tế': patch['Doanh số hoàn hủy thực tế'],
         action: 'update',
         autoFilledKey: ek.patchProduct || ek.patchMarket || !hadExplicitCa || autoFilledKeyExtra,
@@ -1212,6 +1267,8 @@ export async function recalcMktSoDonThucTeFromOrders({
         'Doanh số TT': m.doanhSoTT,
         'Số đơn hoàn hủy': m.soDonHoanHuyTT,
         'Số đơn hoàn hủy thực tế': m.soDonHoanHuyTT,
+        'Đơn Ok': m.soDonOk,
+        'Doanh số Ok': m.dsOk,
         'Doanh số hoàn hủy thực tế': m.dsHoanHuyTT,
       };
       if (!hadExplicitCa) {
@@ -1252,13 +1309,15 @@ export async function recalcMktSoDonThucTeFromOrders({
       aggHet &&
       ((aggHet.count ?? 0) > 0 ||
         (aggHet.totalRevenueVnd ?? 0) > 0 ||
-        (aggHet.cancelCount ?? 0) > 0)
+        (aggHet.cancelCount ?? 0) > 0 ||
+        (aggHet.okCount ?? 0) > 0)
     );
     const guaHasData = !!(
       aggGua &&
       ((aggGua.count ?? 0) > 0 ||
         (aggGua.totalRevenueVnd ?? 0) > 0 ||
-        (aggGua.cancelCount ?? 0) > 0)
+        (aggGua.cancelCount ?? 0) > 0 ||
+        (aggGua.okCount ?? 0) > 0)
     );
 
     let targetCa;
@@ -1295,6 +1354,8 @@ export async function recalcMktSoDonThucTeFromOrders({
       'Doanh số TT': m.doanhSoTT,
       'Số đơn hoàn hủy': m.soDonHoanHuyTT,
       'Số đơn hoàn hủy thực tế': m.soDonHoanHuyTT,
+      'Đơn Ok': m.soDonOk,
+      'Doanh số Ok': m.dsOk,
       'Doanh số hoàn hủy thực tế': m.dsHoanHuyTT,
     };
     if (ek.patchProduct) patch['Sản_phẩm'] = ek.product;
@@ -1346,6 +1407,8 @@ export async function recalcMktSoDonThucTeFromOrders({
               'Doanh số TT': newRow['Doanh số TT'],
               'Số đơn hoàn hủy': cc,
               'Số đơn hoàn hủy thực tế': cc,
+              'Đơn Ok': newRow['Đơn Ok'],
+              'Doanh số Ok': newRow['Doanh số Ok'],
               'Doanh số hoàn hủy thực tế': newRow['Doanh số hoàn hủy thực tế'],
               action: 'create',
             });
@@ -1398,6 +1461,8 @@ export async function recalcMktSoDonThucTeFromOrders({
             'Doanh số TT': row['Doanh số TT'],
             'Số đơn hoàn hủy': cc,
             'Số đơn hoàn hủy thực tế': cc,
+            'Đơn Ok': row['Đơn Ok'],
+            'Doanh số Ok': row['Doanh số Ok'],
             'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
             action: 'create',
           });
@@ -1418,6 +1483,8 @@ export async function recalcMktSoDonThucTeFromOrders({
     };
   }
 
+  const optionalColumnSupport = await getMktOptionalColumnSupport(reportsTable);
+
   // Cập nhật từng dòng — đồng thời thấp; lỗi mạng thì fallback từng dòng
   const UPDATE_CONCURRENCY = 4;
   let touched = 0;
@@ -1428,7 +1495,8 @@ export async function recalcMktSoDonThucTeFromOrders({
       const results = await Promise.all(
         chunk.map((row) => {
           const { id, ...rest } = row;
-          return supabase.from(reportsTable).update(rest).eq('id', id);
+          const patch = stripUnsupportedMktPatchFields(rest, optionalColumnSupport);
+          return supabase.from(reportsTable).update(patch).eq('id', id);
         })
       );
       const firstErr = results.find((r) => r.error)?.error;
@@ -1441,7 +1509,8 @@ export async function recalcMktSoDonThucTeFromOrders({
       if (!isNetwork) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, e);
       for (const row of chunk) {
         const { id, ...rest } = row;
-        const { error } = await supabase.from(reportsTable).update(rest).eq('id', id);
+        const patch = stripUnsupportedMktPatchFields(rest, optionalColumnSupport);
+        const { error } = await supabase.from(reportsTable).update(patch).eq('id', id);
         if (error) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, error);
       }
     }
@@ -1450,7 +1519,9 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   const INSERT_CHUNK = 200;
   for (let i = 0; i < createRows.length; i += INSERT_CHUNK) {
-    const chunk = createRows.slice(i, i + INSERT_CHUNK);
+    const chunk = createRows
+      .slice(i, i + INSERT_CHUNK)
+      .map((row) => stripUnsupportedMktPatchFields(row, optionalColumnSupport));
     const { error } = await supabase.from(reportsTable).insert(chunk);
     if (error) throw error;
     touched += chunk.length;

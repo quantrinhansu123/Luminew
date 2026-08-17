@@ -334,7 +334,9 @@ export async function recalcSaleOrderCountFromOrders({
     const vnd = orderAmountVnd(order);
     const checkResult = getCheckResult(order);
     const huy = isCheckResultHuy(checkResult);
-    const ok = isCheckResultOk(checkResult);
+    // Khớp bộ lọc «Kết quả Check = OK» trên trang Danh sách đơn:
+    // chỉ đọc cột DB check_result, không fallback sang payment_status legacy.
+    const ok = isCheckResultOk(order?.check_result);
     const goOrder = !huy && orderHasGoTracking(order);
 
     const exAll = countsAllByKey.get(key);

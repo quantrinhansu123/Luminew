@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as API from '../services/api';
 import { PRIMARY_KEY_COLUMN } from '../types';
-import { ChevronLeft, Search, Calendar, Package, Truck, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { ChevronLeft, Search, Calendar, Package, Truck, CheckCircle, Clock, AlertCircle, Plus } from 'lucide-react';
 
 // Định nghĩa các bước trong quy trình sản xuất/đơn hàng
 const PRODUCTION_STEPS = [
@@ -175,7 +175,7 @@ function LenHSanXuat() {
           Quay lại
         </Link>
         
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-blue-500 rounded-lg">
               <Package className="w-8 h-8 text-white" />
@@ -184,6 +184,22 @@ function LenHSanXuat() {
               <h1 className="text-3xl font-bold text-gray-800">Lệnh Sản xuất</h1>
               <p className="text-gray-500">Theo dõi các bước của đơn hàng</p>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/nhap-don"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-sm transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Thêm đơn hàng
+            </Link>
+            <Link
+              to="/nhap-don?view=hcm"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-green-600 text-green-700 hover:bg-green-50 font-semibold rounded-lg transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Thêm đơn HCM
+            </Link>
           </div>
         </div>
       </div>
@@ -408,9 +424,16 @@ function LenHSanXuat() {
               <h3 className="text-xl font-semibold text-gray-600 mb-2">
                 Chọn đơn hàng để xem chi tiết
               </h3>
-              <p className="text-gray-500">
+              <p className="text-gray-500 mb-6">
                 Vui lòng chọn một đơn hàng từ danh sách bên trái để xem các bước sản xuất
               </p>
+              <Link
+                to="/nhap-don"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                Thêm đơn hàng
+              </Link>
             </div>
           )}
         </div>

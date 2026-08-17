@@ -8,6 +8,16 @@ export function isTrangThaiU1(val) {
   return normalizeTrangThaiChia(val).toUpperCase() === 'U1';
 }
 
+export function isTrangThaiU2(val) {
+  return normalizeTrangThaiChia(val).toUpperCase() === 'U2';
+}
+
+/** U1 hoặc U2 — đang trong vòng chia đơn. */
+export function isTrangThaiDangChia(val) {
+  const s = normalizeTrangThaiChia(val).toUpperCase();
+  return s === 'U1' || s === 'U2';
+}
+
 /** bat_u1 | tat_u1 | doi_trang_thai */
 export function resolveU1HistoryAction(fromStatus, toStatus) {
   const from = normalizeTrangThaiChia(fromStatus);

@@ -7,7 +7,7 @@ import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
-import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '../utils/dateParsing';
+import { isDateInRange, parseSmartDate } from '../utils/dateParsing';
 
 function isManagerRole(roleStr, legacyStr) {
     const r = (roleStr || '').toLowerCase();
@@ -22,36 +22,6 @@ function rowDisplaySaleStaff(row) {
 }
 function rowDisplayMktStaff(row) {
     return String(row?.['Nhân viên Marketing'] ?? row?.marketing_staff ?? '').trim();
-}
-
-/** Chuẩn hoá text tiếng Việt để so khớp contains (bỏ dấu + thường) — khớp DanhSachDon. */
-function normalizeViForContains(raw) {
-    return String(raw ?? '')
-        .replace(/\u00A0/g, ' ')
-        .replace(/\p{Cf}+/gu, '')
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        .trim()
-        .toLowerCase()
-        .replace(/[đĐ]/g, 'd')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/\s+/g, ' ');
-}
-
-function rowMatchesPersonnelScope(row, names) {
-    if (!names?.length) return true;
-    const marketingStaffNorm = normalizeViForContains(rowDisplayMktStaff(row));
-    const salesStaffNorm = normalizeViForContains(rowDisplaySaleStaff(row));
-    const deliveryStaffNorm = normalizeViForContains(
-        String(row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim()
-    );
-    return names.some((name) => {
-        const nameNorm = normalizeViForContains(String(name || '').trim());
-        if (!nameNorm) return false;
-        return (marketingStaffNorm && marketingStaffNorm.includes(nameNorm)) ||
-            (salesStaffNorm && salesStaffNorm.includes(nameNorm)) ||
-            (deliveryStaffNorm && deliveryStaffNorm.includes(nameNorm));
-    });
 }
 
 function uniqueColumnValuesWithTrong(rows, colKey) {
@@ -269,7 +239,7 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     const [filterShippingUnit, setFilterShippingUnit] = useState([]);
     const [showShippingUnitFilter, setShowShippingUnitFilter] = useState(false);
     const [shippingUnitFilterSearchText, setShippingUnitFilterSearchText] = useState('');
-    // User thường: mặc định 3 ngày. Admin/Manager: để trống = xem full.
+    // User thường: mặc định 3 ngày. Admin/Manager: sau khi load quyền → để trống = xem full (lọc theo ngày tùy chọn).
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() - 3);
@@ -313,7 +283,7 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
                 const personnelNames = personnelMap[userEmail] || [];
                 const validNames = [...new Set(
                     personnelNames
-                        .map((name) => rbacService.normalizeMktPersonWhitespace(name))
+                        .map((name) => String(name || '').trim())
                         .filter((name) => name && !name.includes('@'))
                 )];
                 setSelectedPersonnelNames(validNames);
@@ -530,14 +500,14 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         "Tổng tiền VNĐ": item.total_amount_vnd,
         "Hình thức thanh toán": item.payment_method_text || item.payment_method, // payment_method_text is new
         "Mã Tracking": item.tracking_code,
-        "Nhân viên Marketing": rbacService.normalizeMktPersonWhitespace(item.marketing_staff),
-        "Nhân viên Sale": rbacService.normalizeMktPersonWhitespace(item.sale_staff),
+        "Nhân viên Marketing": item.marketing_staff,
+        "Nhân viên Sale": item.sale_staff,
         "Team": item.team,
         "Trạng thái giao hàng": item.delivery_status,
         "Kết quả Check": item.check_result,
         "Ghi chú": item.note,
         "CSKH": item.cskh,
-        "NV Vận đơn": rbacService.normalizeMktPersonWhitespace(item.delivery_staff),
+        "NV Vận đơn": item.delivery_staff,
         "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
         "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
         "Kế toán xác nhận thu tiền về": item.accountant_confirm,
@@ -565,7 +535,11 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
             /** Mỗi lần gọi tạo query mới (tránh mutate builder khi range nhiều trang). */
             const buildFilteredQuery = () => {
                 let q = supabase.from(ordersTableName).select('*');
-                // Lọc nhân sự ở client (khớp DanhSachDon) — tránh lệch do dấu/format tên hoặc tên chỉ ở sale/delivery.
+                if (!isManager && selectedPersonnelNames.length > 0) {
+                    q = q.in('marketing_staff', selectedPersonnelNames);
+                } else if (!isManager && userName) {
+                    q = q.ilike('marketing_staff', `%${String(userName).trim()}%`);
+                }
                 if (isManager) {
                     if (startDate && endDate) {
                         q = q.gte('order_date', startDate).lte('order_date', `${endDate}T23:59:59`);
@@ -608,39 +582,6 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
                     console.log(
                         `[BaoCaoChiTiet] Đã tải ${supaData.length} dòng (${ordersTableName}), tối đa ${maxTotal}, mỗi đợt ${ORDERS_FETCH_PAGE_SIZE}.`
                     );
-                }
-            }
-
-            // Gộp đơn order_date null nhưng created_at trong khoảng (khớp DanhSachDon).
-            if (startDate && endDate) {
-                const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
-                let fromNull = 0;
-                for (let page = 0; page < 500; page++) {
-                    const { data, error } = await supabase
-                        .from(ordersTableName)
-                        .select('*')
-                        .is('order_date', null)
-                        .gte('created_at', cStart)
-                        .lte('created_at', cEnd)
-                        .order('created_at', { ascending: false })
-                        .order('order_code', { ascending: false })
-                        .range(fromNull, fromNull + ORDERS_FETCH_PAGE_SIZE - 1);
-                    if (error) {
-                        console.warn('[BaoCaoChiTiet] Không gộp được đơn order_date null:', error.message);
-                        break;
-                    }
-                    const chunk = data || [];
-                    if (chunk.length > 0) {
-                        const seen = new Set(supaData.map((r) => r.order_code));
-                        for (const row of chunk) {
-                            if (row.order_code && !seen.has(row.order_code)) {
-                                supaData.push(row);
-                                seen.add(row.order_code);
-                            }
-                        }
-                    }
-                    if (chunk.length < ORDERS_FETCH_PAGE_SIZE) break;
-                    fromNull += ORDERS_FETCH_PAGE_SIZE;
                 }
             }
 
@@ -1030,17 +971,6 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     const filteredData = useMemo(() => {
         let data = [...allData];
 
-        const legacyRole = localStorage.getItem('userRole') || '';
-        const isManager = isManagerRole(role, legacyRole);
-        if (!isManager) {
-            const scopeNames = selectedPersonnelNames.length > 0
-                ? selectedPersonnelNames
-                : (userName ? [userName] : []);
-            if (scopeNames.length > 0) {
-                data = data.filter((row) => rowMatchesPersonnelScope(row, scopeNames));
-            }
-        }
-
         // Tìm kiếm — cùng phạm vi chính với danh-sach-don
         if (debouncedSearchText) {
             const searchNorm = normalizeSearch(debouncedSearchText);
@@ -1192,10 +1122,7 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         startDate,
         endDate,
         sortColumn,
-        sortDirection,
-        role,
-        selectedPersonnelNames,
-        userName
+        sortDirection
     ]);
 
     const filteredTotals = useMemo(() => {

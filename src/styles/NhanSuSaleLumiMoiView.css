@@ -95,7 +95,6 @@
 }
 
 .nssl-root .nssl-iframe-kpi,
-.nssl-root .nssl-iframe-van,
 .nssl-root .nssl-iframe-thucong {
   width: 100%;
   height: 80vh;
@@ -103,8 +102,7 @@
   border-radius: 8px;
 }
 
-.nssl-root .nssl-iframe-kpi,
-.nssl-root .nssl-iframe-van {
+.nssl-root .nssl-iframe-kpi {
   height: min(88vh, 1100px);
   min-height: 720px;
 }
@@ -585,14 +583,66 @@
   background-color: rgba(0, 0, 0, 0.015);
 }
 
+.nssl-root .sale-ok-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.nssl-root .sale-ok-table th,
+.nssl-root .sale-ok-table td {
+  padding: 10px 6px;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
 .nssl-root .sale-ok-table thead th {
   vertical-align: middle;
   text-align: center;
+  padding: 10px 4px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.2;
 }
 
 .nssl-root .sale-ok-table thead tr:last-child th {
   font-weight: 600;
-  font-size: 0.92em;
+}
+
+/* Cột hẹp vừa nội dung; giữ cỡ chữ bảng gốc */
+.nssl-root .sale-ok-table th:nth-child(1),
+.nssl-root .sale-ok-table td:nth-child(1) {
+  width: 2.6rem;
+  max-width: 2.6rem;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.nssl-root .sale-ok-table th:nth-child(2),
+.nssl-root .sale-ok-table td:nth-child(2) {
+  width: 8%;
+  max-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nssl-root .sale-ok-table th:nth-child(3),
+.nssl-root .sale-ok-table td:nth-child(3) {
+  width: 12%;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nssl-root .sale-ok-table .total-label {
+  white-space: nowrap;
+}
+
+.nssl-root .sale-ok-table .sale-staff-link {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
 }
 
 .nssl-root .sale-staff-link {

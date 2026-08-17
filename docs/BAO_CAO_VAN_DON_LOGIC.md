@@ -98,21 +98,19 @@ Dữ liệu từ API có dạng:
   - > 70%: Màu xanh (tích cực)
   - ≤ 70%: Màu đỏ (cần cải thiện)
 
-### 2. Tỷ lệ tiền có bill+giao TC
-- **Công thức**: `(Tiền có bill + tiền bill 1 phần) / Tiền giao thành công × 100`
-- **Tử số**: tiền đơn có trạng thái «Có bill» hoặc «Có bill 1 phần»
-- **Mẫu số**: tiền đơn `delivery_status_nb` = Giao Thành Công đã hoàn tất
-- Dòng Giao Thành Công nhưng vẫn «Không PH dưới 3N» và chưa có phí ship không được tính là Giao TC đã chốt
+### 2. Tỷ lệ thu tiền/giao thành công
+- **Công thức**: `(Đã Thanh Toán (có bill) / Giao Thành Công) * 100`
+- **Ý nghĩa**: Phần trăm đơn đã thu tiền so với đơn giao thành công
 - **Ngưỡng cảnh báo**: 
   - > 80%: Màu xanh (tích cực)
   - ≤ 80%: Màu đỏ (cần cải thiện)
 
-### 3. Tỷ lệ tiền bill/đơn có mã
-- **Công thức**: `(Tiền có bill + tiền bill 1 phần) / Tiền đơn có mã tracking thật × 100`
-- **Ý nghĩa**: Tỷ lệ tiền đã có bill so với tiền đơn đã có mã tracking (loại placeholder `-`, `null`, `0`, …)
+### 3. Tỷ lệ đơn tính phí vận chuyển
+- **Công thức**: `(Giao Thành Công / Tổng đơn lên vận hành) * 100`
+- **Ý nghĩa**: Phần trăm đơn giao thành công so với đơn đã lên vận hành
 - **Ngưỡng cảnh báo**: 
-  - > 70%: Màu xanh (tích cực)
-  - ≤ 70%: Màu đỏ (cần cải thiện)
+  - > 80%: Màu xanh (tích cực)
+  - ≤ 80%: Màu đỏ (cần cải thiện)
 
 ## Cấu Trúc Tính Toán
 

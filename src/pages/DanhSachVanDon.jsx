@@ -6,14 +6,15 @@ import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import {
   fetchDanhSachVanDonU1History,
+  isTrangThaiDangChia,
   isTrangThaiU1,
+  isTrangThaiU2,
   logDanhSachVanDonU1Change,
   normalizeTrangThaiChia,
   u1HistoryActionLabel,
 } from '../services/danhSachVanDonU1History';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
-import { isUserNghiViecStatus } from '../utils/vanDonStaffNameList';
 
 const VAN_DON_LIST_FULL_ACCESS_ROLES = ['admin', 'super_admin', 'director', 'manager', 'administrator'];
 const normalizeBranch = (value) =>
@@ -166,15 +167,6 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
             const staffNamesSet = new Set();
             const staffBranchMap = {};
-            const nghiViecNameKeys = new Set();
-
-            const nameKey = (n) =>
-                String(n || '')
-                    .normalize('NFD')
-                    .replace(/\p{M}/gu, '')
-                    .toLowerCase()
-                    .replace(/\s+/g, ' ')
-                    .trim();
 
             // 1) Nguồn chính: human_resources
             const { data: hrRows, error: hrError } = await supabase
@@ -195,31 +187,36 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                 });
             }
 
-            // 2) Bổ sung/fallback: users (department) — loại trạng thái đã nghỉ
+            // 2) Bổ sung/fallback: users (department)
             let usersRows = [];
             try {
                 const { data: uData, error: uError } = await supabase
                     .from('users')
-                    .select('name, department, branch, position, employment_status, team')
+                    .select('name, department, branch, chi_nhanh')
                     .not('name', 'is', null)
                     .order('name', { ascending: true });
 
                 if (uError) throw uError;
                 usersRows = uData || [];
             } catch (e) {
+                // Một số DB cũ có thể không có branch/chi_nhanh.
                 const message = String(e?.message || '').toLowerCase();
-                const missingExtra =
-                    (message.includes('does not exist') || message.includes('could not find')) &&
-                    (message.includes('employment_status') ||
-                        message.includes('position') ||
-                        message.includes('team') ||
-                        message.includes('branch'));
+                const missingChiNhanhColumn = message.includes('chi_nhanh') && message.includes('does not exist');
+                const missingBranchColumn = message.includes('branch') && message.includes('does not exist');
 
                 try {
-                    if (missingExtra) {
+                    if (!missingBranchColumn) {
                         const { data: uData, error: uError } = await supabase
                             .from('users')
                             .select('name, department, branch')
+                            .not('name', 'is', null)
+                            .order('name', { ascending: true });
+                        if (uError) throw uError;
+                        usersRows = uData || [];
+                    } else if (!missingChiNhanhColumn) {
+                        const { data: uData, error: uError } = await supabase
+                            .from('users')
+                            .select('name, department, chi_nhanh')
                             .not('name', 'is', null)
                             .order('name', { ascending: true });
                         if (uError) throw uError;
@@ -240,38 +237,16 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             }
 
             (usersRows || []).forEach((member) => {
+                if (!isBoPhanVanDon(member?.department)) return;
+
                 const name = String(member?.name || '').trim();
                 if (!name) return;
-                // Ưu tiên employment_status = «Nghỉ việc»
-                if (
-                    isUserNghiViecStatus(
-                        member?.employment_status,
-                        member?.department,
-                        member?.position,
-                        member?.team
-                    )
-                ) {
-                    nghiViecNameKeys.add(nameKey(name));
-                    nghiViecNameKeys.add(normalizeForSearch(name));
-                    return;
-                }
-                if (!isBoPhanVanDon(member?.department)) return;
 
                 staffNamesSet.add(name);
 
                 const branch = String(member?.branch || member?.chi_nhanh || '').trim();
                 if (branch && !staffBranchMap[name]) staffBranchMap[name] = branch;
             });
-
-            // Bỏ tên đã nghỉ / Nghỉ việc (kể cả khi còn trên human_resources)
-            for (const n of [...staffNamesSet]) {
-                const k1 = nameKey(n);
-                const k2 = normalizeForSearch(n);
-                if (nghiViecNameKeys.has(k1) || nghiViecNameKeys.has(k2)) {
-                    staffNamesSet.delete(n);
-                    delete staffBranchMap[n];
-                }
-            }
 
             const staffNames = [...staffNamesSet].filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
 
@@ -350,37 +325,13 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             try {
                 const { data: uRows, error: uErr } = await supabase
                     .from('users')
-                    .select('id, name, can_day_ffm, department, position, team, employment_status')
+                    .select('id, name, can_day_ffm')
                     .not('name', 'is', null);
                 if (uErr) throw uErr;
                 usersForFfmLookup = uRows || [];
             } catch (e) {
-                // Fallback nếu thiếu cột trạng thái
-                try {
-                    const { data: uRows, error: uErr } = await supabase
-                        .from('users')
-                        .select('id, name, can_day_ffm, department, position, team')
-                        .not('name', 'is', null);
-                    if (uErr) throw uErr;
-                    usersForFfmLookup = uRows || [];
-                } catch (e2) {
-                    console.warn('[DanhSachVanDon] Không load được users cho Đẩy FFM:', e2);
-                    usersForFfmLookup = [];
-                }
-            }
-
-            // Ẩn nhân sự có trạng thái «Nghỉ việc» (users.employment_status) — khớp tên linh hoạt
-            if (usersForFfmLookup.length > 0) {
-                filteredRecords = filteredRecords.filter((record) => {
-                    const matchedUser = resolveUserForHoVaTen(record?.ho_va_ten, usersForFfmLookup);
-                    if (!matchedUser) return true;
-                    return !isUserNghiViecStatus(
-                        matchedUser.employment_status,
-                        matchedUser.department,
-                        matchedUser.position,
-                        matchedUser.team
-                    );
-                });
+                console.warn('[DanhSachVanDon] Không load được users cho Đẩy FFM:', e);
+                usersForFfmLookup = [];
             }
 
             // Auto-count orders for each staff member and parse nguoi_sua_ho, nguoi_day_ffm
@@ -690,8 +641,10 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
             if (isTrangThaiU1(next)) {
                 toast.success(`Đã bật U1 cho ${item.ho_va_ten}`);
-            } else if (isTrangThaiU1(oldStatus)) {
-                toast.success(`Đã tắt U1 cho ${item.ho_va_ten}`);
+            } else if (isTrangThaiU2(next)) {
+                toast.success(`Đã đặt U2 (2 lượt liên tiếp) cho ${item.ho_va_ten}`);
+            } else if (isTrangThaiDangChia(oldStatus)) {
+                toast.success(`Đã tắt chia đơn cho ${item.ho_va_ten}`);
             } else {
                 toast.success('Đã cập nhật trạng thái chia');
             }
@@ -961,7 +914,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                     {!HIDDEN_COLUMNS.includes("ID") && <th className="px-4 py-3 whitespace-nowrap">ID</th>}
                                     {!HIDDEN_COLUMNS.includes("Họ và tên") && <th className="px-4 py-3 whitespace-nowrap min-w-[200px]">Họ và tên</th>}
                                     {!HIDDEN_COLUMNS.includes("Trạng thái chia") && <th className="px-4 py-3 whitespace-nowrap">Trạng thái chia</th>}
-                                    <th className="px-4 py-3 whitespace-nowrap text-center">Bật U1</th>
+                                    <th className="px-4 py-3 whitespace-nowrap text-center">Bật chia</th>
                                     {!HIDDEN_COLUMNS.includes("Chi nhánh") && <th className="px-4 py-3 whitespace-nowrap">Chi nhánh</th>}
                                     {!HIDDEN_COLUMNS.includes("Người sửa hộ") && <th className="px-4 py-3 whitespace-nowrap">Người sửa hộ</th>}
                                     {!HIDDEN_COLUMNS.includes("Người đẩy FFM") && <th className="px-4 py-3 whitespace-nowrap">Người đẩy FFM</th>}
@@ -988,9 +941,11 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                                     className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${
                                                         isTrangThaiU1(item.trang_thai_chia)
                                                             ? 'bg-green-100 text-green-800'
-                                                            : normalizeTrangThaiChia(item.trang_thai_chia)
-                                                              ? 'bg-slate-100 text-slate-700'
-                                                              : 'text-gray-400'
+                                                            : isTrangThaiU2(item.trang_thai_chia)
+                                                              ? 'bg-orange-100 text-orange-800'
+                                                              : normalizeTrangThaiChia(item.trang_thai_chia)
+                                                                ? 'bg-slate-100 text-slate-700'
+                                                                : 'text-gray-400'
                                                     }`}
                                                 >
                                                     {item.trang_thai_chia || '—'}
@@ -1002,7 +957,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                                 <div className="relative">
                                                     <input
                                                         type="checkbox"
-                                                        checked={isTrangThaiU1(item.trang_thai_chia)}
+                                                        checked={isTrangThaiDangChia(item.trang_thai_chia)}
                                                         onChange={async (e) => {
                                                             const turnOn = e.target.checked;
                                                             const nextStatus = turnOn ? 'U1' : 'Nghỉ';
@@ -1015,12 +970,16 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                                     />
                                                     <div
                                                         className={`h-6 w-11 rounded-full transition-all duration-200 ease-in-out group-hover:opacity-80 ${
-                                                            isTrangThaiU1(item.trang_thai_chia) ? 'bg-green-500' : 'bg-gray-300'
+                                                            isTrangThaiU2(item.trang_thai_chia)
+                                                                ? 'bg-orange-500'
+                                                                : isTrangThaiU1(item.trang_thai_chia)
+                                                                  ? 'bg-green-500'
+                                                                  : 'bg-gray-300'
                                                         }`}
                                                     >
                                                         <div
                                                             className={`mt-0.5 h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
-                                                                isTrangThaiU1(item.trang_thai_chia)
+                                                                isTrangThaiDangChia(item.trang_thai_chia)
                                                                     ? 'translate-x-5'
                                                                     : 'translate-x-0.5'
                                                             }`}
@@ -1029,10 +988,14 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                                 </div>
                                                 <span
                                                     className={`ml-2 text-xs font-medium ${
-                                                        isTrangThaiU1(item.trang_thai_chia) ? 'text-green-700' : 'text-gray-500'
+                                                        isTrangThaiU2(item.trang_thai_chia)
+                                                            ? 'text-orange-700'
+                                                            : isTrangThaiU1(item.trang_thai_chia)
+                                                              ? 'text-green-700'
+                                                              : 'text-gray-500'
                                                     }`}
                                                 >
-                                                    {isTrangThaiU1(item.trang_thai_chia) ? 'Bật' : 'Tắt'}
+                                                    {isTrangThaiDangChia(item.trang_thai_chia) ? 'Bật' : 'Tắt'}
                                                 </span>
                                             </label>
                                         </td>
@@ -1262,8 +1225,12 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                     >
                                         <option value="">-- Chọn trạng thái --</option>
                                         <option value="U1">U1</option>
+                                        <option value="U2">U2</option>
                                         <option value="Nghỉ">Nghỉ</option>
                                     </select>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        U1 = chia 1 lượt. U2 = chia 2 lượt liên tiếp (U1 → U2 → U2 → U1).
+                                    </p>
                                 </div>
 
                                 <div>

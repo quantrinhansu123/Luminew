@@ -1,8 +1,21 @@
 /**
- * Ca chuẩn trên báo cáo (MKT / Sale / CSKH): một chuỗi gộp.
- * «Giữa ca,Hết ca» luôn được coi là đủ cả hai nhóm Giữa ca và Hết ca (recalc, lọc, khớp đơn).
+ * Ca chuẩn trên báo cáo (MKT / Sale / CSKH).
+ * «Giữa ca,Hết ca» (và biến thể) luôn tính / lọc như «Hết ca».
  */
 export const REPORT_CA_COMBINED = 'Giữa ca,Hết ca';
+export const REPORT_CA_HET = 'Hết ca';
+export const REPORT_CA_GIUA = 'Giữa ca';
+
+/** Gộp «Giữa ca,Hết ca» → «Hết ca»; trống → «Hết ca». */
+export function canonicalizeReportCa(caVal) {
+  const raw = String(caVal ?? '')
+    .replace(/\u00a0/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!raw) return REPORT_CA_HET;
+  if (reportCaMeansBothHetAndGua(raw)) return REPORT_CA_HET;
+  return raw;
+}
 
 /** Hai ca tách riêng. */
 export const REPORT_CA_SHIFT_OPTIONS = ['Giữa ca', 'Hết ca'];
@@ -47,42 +60,24 @@ function foldCaForShiftMatch(s) {
 }
 
 /**
- * Lọc theo ca (React — cùng quy tắc trang xem MKT HTML):
- * - Chỉ chọn «Hết ca»: chỉ dòng ca thuần «Hết ca» (không Giữa, không gộp).
- * - Chỉ chọn «Giữa ca»: Giữa ca thuần hoặc gộp «Giữa ca,Hết ca».
- * - Nhãn lọc gộp (cả hai cụm): chỉ dòng gộp.
+ * Lọc theo ca:
+ * - «Giữa ca,Hết ca» luôn = «Hết ca».
+ * - Chỉ chọn «Hết ca»: dòng Hết ca thuần và dòng gộp.
+ * - Chỉ chọn «Giữa ca»: chỉ Giữa ca thuần.
  * Nhiều mục chọn = OR.
  */
 export function rowCaMatchesSelectedShifts(rowCa, selectedShifts) {
   const list = Array.isArray(selectedShifts) ? selectedShifts : [];
   if (!list.length) return true;
-  const foldedRow = foldCaForShiftMatch(rowCa);
-  const rowHet = foldedRow.includes('het ca');
-  const rowGua = foldedRow.includes('giua ca');
-  const isRowCombined = rowHet && rowGua;
+  const rowCanon = canonicalizeReportCa(rowCa);
+  const foldedRow = foldCaForShiftMatch(rowCanon);
 
   for (const f of list) {
     const fs = String(f ?? '').trim();
     if (!fs) continue;
-    const foldedFilter = foldCaForShiftMatch(fs);
+    const filterCanon = canonicalizeReportCa(fs);
+    const foldedFilter = foldCaForShiftMatch(filterCanon);
     if (foldedRow === foldedFilter) return true;
-    const selHet = foldedFilter.includes('het ca');
-    const selGua = foldedFilter.includes('giua ca');
-    const selOnlyHet = selHet && !selGua;
-    const selOnlyGua = selGua && !selHet;
-
-    if (selOnlyHet) {
-      if (rowHet && !rowGua) return true;
-      continue;
-    }
-    if (selOnlyGua) {
-      if (rowGua || isRowCombined) return true;
-      continue;
-    }
-    if (selHet && selGua) {
-      if (isRowCombined) return true;
-      continue;
-    }
   }
   return false;
 }

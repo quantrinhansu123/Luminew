@@ -1686,41 +1686,33 @@ function Home() {
     // 2. Check adminOnly flag (ngoại lệ: allowDirectorDept + đối tượng điều hành BGĐ/Leader)
     if (item.adminOnly && !(item.allowDirectorDept && executiveDashboardAccess)) return false;
 
-    // 3. Removed Team restrictions
+    // 3. Group items must be shown only when at least one child remains visible.
+    if (item.subItems && item.subItems.length > 0) {
+      const visibleSubItems = item.subItems.filter(sub => isItemVisible(sub));
+      return visibleSubItems.length > 0;
+    }
 
-    // 3b. Một trong nhiều quyền (tùy chọn trên từng menu item)
+    // 4. Một trong nhiều quyền (tùy chọn trên từng menu item)
     if (item.permissionAny && Array.isArray(item.permissionAny) && item.permissionAny.length > 0) {
       if (item.permissionAny.some((code) => canView(code))) return true;
       if (item.allowDirectorDept && executiveDashboardAccess) return true;
       return false;
     }
 
-    // 3c. Báo cáo phân bổ: admin / ADMIN_TOOLS / NV U1 trong danh_sach_van_don
+    // 5. Báo cáo phân bổ: admin / ADMIN_TOOLS / NV U1 trong danh_sach_van_don
     if (item.phanBoDonHangAccess) {
       if (phanBoAccessLoading) return false;
       return canAccessPhanBoDon;
     }
 
-    // 4. Check explicit permission if present for leaf node
+    // 6. Check explicit permission if present for leaf node
     if (item.permission) {
       if (canView(item.permission)) return true;
       if (item.allowDirectorDept && executiveDashboardAccess) return true;
       return false;
     }
 
-    // 5. If it has sub-items, check if AT LEAST ONE sub-item is visible
-    if (item.subItems && item.subItems.length > 0) {
-      // Filter subItems first to see what remains
-      const visibleSubItems = item.subItems.filter(sub => isItemVisible(sub));
-      return visibleSubItems.length > 0;
-    }
-
-    // 6. Default safe fallback: if no permission stricture defined, show it (or hide it? strict vs loose)
-    // For this system, let's look at legacy behavior. Previous behavior was loose unless restricted.
-    // However, for new RBAC, modules should be hidden if empty. 
-
-    // For top-level items without permission (like 'home'), show them.
-    // For items without children and without permission specified, show them unless adminOnly was checked above.
+    // 7. Fallback for unguarded standalone leaf items.
     return true;
   };
 

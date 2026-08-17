@@ -548,7 +548,7 @@ export function resolveVanDonBranchKey(chiNhanhRaw) {
 export function resolveUserVanDonBranchFromRoster(rows, identityCandidates) {
     for (const row of rows || []) {
         const status = String(row.trang_thai_chia || '').trim().toUpperCase();
-        if (status !== 'U1') continue;
+        if (status !== 'U1' && status !== 'U2') continue;
         if (!isVanDonU1StaffName(row.ho_va_ten, identityCandidates)) continue;
         return resolveVanDonBranchKey(row.chi_nhanh);
     }
@@ -556,9 +556,10 @@ export function resolveUserVanDonBranchFromRoster(rows, identityCandidates) {
 }
 
 export function buildVanDonU1StaffOrderFromRows(rows) {
-    const u1 = (rows || []).filter(
-        (r) => String(r.trang_thai_chia || '').trim().toUpperCase() === 'U1'
-    );
+    const u1 = (rows || []).filter((r) => {
+        const status = String(r.trang_thai_chia || '').trim().toUpperCase();
+        return status === 'U1' || status === 'U2';
+    });
     const sorted = [...u1].sort((a, b) =>
         String(a.ho_va_ten || '')
             .trim()
@@ -603,11 +604,11 @@ export function isVanDonU1StaffName(staffName, identityCandidates) {
     return ids.some((id) => personNameLooselyMatches(id, name));
 }
 
-/** User hiện tại có trong roster U1 (trang_thai_chia = U1) hay không. */
+/** User hiện tại có trong roster U1/U2 (đang được chia đơn) hay không. */
 export function userIsInVanDonU1Roster(rows, identityCandidates) {
     return (rows || []).some((row) => {
         const status = String(row.trang_thai_chia || '').trim().toUpperCase();
-        if (status !== 'U1') return false;
+        if (status !== 'U1' && status !== 'U2') return false;
         return isVanDonU1StaffName(row.ho_va_ten, identityCandidates);
     });
 }

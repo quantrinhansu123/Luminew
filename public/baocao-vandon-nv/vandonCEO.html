@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <title>Báo cáo Vận đơn - Tổng kết</title>
     <script src="./supabase-config.js"></script>
-    <script src="./regionScope.js?v=20260717c"></script>
+    <script src="./regionScope.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -1667,9 +1667,7 @@ function handleData(response) {
                     // BƯỚC 1: Tính số liệu từ filteredData cho cả 3 loại nhân viên
                     // CHỈ tính cho nhân viên đã chọn trong filter (theo rule mới)
                     filteredData.forEach(row => {
-                        const amount = (window.VandonNvRegion && VandonNvRegion.resolveVanDonReportMoney)
-                            ? VandonNvRegion.resolveVanDonReportMoney(row)
-                            : (parseFloat(String(getRowValue(row, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ') || '0').replace(/[^\d.-]/g, '')) || 0);
+                        const amount = parseFloat(String(getRowValue(row, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ') || '0').replace(/[^\d.-]/g, '')) || 0;
                         const payment = (window.VandonNvRegion && VandonNvRegion.resolveTrangThaiThanhToan)
                             ? VandonNvRegion.resolveTrangThaiThanhToan(row)
                             : (getRowValue(row, 'Trạng_thái_thanh_toán', 'Trạng thái thanh toán', 'payment_status_detail', 'Trạng_thái_thu_tiền', 'Trạng thái thu tiền') || "");
@@ -1792,9 +1790,6 @@ function handleData(response) {
                             paidCount: s["Đã Thanh Toán (có bill)"].count,
                             paidAmount: s["Đã Thanh Toán (có bill)"].amount,
                             partialCount: s["Bill 1 phần"].count,
-                            paidBillCount: billRate.billCount,
-                            successCount: billRate.successCount,
-                            trackingCodeCount: trackingBillRate.trackingCount,
                             paidBillAmount: billRate.billAmount,
                             successAmount: billRate.successAmount,
                             trackingCodeAmount: trackingBillRate.trackingAmount,
