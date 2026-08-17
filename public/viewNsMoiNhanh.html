@@ -1332,7 +1332,7 @@
     </div>
   </div>
   <div class="tab-container">
-    <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
+    <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo sau huỷ</button>
     <button class="tablinks" onclick="openTab(event, 'OkReport')">Báo cáo ok</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
     <button class="tablinks" onclick="openTab(event, 'MarketReport')">Hiệu suất MKT</button>
@@ -1510,18 +1510,34 @@
         </select>
         <label for="start-date-tabok">Từ ngày:</label><input type="date" id="start-date-tabok">
         <label for="end-date-tabok">Đến ngày:</label><input type="date" id="end-date-tabok">
-        <h3>Sản phẩm</h3>
-        <label><input type="checkbox" id="product-all-tabok" checked> Tất cả</label>
-        <div id="product-options-tabok" class="indent"></div>
-        <h3>Ca</h3>
-        <label><input type="checkbox" id="ca-all-tabok" checked> Tất cả</label>
-        <div id="ca-options-tabok" class="indent"></div>
-        <h3>Team</h3>
-        <label><input type="checkbox" id="team-all-tabok" checked> Tất cả</label>
-        <div id="team-options-tabok" class="indent"></div>
-        <h3>Thị trường</h3>
-        <label><input type="checkbox" id="market-all-tabok" checked> Tất cả</label>
-        <div id="market-options-tabok"></div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="product">
+          <h3>Sản phẩm<span class="mkt-filter-dd-count" id="product-count-tabok"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="product-all-tabok" checked> Tất cả</label>
+            <div id="product-options-tabok" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="ca">
+          <h3>Ca<span class="mkt-filter-dd-count" id="ca-count-tabok"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="ca-all-tabok" checked> Tất cả</label>
+            <div id="ca-options-tabok" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="team">
+          <h3>Team<span class="mkt-filter-dd-count" id="team-count-tabok"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="team-all-tabok" checked> Tất cả</label>
+            <div id="team-options-tabok" class="indent"></div>
+          </div>
+        </div>
+        <div class="mkt-filter-dd" data-mkt-filter-dd="market">
+          <h3>Thị trường<span class="mkt-filter-dd-count" id="market-count-tabok"></span></h3>
+          <div class="mkt-filter-dd-panel">
+            <label><input type="checkbox" id="market-all-tabok" checked> Tất cả</label>
+            <div id="market-options-tabok"></div>
+          </div>
+        </div>
       </div>
       <div class="main-content-area">
         <div class="header">
@@ -1531,24 +1547,26 @@
           <h2>BÁO CÁO OK</h2>
         </div>
         <p style="margin:0 0 10px;font-size:13px;color:#555;">
-          Số đơn Ok / Doanh số Ok lấy từ chỉ số TT của Báo cáo chi tiết (đã trừ hủy). Tỷ lệ chốt TT = Số đơn Ok ÷ Số đơn nb.
+          Số đơn OK / DS OK = các đơn có Kết quả Check = Ok (cột Đơn Ok). Tỷ lệ chốt (TT) = Số đơn OK ÷ Số Mess; CPQC/DS OK = CPQC ÷ DS OK.
         </p>
         <div class="table-responsive-container">
-          <table id="ok-summary-table" class="sortable-table sale-ok-like-table">
+          <table id="ok-summary-table" class="sortable-table">
             <thead>
               <tr>
-                <th class="green-header" rowspan="2">STT<span class="sort-icon"></span></th>
-                <th class="green-header" rowspan="2">Team<span class="sort-icon"></span></th>
-                <th class="green-header" rowspan="2">Marketing<span class="sort-icon"></span></th>
-                <th class="green-header" rowspan="2" title="Số đơn nội bộ = Ok + Huỷ">Số đơn nb<span class="sort-icon"></span></th>
-                <th class="blue-header" colspan="2">Trạng thái huỷ</th>
-                <th class="green-header" rowspan="2">Số đơn Ok<span class="sort-icon"></span></th>
-                <th class="green-header" rowspan="2">Doanh số Ok<span class="sort-icon"></span></th>
-                <th class="yellow-header" rowspan="2" title="Số đơn Ok / Số đơn nb">Tỷ lệ chốt TT<span class="sort-icon"></span></th>
-              </tr>
-              <tr>
-                <th class="blue-header">Số đơn<span class="sort-icon"></span></th>
-                <th class="blue-header">DS<span class="sort-icon"></span></th>
+                <th class="green-header">STT<span class="sort-icon"></span></th>
+                <th class="green-header">Team<span class="sort-icon"></span></th>
+                <th class="green-header">Marketing<span class="sort-icon"></span></th>
+                <th class="green-header">Số Mess<span class="sort-icon"></span></th>
+                <th class="green-header">CPQC<span class="sort-icon"></span></th>
+                <th class="green-header">Số Đơn<span class="sort-icon"></span></th>
+                <th class="blue-header">Số Đơn OK<span class="sort-icon"></span></th>
+                <th class="green-header">DS Chốt<span class="sort-icon"></span></th>
+                <th class="blue-header">DS OK<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="Số đơn / Số Mess">Tỷ Lệ Chốt<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="Số đơn OK / Số Mess">Tỷ Lệ Chốt (TT)<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="CPQC / Số Mess">Giá Mess<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="CPQC / Số đơn OK">CPS<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="CPQC / DS OK">CPQC/DS OK<span class="sort-icon"></span></th>
               </tr>
             </thead>
             <tbody id="ok-summary-body"></tbody>
@@ -1864,7 +1882,7 @@
         </div>
       </div>
       <div id="alert-metric-counts" class="alert-metric-counts"></div>
-      <p class="alert-tab-hint">Danh sách cảnh báo được tổng hợp từ dữ liệu đang hiển thị ở tab «Báo cáo chi tiết» (theo bộ lọc hiện tại). Cột <strong>Trạng thái</strong> = loại KPI (Tỉ lệ chốt / CPS / %CP/DS / Giá Mess); cột <strong>Mức độ</strong> = Nghiêm trọng / Cảnh báo / Thông tin.</p>
+      <p class="alert-tab-hint">Danh sách cảnh báo được tổng hợp từ dữ liệu đang hiển thị ở tab «Báo cáo sau huỷ» (theo bộ lọc hiện tại). Cột <strong>Trạng thái</strong> = loại KPI (Tỉ lệ chốt / CPS / %CP/DS / Giá Mess); cột <strong>Mức độ</strong> = Nghiêm trọng / Cảnh báo / Thông tin.</p>
       <div class="table-responsive-container">
         <table id="alert-table" class="sortable-table">
           <thead>
@@ -1882,7 +1900,7 @@
             </tr>
           </thead>
           <tbody id="alert-table-body">
-            <tr><td colspan="10" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo chi tiết» để tải dữ liệu.</td></tr>
+            <tr><td colspan="10" class="alert-empty">Chưa có cảnh báo. Hãy mở tab «Báo cáo sau huỷ» để tải dữ liệu.</td></tr>
           </tbody>
         </table>
       </div>
@@ -2048,6 +2066,10 @@
         { all: 'ca-all-tab1', cls: 'filter-ca-tab1', count: 'ca-count-tab1' },
         { all: 'team-all-tab1', cls: 'filter-team-tab1', count: 'team-count-tab1' },
         { all: 'market-all-tab1', cls: 'filter-market-tab1', count: 'market-count-tab1' },
+        { all: 'product-all-tabok', cls: 'filter-product-tabok', count: 'product-count-tabok' },
+        { all: 'ca-all-tabok', cls: 'filter-ca-tabok', count: 'ca-count-tabok' },
+        { all: 'team-all-tabok', cls: 'filter-team-tabok', count: 'team-count-tabok' },
+        { all: 'market-all-tabok', cls: 'filter-market-tabok', count: 'market-count-tabok' },
       ];
       groups.forEach(({ all, cls, count }) => {
         const countEl = document.getElementById(count);
@@ -2416,6 +2438,8 @@
         'Số_Mess_Cmt': parseIntegerVi(item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0),
         'Số đơn': parseIntegerVi(item['Số đơn'] ?? item.so_don ?? 0),
         'Số đơn thực tế': parseIntegerVi(item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0),
+        'Đơn Ok': parseIntegerVi(item['Đơn Ok'] ?? item['Số đơn Ok'] ?? item.so_don_ok ?? 0),
+        'Doanh số Ok': parseMoneyNumber(item['Doanh số Ok'] ?? item.doanh_so_ok ?? 0),
         'Doanh số': item['Doanh số'] ?? item.doanh_so ?? 0,
         /** DS Chốt (TT) — chỉ «Doanh số TT» / doanh_so_tt; không fallback cột legacy. */
         'Doanh số TT': parseMoneyNumber(
@@ -2537,6 +2561,16 @@
       return parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
     }
 
+    function parseDonOkFromRow(row) {
+      if (!row) return 0;
+      return parseIntegerVi(row['Đơn Ok'] ?? row['Số đơn Ok'] ?? row.so_don_ok ?? 0);
+    }
+
+    function parseDoanhSoOkFromRow(row) {
+      if (!row) return 0;
+      return parseMoneyNumber(row['Doanh số Ok'] ?? row.doanh_so_ok ?? 0);
+    }
+
     function parseDoanhSoChotTTFromRow(row) {
       if (!row) return 0;
       return parseMoneyNumber(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0);
@@ -2599,6 +2633,8 @@
       for (const row of merged) {
         const k = buildMktDetailReportRowKey(row);
         const sd = parseSoDonThucTeFromRow(row);
+        const sok = parseDonOkFromRow(row);
+        const dsok = parseDoanhSoOkFromRow(row);
         const sh = parseSoDonHoanHuyFromRow(row);
         const sm = parseSoDonNhapTayFromRow(row);
         const ds = parseDoanhSoChotTTFromRow(row);
@@ -2609,11 +2645,13 @@
 
         const prev = byKey.get(k);
         if (!prev) {
-          byKey.set(k, { row, sd, sh, sm, ds, dsh, cpqc, mess, dso });
+          byKey.set(k, { row, sd, sok, dsok, sh, sm, ds, dsh, cpqc, mess, dso });
           continue;
         }
 
         const mergedSd = Math.max(prev.sd, sd);
+        const mergedSok = Math.max(prev.sok, sok);
+        const mergedDsok = Math.max(prev.dsok, dsok);
         const mergedSh = Math.max(prev.sh, sh);
         const mergedSm = prev.sm + sm;
         const mergedDs = Math.max(prev.ds, ds);
@@ -2623,6 +2661,8 @@
         const mergedDso = prev.dso + dso;
 
         prev.sd = mergedSd;
+        prev.sok = mergedSok;
+        prev.dsok = mergedDsok;
         prev.sh = mergedSh;
         prev.sm = mergedSm;
         prev.ds = mergedDs;
@@ -2631,6 +2671,8 @@
         prev.mess = mergedMess;
         prev.dso = mergedDso;
         prev.row['Số đơn thực tế'] = mergedSd;
+        prev.row['Đơn Ok'] = mergedSok;
+        prev.row['Doanh số Ok'] = mergedDsok;
         prev.row['Số đơn hoàn hủy'] = mergedSh;
         prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
         prev.row['Số đơn'] = mergedSm;
@@ -2640,6 +2682,8 @@
         prev.row['CPQC'] = mergedCpqc;
         prev.row['Số_Mess_Cmt'] = mergedMess;
         if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
+        if (prev.row.so_don_ok != null) prev.row.so_don_ok = mergedSok;
+        if (prev.row.doanh_so_ok != null) prev.row.doanh_so_ok = mergedDsok;
         if (prev.row.so_don_hoan_huy != null) prev.row.so_don_hoan_huy = mergedSh;
         if (prev.row.so_don_hoan_huy_thuc_te != null) prev.row.so_don_hoan_huy_thuc_te = mergedSh;
         if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
@@ -2897,7 +2941,7 @@
     const MKT_TAB1_FILTER_DEBOUNCE_MS = 150;
     /** Cột detail_reports cho báo cáo MKT (gồm DS Chốt TT). */
     const MKT_DETAIL_REPORTS_SELECT =
-      'id,"Ngày","Team","Tên","Email","Sản_phẩm","Thị_trường","CPQC","Số_Mess_Cmt","Số đơn","Số đơn thực tế","Doanh số","Doanh số TT",doanh_so_tt,"Doanh thu chốt thực tế","Số đơn hoàn hủy","Số đơn hoàn hủy thực tế","Doanh số hoàn hủy thực tế","DS sau hoàn hủy","Doanh số sau hoàn hủy thực tế","Doanh số sau ship","Doanh số TC","KPIs","Doanh số đi thực tế",ca,id_NS,department';
+      'id,"Ngày","Team","Tên","Email","Sản_phẩm","Thị_trường","CPQC","Số_Mess_Cmt","Số đơn","Số đơn thực tế","Đơn Ok","Doanh số Ok","Doanh số","Doanh số TT",doanh_so_tt,"Doanh thu chốt thực tế","Số đơn hoàn hủy","Số đơn hoàn hủy thực tế","Doanh số hoàn hủy thực tế","DS sau hoàn hủy","Doanh số sau hoàn hủy thực tế","Doanh số sau ship","Doanh số TC","KPIs","Doanh số đi thực tế",ca,id_NS,department';
     let mktDetailReportsSelectActive = MKT_DETAIL_REPORTS_SELECT;
     const mktApiCache = new Map();
     const charts = {};
@@ -3478,6 +3522,16 @@
       return ascii === 'huy';
     }
 
+    function isOrderOkForActualOverlay(order) {
+      const s = String(order?.check_result ?? '').trim();
+      if (!s) return false;
+      const ascii = s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      return ascii === 'ok';
+    }
+
     function buildHnActualsByReportKey(orders) {
       const counts = new Map();
       for (const order of orders || []) {
@@ -3492,16 +3546,21 @@
 
         const amount = orderAmountVndForActualOverlay(order);
         const isHuy = isOrderHuyForActualOverlay(order);
+        const isOk = isOrderOkForActualOverlay(order);
         for (const group of orderShiftGroupsForActualOverlay(order.shift)) {
           const key = `${baseKey}|${caSegmentFromGroupLabel(group)}`;
           const prev =
             counts.get(key) ||
-            { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0 };
+            { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0, okCount: 0, okRevenueVnd: 0 };
           prev.count += 1;
           prev.totalRevenueVnd += amount;
           if (isHuy) {
             prev.cancelCount += 1;
             prev.cancelRevenueVnd += amount;
+          }
+          if (isOk) {
+            prev.okCount += 1;
+            prev.okRevenueVnd += amount;
           }
           counts.set(key, prev);
         }
@@ -3516,6 +3575,8 @@
       const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
       const netCount = Math.max(0, count - cancelCount);
       const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
+      const okCount = actual?.okCount || 0;
+      const okRevenueVnd = actual?.okRevenueVnd || 0;
       return {
         ...row,
         'Số đơn thực tế': netCount,
@@ -3531,6 +3592,10 @@
         'Doanh số hoàn hủy thực tế': cancelRevenueVnd,
         doanh_so_hoan_huy_thuc_te:
           row.doanh_so_hoan_huy_thuc_te != null ? cancelRevenueVnd : row.doanh_so_hoan_huy_thuc_te,
+        'Đơn Ok': okCount,
+        so_don_ok: okCount,
+        'Doanh số Ok': okRevenueVnd,
+        doanh_so_ok: okRevenueVnd,
       };
     }
 
@@ -3680,6 +3745,8 @@
               dsThanhCong: Number(r['Doanh số TC']) || 0,
               kpiValue: Number(r['KPIs']) || 0,
               soDonThucTe: donTT,
+              soDonOk: parseIntegerVi(r['Đơn Ok'] ?? r.so_don_ok ?? 0),
+              dsOk: parseMoneyNumber(r['Doanh số Ok'] ?? r.doanh_so_ok ?? 0),
               dsChotThucTe: dsChotTT,
               dsHoanHuyThucTe: dsHuyVnd,
               soDonHuyThucTe: parseIntegerVi(r['Số đơn hoàn hủy thực tế']),
@@ -3772,6 +3839,7 @@
       handleCheckbox('team-all-tabok', 'filter-team-tabok', target);
       handleCheckbox('market-all-tabok', 'filter-market-tabok', target);
       applyOkReportFilters();
+      updateMktFilterDdCounts();
       persistMktFilterStatesFromDom();
     }
 
@@ -4399,7 +4467,10 @@
         applyTab1Filters({ immediate: true });
         updateMktFilterDdCounts();
       }
-      else if (tabId === 'OkReport') applyOkReportFilters();
+      else if (tabId === 'OkReport') {
+        applyOkReportFilters();
+        updateMktFilterDdCounts();
+      }
       else if (tabId === 'KpiReport') applyTab3Filters();
       else if (tabId === 'MarketReport') applyTab4Filters();
     }
@@ -4627,9 +4698,8 @@
     }
 
     /**
-     * Báo cáo ok: TT trên MKT đã net sau hủy.
-     * Số đơn Ok = soDonThucTe; Doanh số Ok = dsChotThucTe;
-     * Số đơn nb = Ok + hủy; Tỷ lệ = Ok / nb.
+     * Báo cáo OK: Số đơn OK / DS OK lấy từ cột Đơn Ok (check_result = Ok), không lấy Số đơn TT / DS TT.
+     * Tỷ lệ chốt TT = Số đơn OK / Số Mess; CPQC/DS OK = CPQC / DS OK.
      */
     function generateOkSummaryTableData(data) {
       const summary = {};
@@ -4642,10 +4712,11 @@
             team: teamDisp,
             name: nameDisp,
             seenDetailKeys: new Set(),
-            soDonNb: 0,
-            soDonHuy: 0,
-            dsHuy: 0,
+            soMess: 0,
+            cpqc: 0,
+            soDon: 0,
             soDonOk: 0,
+            dsChot: 0,
             doanhSoOk: 0,
           };
         }
@@ -4654,50 +4725,67 @@
         const detailKey = mktDetailRowKeyForTotals(r);
         if (S.seenDetailKeys.has(detailKey)) return;
         S.seenDetailKeys.add(detailKey);
-        const soDonOk = Number(r.soDonThucTe) || 0;
-        const doanhSoOk = Number(r.dsChotThucTe) || 0;
-        const soDonHuy = Number(r.soDonHuyThucTe) || 0;
-        const dsHuy = Number(r.dsHoanHuyThucTe) || 0;
+        const soDonOk = Number(r.soDonOk ?? r['Đơn Ok']) || 0;
+        const doanhSoOk = Number(r.dsOk ?? r['Doanh số Ok']) || 0;
+        S.soMess += Number(r.soMessCmt) || 0;
+        S.cpqc += Number(r.cpqc) || 0;
+        S.soDon += Number(r.soDon) || 0;
         S.soDonOk += soDonOk;
+        S.dsChot += Number(r.dsChot) || 0;
         S.doanhSoOk += doanhSoOk;
-        S.soDonHuy += soDonHuy;
-        S.dsHuy += dsHuy;
-        S.soDonNb += soDonOk + soDonHuy;
       });
       return Object.values(summary).map(({ seenDetailKeys, ...rest }) => rest);
     }
 
     function generateOkSummaryTableHTML(dataList) {
-      const total = { soDonNb: 0, soDonHuy: 0, dsHuy: 0, soDonOk: 0, doanhSoOk: 0 };
+      const total = { soMess: 0, cpqc: 0, soDon: 0, soDonOk: 0, dsChot: 0, doanhSoOk: 0 };
       const bodyRowsHtml = dataList
         .map((s, index) => {
           Object.keys(total).forEach((k) => {
             total[k] += Number(s[k]) || 0;
           });
-          const rateTt = s.soDonNb > 0 ? s.soDonOk / s.soDonNb : 0;
-          const rateClass = rateTt >= 0.9 ? 'bg-green' : rateTt >= 0.8 ? 'bg-yellow' : '';
+          const rate = s.soMess > 0 ? s.soDon / s.soMess : 0;
+          const rateTt = s.soMess > 0 ? s.soDonOk / s.soMess : 0;
+          const giaMess = s.soMess > 0 ? s.cpqc / s.soMess : 0;
+          const cps = s.soDonOk > 0 ? s.cpqc / s.soDonOk : 0;
+          const cpqcDsOk = s.doanhSoOk > 0 ? s.cpqc / s.doanhSoOk : 0;
+          const rateClass = rateTt > 0.1 ? 'bg-green' : rateTt > 0.05 ? 'bg-yellow' : '';
           return `<tr>
             <td class="text-center">${index + 1}</td>
             <td class="text-left">${escapeHtml(s.team)}</td>
             <td class="text-left"><button type="button" class="mkt-staff-link" data-mkt-staff-name="${escapeHtml(s.name)}" title="Xem chi tiết SP &amp; thị trường">${escapeHtml(s.name)}</button></td>
-            <td>${formatNumber(s.soDonNb)}</td>
-            <td>${formatNumber(s.soDonHuy)}</td>
-            <td>${formatCurrency(s.dsHuy)}</td>
+            <td>${formatNumber(s.soMess)}</td>
+            <td>${formatCurrency(s.cpqc)}</td>
+            <td>${formatNumber(s.soDon)}</td>
             <td>${formatNumber(s.soDonOk)}</td>
+            <td>${formatCurrency(s.dsChot)}</td>
             <td>${formatCurrency(s.doanhSoOk)}</td>
+            <td>${formatPercent(rate)}</td>
             <td class="${rateClass}">${formatPercent(rateTt)}</td>
+            <td>${formatCurrency(giaMess)}</td>
+            <td>${formatCurrency(cps)}</td>
+            <td>${formatPercent(cpqcDsOk)}</td>
           </tr>`;
         })
         .join('');
-      const tRate = total.soDonNb > 0 ? total.soDonOk / total.soDonNb : 0;
+      const tRate = total.soMess > 0 ? total.soDon / total.soMess : 0;
+      const tRateTt = total.soMess > 0 ? total.soDonOk / total.soMess : 0;
+      const tGiaMess = total.soMess > 0 ? total.cpqc / total.soMess : 0;
+      const tCps = total.soDonOk > 0 ? total.cpqc / total.soDonOk : 0;
+      const tCpqcDsOk = total.doanhSoOk > 0 ? total.cpqc / total.doanhSoOk : 0;
       const footHtml = `<tr class="total-row">
         <td class="total-label" colspan="3">TỔNG CỘNG</td>
-        <td class="total-value">${formatNumber(total.soDonNb)}</td>
-        <td class="total-value">${formatNumber(total.soDonHuy)}</td>
-        <td class="total-value">${formatCurrency(total.dsHuy)}</td>
+        <td class="total-value">${formatNumber(total.soMess)}</td>
+        <td class="total-value">${formatCurrency(total.cpqc)}</td>
+        <td class="total-value">${formatNumber(total.soDon)}</td>
         <td class="total-value">${formatNumber(total.soDonOk)}</td>
+        <td class="total-value">${formatCurrency(total.dsChot)}</td>
         <td class="total-value">${formatCurrency(total.doanhSoOk)}</td>
         <td class="total-value">${formatPercent(tRate)}</td>
+        <td class="total-value">${formatPercent(tRateTt)}</td>
+        <td class="total-value">${formatCurrency(tGiaMess)}</td>
+        <td class="total-value">${formatCurrency(tCps)}</td>
+        <td class="total-value">${formatPercent(tCpqcDsOk)}</td>
       </tr>`;
       return { bodyHtml: bodyRowsHtml, footHtml };
     }
@@ -4714,12 +4802,17 @@
       0: { prop: null, type: 'number' },
       1: { prop: 'team', type: 'string' },
       2: { prop: 'name', type: 'string' },
-      3: { prop: 'soDonNb', type: 'number' },
-      4: { prop: 'soDonHuy', type: 'number' },
-      5: { prop: 'dsHuy', type: 'number' },
+      3: { prop: 'soMess', type: 'number' },
+      4: { prop: 'cpqc', type: 'number' },
+      5: { prop: 'soDon', type: 'number' },
       6: { prop: 'soDonOk', type: 'number' },
-      7: { prop: 'doanhSoOk', type: 'number' },
-      8: { prop: (s) => (s.soDonNb > 0 ? s.soDonOk / s.soDonNb : 0), type: 'number' },
+      7: { prop: 'dsChot', type: 'number' },
+      8: { prop: 'doanhSoOk', type: 'number' },
+      9: { prop: (s) => (s.soMess > 0 ? s.soDon / s.soMess : 0), type: 'number' },
+      10: { prop: (s) => (s.soMess > 0 ? s.soDonOk / s.soMess : 0), type: 'number' },
+      11: { prop: (s) => (s.soMess > 0 ? s.cpqc / s.soMess : 0), type: 'number' },
+      12: { prop: (s) => (s.soDonOk > 0 ? s.cpqc / s.soDonOk : 0), type: 'number' },
+      13: { prop: (s) => (s.doanhSoOk > 0 ? s.cpqc / s.doanhSoOk : 0), type: 'number' },
     };
 
     function applyOkReportFilters() {
@@ -4759,19 +4852,24 @@
           return `<div>
             <h3>Chi tiết ngày: ${escapeHtml(date)}</h3>
             <div class="table-responsive-container">
-              <table class="sale-ok-like-table">
+              <table class="sortable-table daily-summary-table">
                 <thead>
                   <tr>
-                    <th rowspan="2">STT</th>
-                    <th rowspan="2">Team</th>
-                    <th rowspan="2">Marketing</th>
-                    <th rowspan="2">Số đơn nb</th>
-                    <th colspan="2">Trạng thái huỷ</th>
-                    <th rowspan="2">Số đơn Ok</th>
-                    <th rowspan="2">Doanh số Ok</th>
-                    <th rowspan="2">Tỷ lệ chốt TT</th>
+                    <th class="green-header">STT</th>
+                    <th class="green-header">Team</th>
+                    <th class="green-header">Marketing</th>
+                    <th class="green-header">Số Mess</th>
+                    <th class="green-header">CPQC</th>
+                    <th class="green-header">Số Đơn</th>
+                    <th class="blue-header">Số Đơn OK</th>
+                    <th class="green-header">DS Chốt</th>
+                    <th class="blue-header">DS OK</th>
+                    <th class="yellow-header">Tỷ Lệ Chốt</th>
+                    <th class="yellow-header">Tỷ Lệ Chốt (TT)</th>
+                    <th class="yellow-header">Giá Mess</th>
+                    <th class="yellow-header">CPS</th>
+                    <th class="yellow-header">CPQC/DS OK</th>
                   </tr>
-                  <tr><th>Số đơn</th><th>DS</th></tr>
                 </thead>
                 <tbody>${footHtml}${bodyHtml}</tbody>
               </table>
