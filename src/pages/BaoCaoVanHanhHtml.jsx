@@ -148,12 +148,12 @@ const BCVH_PAYMENT_HEAD_SHORT = {
 
 /** Tab2 — mỗi nhóm metric hiển thị dọc trong một cột */
 const BCVH_CHECK_VERTICAL_METRICS = [
-    { id: 'huyNoiBo', label: 'Huỷ NB', title: 'Huỷ nội bộ', kind: 'count' },
-    { id: 'doiHang', label: 'Đợi hàng', kind: 'count' },
-    { id: 'khachHen', label: 'Khách hẹn', kind: 'count' },
-    { id: 'treo', label: 'Treo', kind: 'count' },
-    { id: 'vanDonXL', label: 'VĐ XL', title: 'Vận đơn XL', kind: 'count' },
-    { id: 'daCkChuaDay', label: 'OK chưa mã', title: 'Đơn Ok nhưng chưa có mã', kind: 'count' }
+    { id: 'huyNoiBo', label: 'Huỷ NB', title: 'Huỷ nội bộ', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'doiHang', label: 'Đợi hàng', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'khachHen', label: 'Khách hẹn', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'treo', label: 'Treo', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'vanDonXL', label: 'VĐ XL', title: 'Vận đơn XL', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+    { id: 'daCkChuaDay', label: 'OK chưa mã', title: 'Đơn Ok nhưng chưa có mã', kind: 'count', showPct: true, pctBase: 'tongNoiBo' }
 ];
 
 const BCVH_DELIVERY_VERTICAL_METRICS = [
@@ -182,14 +182,12 @@ const BCVH_VERTICAL_SECTIONS = [
         title: 'Đã Thanh Toán (có bill)',
         compact: true,
         items: [
-            { id: 'donCoBill', label: 'SL', title: 'Số đơn', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+            { id: 'donCoBill', label: 'SL', title: 'Số đơn', kind: 'count' },
             {
                 id: 'donCoBillAmount',
                 label: 'Tiền',
                 title: 'Thành tiền',
-                kind: 'amount',
-                showPct: true,
-                pctBase: 'tongNoiBoAmount'
+                kind: 'amount'
             }
         ]
     },
@@ -200,14 +198,12 @@ const BCVH_VERTICAL_SECTIONS = [
         title: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ',
         compact: true,
         items: [
-            { id: 'tongNoiBo', label: 'SL', title: 'Số đơn', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+            { id: 'tongNoiBo', label: 'SL', title: 'Số đơn', kind: 'count' },
             {
                 id: 'tongNoiBoAmount',
                 label: 'DS',
                 title: 'Doanh số',
-                kind: 'amount',
-                showPct: true,
-                pctBase: 'tongNoiBoAmount'
+                kind: 'amount'
             }
         ]
     },
@@ -222,17 +218,13 @@ const BCVH_VERTICAL_SECTIONS = [
                 id: 'tongDonLenVanHanh',
                 label: 'SL',
                 title: 'Số đơn — OK + có đơn vị vận chuyển',
-                kind: 'count',
-                showPct: true,
-                pctBase: 'tongNoiBo'
+                kind: 'count'
             },
             {
                 id: 'tongDonLenVanHanhAmount',
                 label: 'DS',
                 title: 'Doanh số — cùng tập đơn OK + có ĐVVC',
-                kind: 'amount',
-                showPct: true,
-                pctBase: 'tongNoiBoAmount'
+                kind: 'amount'
             }
         ]
     },
@@ -243,14 +235,12 @@ const BCVH_VERTICAL_SECTIONS = [
         title: 'TỔNG ĐƠN CHƯA CÓ MÃ (đã lên VH, trống mã)',
         compact: true,
         items: [
-            { id: 'chuaCoMa', label: 'SL', title: 'Số đơn', kind: 'count', showPct: true, pctBase: 'tongNoiBo' },
+            { id: 'chuaCoMa', label: 'SL', title: 'Số đơn', kind: 'count' },
             {
                 id: 'doanhSoDonChuaMa',
                 label: 'DS',
                 title: 'Doanh số',
-                kind: 'amount',
-                showPct: true,
-                pctBase: 'tongNoiBoAmount'
+                kind: 'amount'
             }
         ]
     },
@@ -284,16 +274,14 @@ const BCVH_VERTICAL_SECTIONS = [
     {
         key: 'delivery',
         headerClass: 'bcvh-h-green',
-        label: 'GIAO HÀNG',
-        subLabel: 'NB',
+        label: 'GIAO HÀNG NB',
         title: 'TRẠNG THÁI GIAO HÀNG NB — SL + %',
         items: BCVH_DELIVERY_VERTICAL_METRICS
     },
     {
         key: 'check',
         headerClass: 'bcvh-h-red',
-        label: 'KẾT QUẢ',
-        subLabel: 'CHECK',
+        label: 'KẾT QUẢ CHECK',
         title: 'TỔNG ĐƠN THEO KẾT QUẢ CHECK',
         items: BCVH_CHECK_VERTICAL_METRICS
     },
@@ -306,19 +294,29 @@ const BCVH_VERTICAL_SECTIONS = [
             paymentId: c.id,
             label: BCVH_PAYMENT_HEAD_SHORT[c.id] ?? c.label,
             title: c.label,
-            kind: 'payment'
+            kind: 'payment',
+            showPct: true,
+            pctBase: 'tongNoiBo'
         }))
     }
 ];
 
-/** Tab6 — cột trái / phải: mỗi section một card xếp dọc (giống mẫu test giao diện). */
-const BCVH_TAB6_LEFT_SECTION_KEYS = new Set(['paid', 'tongNb', 'lenVh', 'chuaMa']);
-const BCVH_TAB6_LEFT_SECTIONS = BCVH_VERTICAL_SECTIONS.filter((s) =>
-    BCVH_TAB6_LEFT_SECTION_KEYS.has(s.key)
-);
-const BCVH_TAB6_RIGHT_SECTIONS = BCVH_VERTICAL_SECTIONS.filter(
-    (s) => !BCVH_TAB6_LEFT_SECTION_KEYS.has(s.key)
-);
+/** Tab6 — lấy section theo key. */
+function bcvhTab6Section(key) {
+    return BCVH_VERTICAL_SECTIONS.find((s) => s.key === key);
+}
+
+/** Tab6 — 3 hàng cân đối trong mỗi cụm (thêm dòng = thêm cụm). */
+const BCVH_TAB6_CUM_KEYS = [
+    'delivery',
+    'paid',
+    'tongNb',
+    'payment',
+    'lenVh',
+    'chuaMa',
+    'check',
+    'tyLe'
+];
 
 /** Nhãn cột ngang cho từng bảng con (SL/Tiền → Số lượng/Doanh số). */
 function bcvhSectionColumnLabel(item) {
@@ -1340,7 +1338,11 @@ export default function BaoCaoVanHanhHtml() {
             item.showPct && item.pctBase ? formatBcvhPctOf(val, m[item.pctBase]) : null;
 
         return (
-            <td className="bcvh-cell bcvh-section-num align-middle">
+            <td
+                className={`bcvh-cell bcvh-section-num align-middle${
+                    item.kind === 'amount' ? ' bcvh-tab6-col-amount' : ''
+                }`}
+            >
                 <div className={pctStr != null ? 'bcvh-section-val-pct' : undefined}>
                     <button
                         type="button"
@@ -1356,186 +1358,185 @@ export default function BaoCaoVanHanhHtml() {
         );
     };
 
-    const renderBcvhTab6FilterRowFields = (line) => (
-        <div className="bcvh-tab6-filter-inline">
-            <input
-                type="date"
-                readOnly={!line.isManual}
-                title={
-                    line.isManual
-                        ? 'Từ ngày — dòng thêm tay'
-                        : 'Từ ngày (theo bộ lọc trên)'
-                }
-                aria-label="Từ ngày"
-                className={`bcvh-tab6-filter-date text-gray-700 ${line.isManual ? '' : 'cursor-default bg-gray-50'}`}
-                value={line.startDate || ''}
-                onChange={
-                    line.isManual
-                        ? (e) => patchBcvhRow(line.id, { startDate: e.target.value })
-                        : undefined
-                }
-            />
-            <input
-                type="date"
-                readOnly={!line.isManual}
-                title={
-                    line.isManual
-                        ? 'Đến ngày — dòng thêm tay'
-                        : 'Đến ngày (theo bộ lọc trên)'
-                }
-                aria-label="Đến ngày"
-                className={`bcvh-tab6-filter-date text-gray-700 ${line.isManual ? '' : 'cursor-default bg-gray-50'}`}
-                value={line.endDate || ''}
-                onChange={
-                    line.isManual
-                        ? (e) => patchBcvhRow(line.id, { endDate: e.target.value })
-                        : undefined
-                }
-            />
-            <MultiSelect
-                label="SP"
-                placeholder="SP"
-                options={uniqueProducts}
-                selected={getEffectiveBcvhPmForRow(reportFilters, line).product}
-                onChange={(sel) =>
-                    patchBcvhRow(line.id, {
-                        product: decodeBcvhRowProductFromUi(sel, reportFilters.product)
-                    })
-                }
-                compact
-            />
-            <div className="bcvh-tab6-filter-tt">
+    const renderBcvhTab6CumFilter = (line, idx) => (
+        <div className="bcvh-tab6-cum-filter" data-bcvh-line={line.id}>
+            <span className="bcvh-tab6-filter-idx" title={line.isManual ? 'Dòng thêm tay' : `Cụm ${idx + 1}`}>
+                {idx + 1}
+                {line.isManual ? '*' : ''}
+            </span>
+            <label className="bcvh-tab6-cum-filter-field">
+                <span>Từ ngày</span>
+                <input
+                    type="date"
+                    readOnly={!line.isManual}
+                    title={line.isManual ? 'Từ ngày — dòng thêm tay' : 'Từ ngày (theo bộ lọc trên)'}
+                    className={`bcvh-tab6-filter-date text-gray-700 ${line.isManual ? '' : 'cursor-default bg-gray-50'}`}
+                    value={line.startDate || ''}
+                    onChange={
+                        line.isManual
+                            ? (e) => patchBcvhRow(line.id, { startDate: e.target.value })
+                            : undefined
+                    }
+                />
+            </label>
+            <label className="bcvh-tab6-cum-filter-field">
+                <span>Đến ngày</span>
+                <input
+                    type="date"
+                    readOnly={!line.isManual}
+                    title={line.isManual ? 'Đến ngày — dòng thêm tay' : 'Đến ngày (theo bộ lọc trên)'}
+                    className={`bcvh-tab6-filter-date text-gray-700 ${line.isManual ? '' : 'cursor-default bg-gray-50'}`}
+                    value={line.endDate || ''}
+                    onChange={
+                        line.isManual
+                            ? (e) => patchBcvhRow(line.id, { endDate: e.target.value })
+                            : undefined
+                    }
+                />
+            </label>
+            <div className="bcvh-tab6-cum-filter-field">
+                <span>Sản phẩm</span>
                 <MultiSelect
-                    label="TT"
-                    placeholder="TT"
-                    options={uniqueMarkets}
-                    selected={getEffectiveBcvhPmForRow(reportFilters, line).market}
+                    label="SP"
+                    placeholder="SP"
+                    options={uniqueProducts}
+                    selected={getEffectiveBcvhPmForRow(reportFilters, line).product}
                     onChange={(sel) =>
                         patchBcvhRow(line.id, {
-                            market: decodeBcvhRowMarketFromUi(sel, reportFilters.market)
+                            product: decodeBcvhRowProductFromUi(sel, reportFilters.product)
                         })
                     }
                     compact
                 />
-                {line.isManual ? (
-                    <button
-                        type="button"
-                        className="bcvh-tab6-filter-remove shrink-0 rounded border border-red-300 px-1 text-[10px] leading-none text-red-700 hover:bg-red-50"
-                        title="Xóa dòng thêm tay"
-                        onClick={() => removeBcvhRow(line.id)}
-                    >
-                        ×
-                    </button>
-                ) : null}
+            </div>
+            <div className="bcvh-tab6-cum-filter-field">
+                <span>Thị trường</span>
+                <div className="bcvh-tab6-filter-tt">
+                    <MultiSelect
+                        label="TT"
+                        placeholder="TT"
+                        options={uniqueMarkets}
+                        selected={getEffectiveBcvhPmForRow(reportFilters, line).market}
+                        onChange={(sel) =>
+                            patchBcvhRow(line.id, {
+                                market: decodeBcvhRowMarketFromUi(sel, reportFilters.market)
+                            })
+                        }
+                        compact
+                    />
+                    {line.isManual ? (
+                        <button
+                            type="button"
+                            className="bcvh-tab6-filter-remove shrink-0 rounded border border-red-300 text-red-700 hover:bg-red-50"
+                            title="Xóa cụm thêm tay"
+                            onClick={() => removeBcvhRow(line.id)}
+                        >
+                            ×
+                        </button>
+                    ) : null}
+                </div>
             </div>
         </div>
     );
 
-    /** Tab6 — dải lọc ngày / SP / TT (full width phía trên lưới card). */
-    const renderBcvhTab6FilterStrip = () => (
-        <table
-            ref={bcvhFixedTableRef}
-            className="bcvh-tab6-filter-table bcvh-tab6-filter-strip bcvh-fixed-table border-separate border-spacing-0"
-        >
-            <thead>
-                <tr>
-                    <th rowSpan={2} className="bcvh-h-info bcvh-tab6-filter-title">
-                        TỔNG
-                    </th>
-                </tr>
-                <tr aria-hidden="true" />
-            </thead>
-            <tbody>
-                {bcvhLines.map((line) => (
-                    <tr key={line.id} data-bcvh-line={line.id} className="bcvh-tab6-data-row">
-                        <td className="bcvh-cell bcvh-tab6-filter-cell">
-                            {renderBcvhTab6FilterRowFields(line)}
-                        </td>
-                    </tr>
-                ))}
-                {rawData.length > 0 ? (
-                    <tr className="bcvh-total-row bcvh-tab6-data-row">
-                        <td className="bcvh-cell bcvh-tab6-filter-cell font-bold uppercase">TỔNG</td>
-                    </tr>
-                ) : null}
-            </tbody>
-        </table>
-    );
-
-    /** Tab6 — một card metric (nhãn dọc trái + cột số liệu). */
-    const renderBcvhTab6SectionCard = (section) => (
-        <div key={section.key} className="bcvh-tab6-section-block">
-            <table
-                className={`bcvh-metric-table bcvh-metric-compact bcvh-section-table bcvh-tab6-section-card border-separate border-spacing-0 bcvh-tab6-section-${section.key}`}
+    /** Tab6 — một card trong cụm; `bundle` = đúng 1 dòng (hoặc TỔNG). */
+    const renderBcvhTab6SectionCard = (section, bundle) => {
+        const dataRows = bundle.isTotal
+            ? [
+                  {
+                      key: 'total',
+                      metrics: bcvhTotal,
+                      slices: bcvhSlicesByRow.flat(),
+                      ctx: 'TỔNG',
+                      isTotal: true
+                  }
+              ]
+            : [
+                  {
+                      key: bundle.line.id,
+                      metrics: bundle.line.metrics,
+                      slices: bcvhSlicesByRow[bundle.idx],
+                      ctx: bcvhRowContextLabel(bundle.line),
+                      isTotal: false
+                  }
+              ];
+        return (
+            <div
+                key={`${bundle.cumId}-${section.key}`}
+                className={`bcvh-tab6-section-block bcvh-tab6-block-${section.key}`}
             >
-                <thead>
-                    <tr>
-                        <th
-                            rowSpan={2}
-                            className={`bcvh-section-title ${section.headerClass} leading-tight`}
-                            title={section.title}
-                        >
-                            {section.label}
-                            {section.subLabel ? (
-                                <>
-                                    <br />
-                                    <span className="font-normal opacity-90">{section.subLabel}</span>
-                                </>
-                            ) : null}
-                        </th>
-                        {section.items.map((item) => {
-                            const colKey = item.id ?? item.field ?? item.paymentId;
-                            return (
-                                <th
-                                    key={colKey}
-                                    className={`${section.headerClass} bcvh-section-col leading-tight`}
-                                    title={item.title ?? item.label}
-                                >
-                                    {bcvhSectionColumnLabel(item)}
-                                </th>
-                            );
-                        })}
-                    </tr>
-                    <tr aria-hidden="true" />
-                </thead>
-                <tbody>
-                    {bcvhLines.map((line, idx) => (
-                        <tr key={line.id} data-bcvh-line={line.id} className="bcvh-tab6-data-row">
-                            {section.items.map((item) => {
-                                const colKey = item.id ?? item.field ?? item.paymentId;
-                                return (
-                                    <React.Fragment key={colKey}>
-                                        {renderBcvhSectionItemCell(
-                                            item,
-                                            line.metrics,
-                                            bcvhSlicesByRow[idx],
-                                            bcvhRowContextLabel(line)
-                                        )}
-                                    </React.Fragment>
-                                );
-                            })}
-                        </tr>
-                    ))}
-                    {rawData.length > 0 ? (
-                        <tr className="bcvh-total-row bcvh-tab6-data-row">
-                            {section.items.map((item) => {
-                                const colKey = item.id ?? item.field ?? item.paymentId;
-                                return (
-                                    <React.Fragment key={`${colKey}-total`}>
-                                        {renderBcvhSectionItemCell(
-                                            item,
-                                            bcvhTotal,
-                                            bcvhSlicesByRow.flat(),
-                                            'TỔNG'
-                                        )}
-                                    </React.Fragment>
-                                );
-                            })}
-                        </tr>
+                <div className="bcvh-tab6-rail" title={section.title}>
+                    {section.label}
+                    {section.subLabel ? (
+                        <>
+                            <br />
+                            <span className="font-normal opacity-90">{section.subLabel}</span>
+                        </>
                     ) : null}
-                </tbody>
-            </table>
-        </div>
+                </div>
+                <table
+                    className={`bcvh-metric-table bcvh-metric-compact bcvh-section-table bcvh-tab6-section-card border-separate border-spacing-0 bcvh-tab6-section-${section.key}`}
+                >
+                    <thead>
+                        <tr>
+                            {section.items.map((item) => {
+                                const colKey = item.id ?? item.field ?? item.paymentId;
+                                return (
+                                    <th
+                                        key={colKey}
+                                        className={`${section.headerClass} bcvh-section-col leading-tight${
+                                            item.kind === 'amount' ? ' bcvh-tab6-col-amount' : ''
+                                        }`}
+                                        title={item.title ?? item.label}
+                                    >
+                                        {bcvhSectionColumnLabel(item)}
+                                    </th>
+                                );
+                            })}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {dataRows.map((row) => (
+                            <tr
+                                key={row.key}
+                                data-bcvh-line={row.key}
+                                className={`bcvh-tab6-data-row${row.isTotal ? ' bcvh-total-row' : ''}`}
+                            >
+                                {section.items.map((item) => {
+                                    const colKey = item.id ?? item.field ?? item.paymentId;
+                                    return (
+                                        <React.Fragment key={colKey}>
+                                            {renderBcvhSectionItemCell(
+                                                item,
+                                                row.metrics,
+                                                row.slices,
+                                                row.ctx
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
+
+    const renderBcvhTab6Cum = (bundle) => (
+        <section key={bundle.cumId} className="bcvh-tab6-cum">
+            {bundle.isTotal ? (
+                <div className="bcvh-tab6-cum-filter bcvh-tab6-cum-filter-total">TỔNG</div>
+            ) : (
+                renderBcvhTab6CumFilter(bundle.line, bundle.idx)
+            )}
+            <div className="bcvh-tab6-cum-grid">
+                {BCVH_TAB6_CUM_KEYS.map((key) => {
+                    const sec = bcvhTab6Section(key);
+                    return sec ? renderBcvhTab6SectionCard(sec, bundle) : null;
+                })}
+            </div>
+        </section>
     );
 
     const fetchData = async (opts) => {
@@ -1882,46 +1883,50 @@ export default function BaoCaoVanHanhHtml() {
         }
     }, [activeTab]);
 
-    /** Tab6 — đồng bộ chiều cao: dải lọc ↔ từng card metric theo từng dòng dữ liệu. */
+    /** Tab6 — đồng bộ chiều cao header/ô số trong từng hàng của cụm. */
     const syncBcvhSectionSplitTableHeights = useCallback(() => {
         if (activeTab !== 'tab6') return;
-        const filterBody = bcvhFixedTableRef.current?.querySelector('tbody');
         const scrollRoot = bcvhScrollRef.current;
-        if (!filterBody || !scrollRoot) return;
+        if (!scrollRoot) return;
 
-        const sectionBodies = Array.from(
-            scrollRoot.querySelectorAll('.bcvh-tab6-section-card tbody')
-        );
-        if (sectionBodies.length === 0) return;
+        scrollRoot.querySelectorAll('.bcvh-tab6-cum-grid').forEach((grid) => {
+            const cards = Array.from(grid.querySelectorAll('.bcvh-tab6-section-block'));
+            const rowSlices = [
+                [0, 3],
+                [3, 6],
+                [6, 8]
+            ];
+            for (const [from, to] of rowSlices) {
+                const slice = cards.slice(from, to);
+                const heads = slice
+                    .map((el) => el.querySelector('.bcvh-tab6-section-card thead tr'))
+                    .filter(Boolean);
+                heads.forEach((row) => {
+                    row.style.height = '';
+                });
+                const headH = Math.max(
+                    0,
+                    ...heads.map((row) => Math.ceil(row.getBoundingClientRect().height))
+                );
+                heads.forEach((row) => {
+                    if (headH) row.style.height = `${headH}px`;
+                });
 
-        const filterRows = filterBody.querySelectorAll('tr');
-        const anchorRows = sectionBodies[0].querySelectorAll('tr');
-        const n = Math.min(filterRows.length, anchorRows.length);
-
-        for (let i = 0; i < n; i += 1) {
-            const fr = filterRows[i];
-            fr.style.height = '';
-            sectionBodies.forEach((tbody) => {
-                const row = tbody.querySelectorAll('tr')[i];
-                if (row) row.style.height = '';
-            });
-
-            let rowH = 0;
-            sectionBodies.forEach((tbody) => {
-                const row = tbody.querySelectorAll('tr')[i];
-                if (row) {
-                    rowH = Math.ceil(Math.max(rowH, row.getBoundingClientRect().height));
-                }
-            });
-            const filterH = Math.ceil(fr.getBoundingClientRect().height);
-            rowH = Math.max(rowH, filterH);
-
-            fr.style.height = `${rowH}px`;
-            sectionBodies.forEach((tbody) => {
-                const row = tbody.querySelectorAll('tr')[i];
-                if (row) row.style.height = `${rowH}px`;
-            });
-        }
+                const bodies = slice
+                    .map((el) => el.querySelector('.bcvh-tab6-section-card tbody tr'))
+                    .filter(Boolean);
+                bodies.forEach((row) => {
+                    row.style.height = '';
+                });
+                const rowH = Math.max(
+                    0,
+                    ...bodies.map((row) => Math.ceil(row.getBoundingClientRect().height))
+                );
+                bodies.forEach((row) => {
+                    if (rowH) row.style.height = `${rowH}px`;
+                });
+            }
+        });
     }, [activeTab]);
 
     const syncBcvhMetricColumnWidths = useCallback(() => {
@@ -2614,17 +2619,17 @@ export default function BaoCaoVanHanhHtml() {
             {isBcvhOperationalTab(activeTab) && (
                 <div
                     ref={bcvhWrapRef}
-                    className={`bcvh-wrap rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'} ${bcvhCardLayout}`}
+                    className={`bcvh-wrap rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'} ${bcvhCardLayout}${activeTab === 'tab6' ? ' bcvh-tab6-page' : ''}`}
                 >
                     <div className="bcvh-sticky-head shrink-0">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                         {/* Bộ lọc + nhãn cố định cột — cùng một hàng phía trái */}
                         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
                             {activeTab === 'tab2' ? (
+                                <>
                                 <div className="fixed-col-control shrink-0 rounded border border-gray-300 bg-gray-50 px-2 py-1 text-xs">
                                     Cố định 4 cột đầu
                                 </div>
-                            ) : null}
                             <label className="flex items-center gap-1">
                                 Chọn nhanh
                                 <select
@@ -2675,9 +2680,36 @@ export default function BaoCaoVanHanhHtml() {
                                     }
                                 />
                             </label>
+                                </>
+                            ) : (
+                                <span className="self-center font-medium text-gray-600">
+                                    Thêm dòng = thêm một cụm bảng mới
+                                </span>
+                            )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
+                            {activeTab === 'tab6' ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        disabled={loading}
+                                        className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#1a5f3c] disabled:bg-gray-400"
+                                        onClick={runTab2SearchWithBulk}
+                                        title="Tải dữ liệu theo các cụm dòng bên dưới."
+                                    >
+                                        {loading ? 'Đang tải…' : '🔍 Tìm'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="rounded border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-50"
+                                        onClick={clearAllBcvhProductMarketFilters}
+                                        title="Xóa hết các dòng trong bảng (và bộ lọc hàng loạt)"
+                                    >
+                                        Xóa tất cả dòng
+                                    </button>
+                                </>
+                            ) : null}
                             <button
                                 type="button"
                                 onClick={addBcvhRow}
@@ -2686,16 +2718,15 @@ export default function BaoCaoVanHanhHtml() {
                                 title={
                                     bcvhCriteriaRows.length >= MAX_BCVH_ROWS_TOTAL
                                         ? `Tối đa ${MAX_BCVH_ROWS_TOTAL} dòng`
-                                        : 'Thêm dòng (chỉnh ngày & bộ lọc riêng)'
+                                        : 'Thêm một cụm bảng mới (chỉnh ngày & bộ lọc riêng)'
                                 }
                             >
                                 + Thêm dòng
                             </button>
                         </div>
                     </div>
+                    {activeTab === 'tab2' ? (
                     <div className="mb-2 flex flex-wrap items-end gap-2 rounded border border-gray-200 bg-gray-50 px-2 py-2 text-xs text-gray-700">
-                        {activeTab === 'tab2' ? (
-                            <>
                                 <span className="self-center font-medium text-gray-600">Áp dụng hàng loạt:</span>
                                 <div className="min-w-[9.5rem] max-w-[14rem] flex-1">
                                     <MultiSelect
@@ -2717,12 +2748,6 @@ export default function BaoCaoVanHanhHtml() {
                                         compact
                                     />
                                 </div>
-                            </>
-                        ) : activeTab === 'tab6' ? (
-                            <span className="self-center font-medium text-gray-600">
-                                Lọc theo dòng ở dải TỔNG phía trên bảng
-                            </span>
-                        ) : null}
                         <button
                             type="button"
                             disabled={loading}
@@ -2741,6 +2766,7 @@ export default function BaoCaoVanHanhHtml() {
                             Xóa tất cả dòng
                         </button>
                     </div>
+                    ) : null}
                     <div className="bcvh-split-title">
                         <div className="bcvh-title-row text-center uppercase tracking-wide">
                             BÁO CÁO VẬN HÀNH
@@ -2970,31 +2996,25 @@ export default function BaoCaoVanHanhHtml() {
                                 </>
                         </div>
                         ) : activeTab === 'tab6' ? (
-                            <div className="bcvh-tab6-layout flex min-h-0 min-w-0 w-full flex-1 flex-col">
-                                <div
-                                    ref={bcvhFixedPaneRef}
-                                    className="bcvh-tab6-filter-strip-wrap shrink-0 border-b border-slate-300 bg-white"
-                                >
-                                    {renderBcvhTab6FilterStrip()}
-                                </div>
+                            <div className="bcvh-tab6-layout min-h-0 min-w-0 w-full flex-1">
                                 <div
                                     ref={bcvhScrollRef}
                                     className="bcvh-tab6-grid bcvh-scroll bcvh-scroll-metric bcvh-scroll-main min-h-0 min-w-0 flex-1 overflow-auto"
                                 >
-                                    <div className="bcvh-tab6-col bcvh-tab6-col-left">
-                                        <div className="bcvh-tab6-section-stack">
-                                            {BCVH_TAB6_LEFT_SECTIONS.map((section) =>
-                                                renderBcvhTab6SectionCard(section)
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="bcvh-tab6-col bcvh-tab6-col-right">
-                                        <div className="bcvh-tab6-section-stack">
-                                            {BCVH_TAB6_RIGHT_SECTIONS.map((section) =>
-                                                renderBcvhTab6SectionCard(section)
-                                            )}
-                                        </div>
-                                    </div>
+                                    {bcvhLines.map((line, idx) =>
+                                        renderBcvhTab6Cum({
+                                            cumId: line.id,
+                                            line,
+                                            idx,
+                                            isTotal: false
+                                        })
+                                    )}
+                                    {rawData.length > 0
+                                        ? renderBcvhTab6Cum({
+                                              cumId: 'total',
+                                              isTotal: true
+                                          })
+                                        : null}
                                 </div>
                             </div>
                         ) : null}

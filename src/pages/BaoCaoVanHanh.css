@@ -1,6 +1,6 @@
 /* Báo cáo vận hành — tab BC Vận Hành (mẫu Excel) */
 .bcvh-wrap {
-    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    font-family: 'Roboto', Arial, sans-serif;
     font-size: 14px;
     color: #1f2937;
     /* clip có thể làm sticky thead không bám đúng scrollport; tab2 bọc overflow-hidden + flex để cuộn trong pane */
@@ -32,6 +32,22 @@
     --bcvh-row-separator: #64748b;
     --bcvh-row-alt: #f7f9fb;
     --bcvh-row-hover: #eef4fa;
+}
+
+.bcvh-wrap,
+.bcvh-wrap button,
+.bcvh-wrap input,
+.bcvh-wrap select,
+.bcvh-wrap th,
+.bcvh-wrap td,
+.bcvh-wrap span,
+.bcvh-wrap div {
+    font-family: 'Roboto', Arial, sans-serif;
+}
+
+.bcvh-wrap.bcvh-tab6-page,
+.bcvh-wrap.bcvh-tab6-page * {
+    border-radius: 0 !important;
 }
 
 /* Tách 4 cột cố định (trái) | vùng cuộn ngang (phải chỉ chứa số liệu) */
@@ -437,17 +453,19 @@ table.bcvh-metric-colsync thead th {
     min-width: 0;
 }
 
-/* Tab6 — dải lọc full width + lưới 2 cột card xếp dọc */
+/* Tab6 — mỗi dòng lọc = một cụm; cụm = 2 hàng bảng cân đối */
 .bcvh-tab6-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
     width: 100%;
     min-width: 0;
     flex: 1 1 auto;
 }
 
 .bcvh-tab6-filter-strip-wrap {
-    width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
+    display: none;
 }
 
 .bcvh-tab6-filter-strip {
@@ -458,12 +476,149 @@ table.bcvh-metric-colsync thead th {
 
 .bcvh-tab6-grid {
     display: flex;
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 8px;
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
     width: 100%;
     min-width: 0;
-    padding: 6px 2px 10px;
+    flex: 1 1 auto;
+    padding: 2px 2px 12px;
+    overflow: auto;
+}
+
+.bcvh-tab6-cum {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    padding-bottom: 10px;
+    margin-bottom: 6px;
+    border-bottom: 2px solid #8f8f8f;
+}
+
+.bcvh-tab6-cum:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.bcvh-tab6-cum-filter {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: end;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px 8px;
+    background: #f2f2f2;
+    border: 1px solid #b0b0b0;
+    border-radius: 0;
+    color: #000;
+}
+
+.bcvh-tab6-cum-filter-total {
+    align-items: center;
+    justify-content: center;
+    font-family: 'Roboto', Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    min-height: 34px;
+}
+
+.bcvh-tab6-cum-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.bcvh-tab6-cum-filter-field > span {
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #000;
+}
+
+.bcvh-tab6-cum-filter .bcvh-tab6-filter-idx {
+    flex: 0 0 1.8rem;
+    align-self: center;
+    color: #000;
+    font-size: 16px;
+    font-weight: 900;
+}
+
+.bcvh-tab6-cum-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+        'delivery paid tongNb'
+        'payment lenVh chuaMa'
+        'check check tyLe';
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    align-items: stretch;
+}
+
+.bcvh-tab6-block-delivery { grid-area: delivery; }
+.bcvh-tab6-block-paid { grid-area: paid; }
+.bcvh-tab6-block-tongNb { grid-area: tongNb; }
+.bcvh-tab6-block-payment { grid-area: payment; }
+.bcvh-tab6-block-lenVh { grid-area: lenVh; }
+.bcvh-tab6-block-chuaMa { grid-area: chuaMa; }
+.bcvh-tab6-block-check { grid-area: check; }
+.bcvh-tab6-block-tyLe { grid-area: tyLe; }
+
+.bcvh-tab6-cum-filter .bcvh-tab6-filter-date {
+    height: 32px;
+    min-width: 8rem;
+    background: #fff;
+    color: #000;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.bcvh-tab6-cum-filter button:not(.bcvh-tab6-filter-remove) {
+    min-height: 32px !important;
+    height: 32px !important;
+    padding: 0 8px !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    color: #000 !important;
+}
+
+.bcvh-tab6-cum-filter .bcvh-tab6-filter-remove {
+    height: 26px;
+    color: #595959;
+    border-color: #b0b0b0;
+    background: #fff;
+}
+
+.bcvh-tab6-module {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+}
+
+.bcvh-tab6-module-shorts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+}
+
+.bcvh-tab6-module-shorts:has(> :only-child) {
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .bcvh-tab6-col {
@@ -491,56 +646,210 @@ table.bcvh-metric-colsync thead th {
 }
 
 .bcvh-tab6-section-block {
+    display: grid;
+    grid-template-columns: 3.4rem minmax(0, 1fr);
     width: 100%;
+    max-width: 100%;
     min-width: 0;
-    border: 1px solid var(--bcvh-border-strong);
-    border-radius: 2px;
+    height: auto;
+    align-self: stretch;
+    border: 1px solid #b0b0b0;
+    border-radius: 0;
     overflow: hidden;
     background: #fff;
+    box-shadow: none;
+    box-sizing: border-box;
+}
+
+.bcvh-tab6-section-placeholder {
+    display: block;
+    border: none;
+    background: transparent;
+    box-shadow: none;
 }
 
 .bcvh-tab6-section-card {
-    width: 100%;
-    min-width: max-content;
+    width: 100% !important;
+    height: auto;
+    min-width: 0 !important;
+    max-width: 100%;
+    table-layout: fixed;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+.bcvh-tab6-section-paid thead th.bcvh-section-col,
+.bcvh-tab6-section-tongNb thead th.bcvh-section-col,
+.bcvh-tab6-section-lenVh thead th.bcvh-section-col,
+.bcvh-tab6-section-chuaMa thead th.bcvh-section-col,
+.bcvh-tab6-section-card thead th.bcvh-tab6-col-amount,
+.bcvh-tab6-section-card td.bcvh-tab6-col-amount {
+    min-width: 0;
+}
+
+.bcvh-tab6-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #217346;
+    color: #fff;
+    font-family: 'Roboto', Arial, sans-serif;
+    font-size: 8px;
+    font-weight: 800;
+    text-align: center;
+    padding: 3px 2px;
+    line-height: 1.25;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    white-space: normal;
+    overflow: hidden;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    border-radius: 0;
+    border-right: 1px solid #1a5c38;
+}
+
+.bcvh-tab6-rail > span {
+    font-size: 7px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0;
+}
+
+.bcvh-tab6-section-card thead th.bcvh-section-col {
+    text-align: center;
+    font-family: 'Roboto', Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 3px 2px;
+    line-height: 1.15;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: clip;
+    border-radius: 0;
+}
+
+.bcvh-tab6-section-card.bcvh-tab6-section-delivery thead th.bcvh-section-col,
+.bcvh-tab6-section-card.bcvh-tab6-section-check thead th.bcvh-section-col,
+.bcvh-tab6-section-card.bcvh-tab6-section-payment thead th.bcvh-section-col {
+    white-space: normal;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    padding: 3px 1px;
+    line-height: 1.15;
 }
 
 .bcvh-tab6-section-card .bcvh-section-title {
-    min-width: 4.8rem;
-    max-width: 5.5rem;
-    font-size: 13px;
-    font-weight: 800;
+    min-width: 0;
+    max-width: none;
+    width: 2.2rem;
+    font-family: 'Roboto', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     text-align: center;
     vertical-align: middle;
     writing-mode: horizontal-tb;
     white-space: normal;
     line-height: 1.1;
-    padding: 4px 6px;
+    padding: 2px 2px;
 }
 
-.bcvh-tab6-section-card tbody tr.bcvh-tab6-data-row:not(.bcvh-total-row):nth-child(odd) > .bcvh-cell {
-    background: #fff;
+.bcvh-tab6-section-card tbody tr.bcvh-tab6-data-row {
+    height: auto;
 }
 
-.bcvh-tab6-section-card tbody tr.bcvh-tab6-data-row:not(.bcvh-total-row):nth-child(even) > .bcvh-cell {
-    background: var(--bcvh-total-row-bg);
-}
-
-.bcvh-tab6-section-card tbody tr.bcvh-total-row > .bcvh-cell {
-    background: var(--bcvh-total-row-bg) !important;
-    border-top: 2px solid var(--bcvh-total-row-border) !important;
+.bcvh-tab6-section-card tbody tr.bcvh-tab6-data-row > .bcvh-cell {
+    height: auto;
+    line-height: 1.1 !important;
+    padding-top: 1px !important;
+    padding-bottom: 1px !important;
+    padding-left: 1px !important;
+    padding-right: 1px !important;
+    vertical-align: middle;
+    white-space: nowrap;
+    overflow: visible;
 }
 
 .bcvh-tab6-section-card tbody tr.bcvh-tab6-data-row:not(.bcvh-total-row) > .bcvh-cell {
-    border-bottom: 1px solid var(--bcvh-border) !important;
+    background: #fff;
+    border: 1px solid #b0b0b0 !important;
 }
 
-/* Tab6 — cột trái legacy (deprecated) */
+.bcvh-tab6-section-card tbody tr.bcvh-tab6-data-row:not(.bcvh-total-row):nth-child(even) > .bcvh-cell {
+    background: #f2f2f2;
+}
+
+.bcvh-tab6-section-card tbody tr.bcvh-total-row > .bcvh-cell {
+    background: #fff2cc !important;
+    border: 1px solid #b0b0b0 !important;
+    border-top: 2px solid #8f8f8f !important;
+}
+
+.bcvh-tab6-section-card .bcvh-section-val,
+.bcvh-tab6-section-card .bcvh-section-val-pct .bcvh-section-val {
+    color: #000;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-decoration: none;
+    max-width: none;
+    overflow: visible;
+}
+
+.bcvh-tab6-section-card .bcvh-section-pct {
+    font-size: 10px;
+    font-weight: 700;
+    color: #000;
+    margin-left: 0;
+    padding-left: 0;
+    letter-spacing: 0;
+}
+
+.bcvh-tab6-section-card .bcvh-cell.bcvh-section-num {
+    padding: 1px !important;
+    font-size: 10px;
+    line-height: 1.1 !important;
+}
+
+.bcvh-tab6-section-card .bcvh-section-val-pct {
+    min-width: 0 !important;
+    width: 100%;
+    gap: 2px;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+}
+
+/* Tab6 — bộ lọc theo dòng: cùng chiều cao hàng với bảng số liệu */
 .bcvh-tab6-filter-pane {
-    flex: 0 0 28%;
-    width: 28%;
-    max-width: 28%;
-    min-width: 0;
-    border-right: 2px solid var(--bcvh-border-strong);
+    flex: 0 0 420px;
+    width: 420px;
+    max-width: 46%;
+    min-width: 320px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--bcvh-border-strong);
+    border-radius: 0;
+    overflow: auto;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.bcvh-tab6-filter-head {
+    display: none;
 }
 
 .bcvh-tab6-filter-scroll {
@@ -553,51 +862,48 @@ table.bcvh-metric-colsync thead th {
     min-width: max-content;
 }
 
-.bcvh-tab6-paid-group {
-    text-align: center;
-    font-size: 14px;
-    font-weight: 800;
-    padding: 2px 6px;
-    line-height: 1.1;
-    vertical-align: middle;
-    white-space: nowrap;
-    border-left: 2px solid var(--bcvh-header-border);
-}
-
 .bcvh-tab6-filter-title {
     text-align: center;
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 800;
-    padding: 2px 6px;
-    line-height: 1.1;
+    padding: 4px 6px !important;
+    line-height: 1.15;
     white-space: nowrap;
+}
+
+.bcvh-tab6-filter-row > .bcvh-cell {
+    padding: 1px 4px !important;
+    vertical-align: middle;
+    line-height: 1.1;
+}
+
+.bcvh-tab6-filter-idx {
+    text-align: center !important;
+    font-weight: 800;
+    font-size: 12px;
+    width: 1.75rem;
+    min-width: 1.75rem;
+    color: #1e293b;
 }
 
 .bcvh-tab6-filter-cell {
     vertical-align: middle;
-    padding: 0 4px;
-    font-size: 12px;
+    padding: 1px 4px;
+    font-size: 11px;
     line-height: 1;
-}
-
-.bcvh-tab6-filter-inline {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.15fr);
-    gap: 2px;
-    align-items: center;
-    min-width: 0;
 }
 
 .bcvh-tab6-filter-date {
     width: 100%;
-    min-width: 0;
-    font-size: 10px;
+    min-width: 7.2rem;
+    box-sizing: border-box;
+    font-size: 11px;
     font-weight: 600;
-    padding: 0 1px;
-    line-height: 1;
-    height: 18px;
+    padding: 0 2px;
+    line-height: 1.1;
+    height: 22px;
     border: 1px solid #d1d5db;
-    border-radius: 3px;
+    border-radius: 0;
     background: #fff;
 }
 
@@ -613,27 +919,30 @@ table.bcvh-metric-colsync thead th {
     flex: 1 1 auto;
 }
 
-.bcvh-tab6-filter-pane .bcvh-tab6-filter-inline button {
-    min-height: 18px !important;
-    height: 18px !important;
-    padding: 0 3px !important;
+.bcvh-tab6-filter-pane .bcvh-tab6-filter-cell button:not(.bcvh-tab6-filter-remove) {
+    min-height: 22px !important;
+    height: 22px !important;
+    padding: 0 4px !important;
     font-size: 10px !important;
     line-height: 1 !important;
-    border-radius: 3px;
+    border-radius: 0;
 }
 
 .bcvh-tab6-filter-remove {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 22px;
     padding: 0 !important;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    font-size: 12px;
+    line-height: 1;
 }
 
 .bcvh-tab6-filter-table tr.bcvh-total-row > .bcvh-tab6-filter-cell {
     vertical-align: middle;
     text-align: center;
+    font-size: 12px;
 }
 
 .bcvh-tab6-metrics {
@@ -839,6 +1148,162 @@ table.bcvh-metric-colsync thead th {
     color: #1e293b;
 }
 
+.bcvh-tab6-section-card.bcvh-section-table tbody tr:not(.bcvh-total-row) > .bcvh-cell {
+    background: #fff !important;
+    border: 1px solid #b0b0b0 !important;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table tbody tr:not(.bcvh-total-row):nth-child(even) > .bcvh-cell {
+    background: #f2f2f2 !important;
+}
+
+.bcvh-tab6-section-card.bcvh-metric-table tbody tr:not(.bcvh-total-row) > .bcvh-cell,
+.bcvh-tab6-section-card.bcvh-metric-table tbody tr.bcvh-total-row > .bcvh-cell {
+    border-bottom: 1px solid #b0b0b0 !important;
+    border-top: 1px solid #b0b0b0 !important;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-section-table .bcvh-section-val-pct .bcvh-section-val {
+    color: #000 !important;
+    font-size: 10px !important;
+    text-decoration: none !important;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table .bcvh-section-val:hover {
+    text-decoration: underline !important;
+    color: #000 !important;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table tbody tr.bcvh-total-row .bcvh-section-val {
+    font-size: 10px !important;
+    color: #000;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table .bcvh-section-pct,
+.bcvh-tab6-section-card.bcvh-section-table tbody tr.bcvh-total-row .bcvh-section-pct {
+    font-size: 10px !important;
+    font-weight: 700;
+    color: #000;
+}
+
+.bcvh-tab6-section-card.bcvh-metric-table tbody tr:nth-child(odd):not(.bcvh-total-row) > .bcvh-cell {
+    background: #fff !important;
+}
+
+.bcvh-tab6-section-card.bcvh-metric-table tbody tr:nth-child(even):not(.bcvh-total-row) > .bcvh-cell {
+    background: #f2f2f2 !important;
+}
+
+.bcvh-tab6-section-card.bcvh-metric-table tbody tr.bcvh-total-row > .bcvh-cell {
+    background: #fff2cc !important;
+    border-top: 2px solid #8f8f8f !important;
+}
+
+/* Tab6 — tiêu đề + thanh trái: xanh lá */
+.bcvh-tab6-section-card thead th.bcvh-h-info,
+.bcvh-tab6-section-card thead th.bcvh-h-cyan,
+.bcvh-tab6-section-card thead th.bcvh-h-yellow,
+.bcvh-tab6-section-card thead th.bcvh-h-green,
+.bcvh-tab6-section-card thead th.bcvh-h-red,
+.bcvh-tab6-section-card thead th.bcvh-h-grey,
+.bcvh-tab6-section-card thead th.bcvh-section-col {
+    background: #217346 !important;
+    color: #fff !important;
+    border: 1px solid #1a5c38 !important;
+    border-bottom: 2px solid #145c38 !important;
+    text-shadow: none;
+}
+
+/* Tab6 — ép bảng vừa khung, không cuộn ngang */
+.bcvh-tab6-grid.bcvh-scroll,
+.bcvh-tab6-grid.bcvh-scroll-metric {
+    overflow-x: hidden;
+    scrollbar-gutter: auto;
+}
+
+.bcvh-tab6-grid.bcvh-scroll-metric .bcvh-tab6-section-card.bcvh-metric-table {
+    margin-right: 0;
+    margin-bottom: 0;
+}
+
+.bcvh-tab6-cum-grid > .bcvh-tab6-section-block {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table.bcvh-metric-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100%;
+    table-layout: fixed;
+    box-sizing: border-box;
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table.bcvh-metric-table .bcvh-cell.bcvh-section-num {
+    padding: 1px !important;
+    overflow: visible;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table thead th {
+    min-width: 0 !important;
+    overflow: hidden;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table tbody td {
+    min-width: 0 !important;
+    overflow: visible;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table .bcvh-section-val-pct {
+    min-width: 0 !important;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 2px;
+}
+
+.bcvh-tab6-section-card.bcvh-section-table .bcvh-section-title {
+    min-width: 0;
+}
+
+.bcvh-tab6-section-card.bcvh-tab6-section-delivery thead th.bcvh-tab6-col-amount {
+    width: 26%;
+}
+
+.bcvh-tab6-section-card.bcvh-tab6-section-paid thead th.bcvh-tab6-col-amount,
+.bcvh-tab6-section-card.bcvh-tab6-section-tongNb thead th.bcvh-tab6-col-amount,
+.bcvh-tab6-section-card.bcvh-tab6-section-lenVh thead th.bcvh-tab6-col-amount,
+.bcvh-tab6-section-card.bcvh-tab6-section-chuaMa thead th.bcvh-tab6-col-amount {
+    width: 58%;
+}
+
+.bcvh-tab6-section-card.bcvh-tab6-section-paid .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-tongNb .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-lenVh .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-chuaMa .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-paid .bcvh-section-val-pct .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-tongNb .bcvh-section-val-pct .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-lenVh .bcvh-section-val-pct .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-chuaMa .bcvh-section-val-pct .bcvh-section-val,
+.bcvh-tab6-section-card td.bcvh-tab6-col-amount .bcvh-section-val,
+.bcvh-tab6-section-card td.bcvh-tab6-col-amount .bcvh-section-val .bcvh-amount-display,
+.bcvh-tab6-section-card.bcvh-tab6-section-paid td.bcvh-tab6-col-amount .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-tongNb td.bcvh-tab6-col-amount .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-lenVh td.bcvh-tab6-col-amount .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-chuaMa td.bcvh-tab6-col-amount .bcvh-section-val,
+.bcvh-tab6-section-card.bcvh-tab6-section-paid td.bcvh-tab6-col-amount .bcvh-amount-display,
+.bcvh-tab6-section-card.bcvh-tab6-section-tongNb td.bcvh-tab6-col-amount .bcvh-amount-display,
+.bcvh-tab6-section-card.bcvh-tab6-section-lenVh td.bcvh-tab6-col-amount .bcvh-amount-display,
+.bcvh-tab6-section-card.bcvh-tab6-section-chuaMa td.bcvh-tab6-col-amount .bcvh-amount-display,
+.bcvh-tab6-section-card .bcvh-amount-display {
+    font-size: 10px !important;
+}
+
 .bcvh-metric-vertical-compact {
     padding: 3px 2px !important;
 }
@@ -882,14 +1347,14 @@ table.bcvh-metric-colsync thead th {
 .bcvh-delivery-vertical {
     padding: 8px 6px !important;
     vertical-align: top;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'Roboto', Arial, sans-serif;
 }
 
 .bcvh-amount-display {
     display: inline-block;
     white-space: nowrap;
     line-height: 1;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'Roboto', Arial, sans-serif;
     font-variant-numeric: tabular-nums;
     font-weight: 800;
 }
@@ -899,7 +1364,7 @@ table.bcvh-metric-colsync thead th {
     font-size: 14px;
     font-weight: 800;
     color: #0f172a;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'Roboto', Arial, sans-serif;
     font-variant-numeric: tabular-nums;
     justify-self: start;
 }
@@ -957,7 +1422,7 @@ table.bcvh-metric-colsync thead th {
     text-align: left;
     white-space: nowrap;
     letter-spacing: 0.01em;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'Roboto', Arial, sans-serif;
 }
 
 .bcvh-metric-vertical-row .bcvh-cell-pct {
