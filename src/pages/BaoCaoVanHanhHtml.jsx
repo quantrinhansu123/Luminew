@@ -215,13 +215,13 @@ const BCVH_VERTICAL_SECTIONS = [
         key: 'lenVh',
         headerClass: 'bcvh-h-cyan',
         label: 'LÊN VH',
-        title: 'TỔNG ĐƠN LÊN VẬN HÀNH',
+        title: 'TỔNG ĐƠN LÊN VẬN HÀNH (Đơn OK + có ĐVVC)',
         compact: true,
         items: [
             {
                 id: 'tongDonLenVanHanh',
                 label: 'SL',
-                title: 'Số đơn',
+                title: 'Số đơn — OK + có đơn vị vận chuyển',
                 kind: 'count',
                 showPct: true,
                 pctBase: 'tongNoiBo'
@@ -229,7 +229,7 @@ const BCVH_VERTICAL_SECTIONS = [
             {
                 id: 'tongDonLenVanHanhAmount',
                 label: 'DS',
-                title: 'Doanh số',
+                title: 'Doanh số — cùng tập đơn OK + có ĐVVC',
                 kind: 'amount',
                 showPct: true,
                 pctBase: 'tongNoiBoAmount'

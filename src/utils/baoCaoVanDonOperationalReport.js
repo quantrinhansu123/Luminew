@@ -198,7 +198,7 @@ export function aggregateOperationalReportSlice(slice) {
     let donCoBill = 0;
     let donCoBillAmount = 0;
     let coMa = 0;
-    /** Tab2 «TỔNG ĐƠN LÊN VẬN HÀNH»: đơn có đơn vị giao hàng / shipping_unit khác trống (histogram «Lên vận hành»). */
+    /** Tab2 «TỔNG ĐƠN LÊN VẬN HÀNH»: Đơn OK + có đơn vị vận chuyển (shipping_unit / histogram «Lên vận hành»). */
     let tongDonLenVanHanh = 0;
     /** Doanh số (VNĐ) trên cùng tập đơn `tongDonLenVanHanh`. */
     let tongDonLenVanHanhAmount = 0;
@@ -229,7 +229,6 @@ export function aggregateOperationalReportSlice(slice) {
         // Orders: theo `shipping_unit` (virtual `_len_vh_don_vi`); bao_cao: histogram «Lên vận hành».
         const lenVhDonVi =
             r._source === 'orders' ? Number(r._len_vh_don_vi) || 0 : sumLenVanHanh(r._trang_thai_giao_hang);
-        const chuaLenVh = lenVhDonVi <= 0;
         const huyCheckCount = sumHuyCheckHistogram(r._ket_qua_check);
 
         // Nhóm "Kết quả check": không ràng buộc theo ĐVVC (không xét đã/chưa lên vận hành).
@@ -259,7 +258,8 @@ export function aggregateOperationalReportSlice(slice) {
         donCoBillAmount += sumDonCoBillFullAmount(r._tien_trang_thai_thanh_toan);
         mergePaymentHistogramIntoBuckets(r._trang_thai_thanh_toan, payBuckets);
 
-        if (lenVhDonVi > 0) {
+        // Lên VH SL/DS: Kết quả check = OK và đã có ĐVVC.
+        if (lenVhDonVi > 0 && rowKetQuaCheckIsOk(r)) {
             tongDonLenVanHanh += 1;
             tongDonLenVanHanhAmount += rowAmount;
         }
@@ -544,8 +544,8 @@ export const BCVH_DRILL_METRIC_LABELS = {
     donCoBillAmount: 'Đã thanh toán (có bill) — Thành tiền',
     tongNoiBo: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ — Số đơn',
     tongNoiBoAmount: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ — Doanh số',
-    tongDonLenVanHanh: 'TỔNG ĐƠN LÊN VẬN HÀNH — Số đơn',
-    tongDonLenVanHanhAmount: 'TỔNG ĐƠN LÊN VẬN HÀNH — Doanh số',
+    tongDonLenVanHanh: 'TỔNG ĐƠN LÊN VẬN HÀNH — Số đơn (OK + có ĐVVC)',
+    tongDonLenVanHanhAmount: 'TỔNG ĐƠN LÊN VẬN HÀNH — Doanh số (OK + có ĐVVC)',
     chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (trống mã, check OK; orders: đã có ĐVVC) — Số đơn',
     doanhSoDonChuaMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (trống mã, check OK; orders: đã có ĐVVC) — Doanh số',
     giaoTC: 'Giao thành công',
@@ -586,7 +586,7 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
             return slice.filter((r) => sumDonCoBillFullCount(r._trang_thai_thanh_toan) > 0);
         case 'tongDonLenVanHanh':
         case 'tongDonLenVanHanhAmount':
-            return slice.filter((r) => rowLenVhDonViForDrill(r) > 0);
+            return slice.filter((r) => rowLenVhDonViForDrill(r) > 0 && rowKetQuaCheckIsOk(r));
         case 'chuaCoMa':
         case 'doanhSoDonChuaMa':
             return slice.filter(
