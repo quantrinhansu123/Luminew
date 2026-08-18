@@ -1,4 +1,4 @@
-import { AlertTriangle, BarChart3, Calculator, Download, History, Layers, Pencil, RefreshCw, Search, Settings, Trash2, Truck, X } from 'lucide-react';
+import { BarChart3, Calculator, Download, History, Layers, Pencil, RefreshCw, Search, Settings, Trash2, Truck, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -126,6 +126,75 @@ function chunkArray(arr, size) {
   const out = [];
   for (let i = 0; i < a.length; i += size) out.push(a.slice(i, i + size));
   return out;
+}
+
+function sanitizePastedCode(raw) {
+  return String(raw ?? '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\p{Cf}+/gu, '')
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim();
+}
+
+/** Ô lọc mã SP: mỗi dòng một mã; cũng chấp nhận phẩy / chấm phẩy / tab. */
+function parseProductCodesFromTextarea(raw) {
+  const seen = new Set();
+  const codes = [];
+  String(raw ?? '')
+    .split(/[\r\n,;|\t]+/)
+    .forEach((line) => {
+      const code = sanitizePastedCode(line);
+      if (!code) return;
+      const key = code.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      codes.push(code);
+    });
+  return codes;
+}
+
+function rowMaSpHaystackParts(row) {
+  return [
+    row?.['Mã đơn hàng'],
+    row?.order_code,
+    row?.['Mã Tracking'],
+    row?.tracking_code,
+    row?.['Mặt hàng'],
+    row?.['Tên mặt hàng 1'],
+    row?.['Tên mặt hàng 2'],
+    row?.product,
+    row?.product_name_1,
+    row?.product_name_2,
+    row?.['Quà tặng'],
+    row?.gift,
+    row?._id,
+  ]
+    .map((v) => normalizeViForContains(v))
+    .filter(Boolean);
+}
+
+/** Khớp mã đơn / tracking / tên SP (contains). */
+function rowMatchesMaSpCodes(row, codeKeys) {
+  if (!codeKeys?.length) return true;
+  const parts = rowMaSpHaystackParts(row);
+  if (!parts.length) return false;
+  return codeKeys.some((code) => {
+    const n = normalizeViForContains(code);
+    if (!n) return false;
+    return parts.some((p) => p === n || p.includes(n));
+  });
+}
+
+/** Khớp đúng mã đơn hoặc tracking — dùng để giữ đơn ngoài khoảng ngày khi dán mã cụ thể. */
+function rowMatchesExactOrderOrTrackingCode(row, codeKeys) {
+  if (!codeKeys?.length) return false;
+  const keys = new Set(codeKeys.map((c) => normalizeViForContains(c)).filter(Boolean));
+  const orderCode = normalizeViForContains(row?.['Mã đơn hàng'] ?? row?.order_code);
+  const tracking = normalizeViForContains(row?.['Mã Tracking'] ?? row?.tracking_code);
+  const id = normalizeViForContains(row?._id);
+  return (orderCode && keys.has(orderCode)) || (tracking && keys.has(tracking)) || (id && keys.has(id));
 }
 
 function normalizeSearchTextForDb(raw) {
@@ -583,6 +652,9 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [showMarketFilter, setShowMarketFilter] = useState(false);
   const [filterProduct, setFilterProduct] = useState([]);
   const [showProductFilter, setShowProductFilter] = useState(false);
+  const [filterProductCodesText, setFilterProductCodesText] = useState('');
+  /** Đơn tra theo mã (order_code / tracking) — kể cả ngoài khoảng ngày đang xem. */
+  const [codeLookupRows, setCodeLookupRows] = useState([]);
   const [filterStatus, setFilterStatus] = useState([]);
   const [showStatusFilter, setShowStatusFilter] = useState(false);
   const [filterCheckResult, setFilterCheckResult] = useState([]);
@@ -675,7 +747,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterPageNames, filterPaymentCollectionStatus]);
+  }, [filterPageNames, filterPaymentCollectionStatus, filterProductCodesText]);
 
   // Get all available columns from data (excluding hidden columns and technical columns)
   const allAvailableColumns = useMemo(() => {
@@ -2859,6 +2931,65 @@ function DanhSachDon({ dataSource = 'default' }) {
     return [...set].sort((a, b) => a.localeCompare(b, 'vi'));
   }, [nvVanDonOptions, editNvVanDonValue]);
 
+  const parsedProductCodes = useMemo(
+    () => parseProductCodesFromTextarea(filterProductCodesText),
+    [filterProductCodesText]
+  );
+
+  useEffect(() => {
+    const codes = parsedProductCodes;
+    if (codes.length === 0) {
+      setCodeLookupRows([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const selectColumns = getDanhSachDonSelectColumns(ordersTableName);
+        const found = [];
+        const seen = new Set();
+        const pushRows = (rows) => {
+          (rows || []).forEach((item) => {
+            const key = String(item?.order_code || item?.id || '').trim();
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            found.push(item);
+          });
+        };
+
+        for (const chunk of chunkArray(codes, 40)) {
+          const { data: byOrder, error: orderErr } = await supabase
+            .from(ordersTableName)
+            .select(selectColumns)
+            .in('order_code', chunk);
+          if (orderErr) throw orderErr;
+          pushRows(byOrder);
+
+          const { data: byTrack, error: trackErr } = await supabase
+            .from(ordersTableName)
+            .select(selectColumns)
+            .in('tracking_code', chunk);
+          if (trackErr) {
+            console.warn('DanhSachDon: tra tracking theo mã SP:', trackErr.message);
+          } else {
+            pushRows(byTrack);
+          }
+        }
+
+        if (!cancelled) setCodeLookupRows(found.map(mapSupabaseToUI));
+      } catch (err) {
+        console.warn('DanhSachDon: tra đơn theo mã SP:', err);
+        if (!cancelled) setCodeLookupRows([]);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [parsedProductCodes, ordersTableName]);
+
   const nvVanDonSelectOptionsFiltered = useMemo(() => {
     const kw = String(nvVanDonOptionsSearch || '').trim().toLowerCase();
     if (!kw) return nvVanDonSelectOptions;
@@ -2868,6 +2999,18 @@ function DanhSachDon({ dataSource = 'default' }) {
   // Filter and sort data
   const filteredData = useMemo(() => {
     let data = [...allData];
+
+    if (parsedProductCodes.length > 0 && codeLookupRows.length > 0) {
+      const seen = new Set(
+        data.map((row) => String(row?.['Mã đơn hàng'] || row?._id || '').trim()).filter(Boolean)
+      );
+      codeLookupRows.forEach((row) => {
+        const key = String(row?.['Mã đơn hàng'] || row?._id || '').trim();
+        if (key && seen.has(key)) return;
+        if (key) seen.add(key);
+        data.push(row);
+      });
+    }
 
     if (!isHcmView && teamFilter !== 'RD') {
       data = data.filter((row) => isHanoiBranchTeamLabel(row['Team'] ?? row.team ?? ''));
@@ -2956,7 +3099,12 @@ function DanhSachDon({ dataSource = 'default' }) {
     // Date Range Filter (áp dụng cho cả view thường và HCM)
     if (startDate || endDate) {
       const { uiCol: dateUiCol } = getDanhSachDonDateFilterMeta(dateFilterType);
-      data = data.filter((row) => isDateInRange(row[dateUiCol], startDate, endDate));
+      const codeKeys = parsedProductCodes.map((c) => String(c || '').trim()).filter(Boolean);
+      data = data.filter((row) => {
+        if (isDateInRange(row[dateUiCol], startDate, endDate)) return true;
+        // Dán mã đơn/tracking cụ thể: vẫn hiện dù ngoài khoảng ngày đang xem
+        return codeKeys.length > 0 && rowMatchesExactOrderOrTrackingCode(row, codeKeys);
+      });
     }
 
     // Market filter - Hỗ trợ multi-select và giá trị trống
@@ -2982,6 +3130,11 @@ function DanhSachDon({ dataSource = 'default' }) {
             return marketNorm.includes(selNorm) || selNorm.includes(marketNorm);
           });
       });
+    }
+
+    const productCodes = parsedProductCodes;
+    if (productCodes.length > 0) {
+      data = data.filter((row) => rowMatchesMaSpCodes(row, productCodes));
     }
 
     // Product filter - Hỗ trợ multi-select và giá trị trống
@@ -3114,6 +3267,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     isHcmView,
     filterMarket,
     filterProduct,
+    parsedProductCodes,
+    codeLookupRows,
     filterStatus,
     filterCheckResult,
     filterSaleStaff,
@@ -3483,68 +3638,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                 <BarChart3 className="w-4 h-4 shrink-0" />
                 Thống kê Sale / MKT
               </button>
-              {isAdminOnly && (
-                <>
-                  <button
-                    onClick={handleApplyCanhBaoTrungDon}
-                    disabled={
-                      syncing ||
-                      loading ||
-                      deleting ||
-                      isFixingTeams ||
-                      isFixingShift ||
-                      isFillingPaymentCurrency ||
-                      isRecalculatingTotalVnd ||
-                      isApplyingCanhBaoTrung
-                    }
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                    title="Ghi cột canh_bao cho đơn trùng khách (lần 2+), thứ tự theo Ngày lên đơn rồi created_at — cùng phạm vi Từ/Đến ngày và team/nhân sự khi tải danh sách"
-                  >
-                    {isApplyingCanhBaoTrung ? (
-                      <>
-                        <span className="animate-spin">⏳</span>
-                        Đang ghi cảnh báo...
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle className="w-4 h-4" />
-                        Cảnh báo trùng
-                      </>
-                    )}
-                  </button>
-                </>
-              )}
-              {isHcmView && (
-                <button
-                  type="button"
-                  onClick={handlePreviewOrdersHcmFromMainTable}
-                  disabled={
-                    loading ||
-                    syncing ||
-                    deleting ||
-                    isFixingTeams ||
-                    isFixingShift ||
-                    isFillingPaymentCurrency ||
-                    isRecalculatingTotalVnd ||
-                    isApplyingCanhBaoTrung ||
-                    isFetchingOrdersHcmLookaside
-                  }
-                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                  title="Đọc bảng orders: team chứa HCM — theo Từ/Đến ngày đang chọn; mở bảng xem (không ghi DB)"
-                >
-                  {isFetchingOrdersHcmLookaside ? (
-                    <>
-                      <span className="animate-spin">⏳</span>
-                      Đang tra…
-                    </>
-                  ) : (
-                    <>
-                      <Layers className="w-4 h-4" />
-                      Đơn HCM từ orders
-                    </>
-                  )}
-                </button>
-              )}
               <button
                 onClick={loadData}
                 disabled={loading}
@@ -3971,6 +4064,26 @@ function DanhSachDon({ dataSource = 'default' }) {
                   onClick={() => setShowProductFilter(false)}
                 />
               )}
+            </div>
+
+            {/* Lọc mã SP — dán nhiều mã, mỗi dòng một mã */}
+            <div className="min-w-[220px]">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
+                Mã SP
+                {parsedProductCodes.length > 0 ? (
+                  <span className="ml-1 font-normal text-gray-500">
+                    ({parsedProductCodes.length} mã)
+                  </span>
+                ) : null}
+              </label>
+              <textarea
+                rows={3}
+                value={filterProductCodesText}
+                onChange={(e) => setFilterProductCodesText(e.target.value)}
+                placeholder={'Dán mã đơn / tracking / tên SP, mỗi dòng một mã'}
+                className="w-full min-w-[220px] px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white resize-y"
+                title="Lọc theo mã đơn, tracking hoặc tên mặt hàng. Mỗi dòng một mã. Mã đơn/tracking vẫn hiện dù ngoài khoảng ngày."
+              />
             </div>
 
             {/* Status Filter - Multi-select với checkbox */}
