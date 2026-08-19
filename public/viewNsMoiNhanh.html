@@ -3536,86 +3536,9 @@
       return ascii === 'ok';
     }
 
-    function isMktGiftProductName(product) {
-      const k = normalizeFieldForKey(product);
-      if (!k) return false;
-      return [
-        'Kem Body',
-        'Serum Sâm',
-        'Cream Sâm',
-        'VIT C',
-        'Dưỡng Tóc',
-        'Cream Bakuchiol',
-        'Serum Bakuchiol',
-        'Kẹo Dâu Glu',
-        'Dầu gội',
-      ].some((g) => normalizeFieldForKey(g) === k);
-    }
-
-    /** Dòng SP quà trên báo cáo ads khi cùng NV+ngày đã có SP chính — không cộng vào Số đơn TT / DS TT. */
-    function isMktGiftAddonReportRow(row, allRows) {
-      if (!isMktGiftProductName(row?.sanPham)) return false;
-      const nk = normalizeNameForKey(row?.ten);
-      const day = normalizeNgayForKey(row?.ngay || row?.ngayKey);
-      if (!nk) return false;
-      return (allRows || []).some((other) => {
-        if (normalizeNameForKey(other?.ten) !== nk) return false;
-        if (day && normalizeNgayForKey(other?.ngay || other?.ngayKey) !== day) return false;
-        return !isMktGiftProductName(other?.sanPham);
-      });
-    }
-
-    function mktOrderCustomerKey(order) {
-      const phone = String(order?.customer_phone ?? '').replace(/\D/g, '');
-      if (phone.length >= 8) return `p:${phone}`;
-      const name = normalizeNameForKey(order?.customer_name);
-      return name ? `n:${name}` : '';
-    }
-
-    function dropGiftAddonDuplicateOrders(ordersList) {
-      const unique = [];
-      const seenOc = new Set();
-      for (const order of ordersList || []) {
-        const oc = String(order?.order_code ?? '').trim();
-        if (oc) {
-          if (seenOc.has(oc)) continue;
-          seenOc.add(oc);
-        }
-        unique.push(order);
-      }
-      const bucket = new Map();
-      for (const order of unique) {
-        const cust = mktOrderCustomerKey(order);
-        const day = normalizeNgayForKey(order?.order_date);
-        const staff = normalizeNameForKey(order?.marketing_staff);
-        if (!cust || !day || !staff) continue;
-        const k = `${day}|${staff}|${cust}`;
-        let b = bucket.get(k);
-        if (!b) {
-          b = { main: [], gift: [] };
-          bucket.set(k, b);
-        }
-        if (isMktGiftProductName(order?.product)) b.gift.push(order);
-        else b.main.push(order);
-      }
-      const drop = new Set();
-      for (const b of bucket.values()) {
-        if (!b.main.length || !b.gift.length) continue;
-        for (const g of b.gift) {
-          const oc = String(g?.order_code ?? '').trim();
-          if (oc) drop.add(oc);
-        }
-      }
-      if (!drop.size) return unique;
-      return unique.filter((o) => {
-        const oc = String(o?.order_code ?? '').trim();
-        return !oc || !drop.has(oc);
-      });
-    }
-
     function buildHnActualsByReportKey(orders) {
       const counts = new Map();
-      for (const order of dropGiftAddonDuplicateOrders(orders || [])) {
+      for (const order of orders || []) {
         const baseKey = buildMktActualBaseKey(
           order.order_date,
           order.marketing_staff,
@@ -4190,14 +4113,10 @@
         const G = groups[gKey];
         G.mess += Number(r.soMessCmt) || 0;
         G.cpqc += Number(r.cpqc) || 0;
-        const skipGiftTt = isMktGiftAddonReportRow(r, rows);
-        const hetCaShowsTt = isHetcaOnlyCaFilter('tab1') || isHetcaOnlyCaFilter('tabok');
-        if (!skipGiftTt || !hetCaShowsTt) {
-          G.don += Number(r.soDon) || 0;
-          G.chot += Number(r.dsChot) || 0;
-        }
+        G.don += Number(r.soDon) || 0;
+        G.chot += Number(r.dsChot) || 0;
         const detailKey = mktDetailRowKeyForTotals(r);
-        if (!skipGiftTt && !seenTtByGroup[gKey].has(detailKey)) {
+        if (!seenTtByGroup[gKey].has(detailKey)) {
           seenTtByGroup[gKey].add(detailKey);
           G.donThucTe += Number(r.soDonThucTe) || 0;
           G.chotThucTe += Number(r.dsChotThucTe) || 0;
@@ -5058,14 +4977,10 @@
       (rows || []).forEach((r) => {
         acc.mess += Number(r.soMessCmt) || 0;
         acc.cpqc += Number(r.cpqc) || 0;
-        const skipGiftTt = isMktGiftAddonReportRow(r, rows);
-        const hetCaShowsTt = isHetcaOnlyCaFilter('tab1') || isHetcaOnlyCaFilter('tabok');
-        if (!skipGiftTt || !hetCaShowsTt) {
-          acc.don += Number(r.soDon) || 0;
-          acc.chot += Number(r.dsChot) || 0;
-        }
+        acc.don += Number(r.soDon) || 0;
+        acc.chot += Number(r.dsChot) || 0;
         const detailKey = mktDetailRowKeyForTotals(r);
-        if (!skipGiftTt && !seenDetailKeysSoDonTT.has(detailKey)) {
+        if (!seenDetailKeysSoDonTT.has(detailKey)) {
           seenDetailKeysSoDonTT.add(detailKey);
           // Số đơn thực tế / Doanh số TT trên DB đã net (đã trừ hủy khi Cập nhật Số đơn TT).
           acc.donThucTe += Number(r.soDonThucTe) || 0;
@@ -5215,14 +5130,10 @@
         if (!S.team && teamDisp) S.team = teamDisp;
         S.mess += Number(r.soMessCmt) || 0;
         S.cpqc += Number(r.cpqc) || 0;
-        const skipGiftTt = isMktGiftAddonReportRow(r, data);
-        const hetCaShowsTt = isHetcaOnlyCaFilter('tab1') || isHetcaOnlyCaFilter('tabok');
-        if (!skipGiftTt || !hetCaShowsTt) {
-          S.don += Number(r.soDon) || 0;
-          S.chot += Number(r.dsChot) || 0;
-        }
+        S.don += Number(r.soDon) || 0;
+        S.chot += Number(r.dsChot) || 0;
         const detailKey = mktDetailRowKeyForTotals(r);
-        if (!skipGiftTt && !S.seenDetailKeysSoDonTT.has(detailKey)) {
+        if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
           S.seenDetailKeysSoDonTT.add(detailKey);
           // Số đơn thực tế / Doanh số TT trên DB đã net — không trừ Số đơn hoàn hủy thực tế lần nữa.
           S.donThucTe += Number(r.soDonThucTe) || 0;
