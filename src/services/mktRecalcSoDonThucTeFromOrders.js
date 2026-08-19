@@ -277,17 +277,29 @@ export async function fetchMktOrdersInDateRange(startDate, endDate, tableName = 
  * Tính Số đơn TT / Doanh số TT cho một dòng báo cáo — cùng logic `recalcMktSoDonThucTeFromOrders`.
  * @returns {{ so_don_thuc_te: number, so_don_huy: number, so_don_ok: number, doanh_so_ok: number, doanh_so_thuc_te: number, so_don_gross: number }}
  */
-export function computeMktOrderMetricsForReportRow(report, ordersList) {
+export function computeMktOrderMetricsForReportRow(report, ordersList, options = {}) {
   const r = report || {};
   const caGroups = reportCaGroupsForRecalc(r.ca ?? r['Ca'] ?? '');
   if (!caGroups.length) {
-    return { so_don_thuc_te: 0, so_don_huy: 0, so_don_ok: 0, doanh_so_ok: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
+    return { ...EMPTY_MKT_ORDER_METRICS };
+  }
+
+  const mainDays = options.mainDays || staffDaysWithMainProduct(ordersList);
+  if (
+    isGiftSkippedForStaffDay(
+      mktReportProductName(r),
+      mktReportDateVal(r),
+      mktReportStaffName(r),
+      mainDays
+    )
+  ) {
+    return { ...EMPTY_MKT_ORDER_METRICS };
   }
 
   const ek = effectiveKeyPartsForReportRow(r, ordersList);
   const key = ek.key;
   if (!key) {
-    return { so_don_thuc_te: 0, so_don_huy: 0, so_don_ok: 0, doanh_so_ok: 0, doanh_so_thuc_te: 0, so_don_gross: 0 };
+    return { ...EMPTY_MKT_ORDER_METRICS };
   }
 
   let grossCount = 0;
@@ -492,9 +504,62 @@ const MKT_GIFT_PRODUCT_KEYS = new Set(
   ].map((n) => normalizeFieldForKey(n))
 );
 
-function isMktGiftProductName(product) {
+export function isMktGiftProductName(product) {
   return MKT_GIFT_PRODUCT_KEYS.has(normalizeFieldForKey(product));
 }
+
+function mktReportProductName(row) {
+  return row?.['Sản_phẩm'] ?? row?.sanPham ?? row?.san_pham ?? row?.product ?? '';
+}
+
+function mktReportStaffName(row) {
+  return row?.['Tên'] ?? row?.ten ?? row?.name ?? '';
+}
+
+function mktReportDateVal(row) {
+  return row?.['Ngày'] ?? row?.ngay ?? row?.date ?? '';
+}
+
+/** Dòng SP quà trên báo cáo khi cùng NV+ngày đã có SP chính. */
+export function isMktGiftAddonReportRow(row, allRows) {
+  if (!isMktGiftProductName(mktReportProductName(row))) return false;
+  const nk = normalizeNameForKey(mktReportStaffName(row));
+  const day = normalizeNgayForKey(mktReportDateVal(row));
+  if (!nk) return false;
+  return (allRows || []).some((other) => {
+    if (isMktGiftProductName(mktReportProductName(other))) return false;
+    if (normalizeNameForKey(mktReportStaffName(other)) !== nk) return false;
+    if (day && normalizeNgayForKey(mktReportDateVal(other)) !== day) return false;
+    return true;
+  });
+}
+
+function staffDaysWithMainProduct(ordersList) {
+  const set = new Set();
+  for (const order of ordersList || []) {
+    if (isMktGiftProductName(order?.product)) continue;
+    const day = normalizeNgayForKey(order?.order_date);
+    const nk = normalizeNameForKey(order?.marketing_staff);
+    if (day && nk) set.add(`${day}|${nk}`);
+  }
+  return set;
+}
+
+function isGiftSkippedForStaffDay(product, dateVal, nameVal, mainDays) {
+  if (!isMktGiftProductName(product) || !mainDays || mainDays.size === 0) return false;
+  const day = normalizeNgayForKey(dateVal);
+  const nk = normalizeNameForKey(nameVal);
+  return Boolean(day && nk && mainDays.has(`${day}|${nk}`));
+}
+
+const EMPTY_MKT_ORDER_METRICS = {
+  so_don_thuc_te: 0,
+  so_don_huy: 0,
+  so_don_ok: 0,
+  doanh_so_ok: 0,
+  doanh_so_thuc_te: 0,
+  so_don_gross: 0,
+};
 
 function mktOrderCustomerKey(order) {
   const phone = String(order?.customer_phone ?? '').replace(/\D/g, '');
@@ -1212,11 +1277,13 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy).
   // MKT actual chỉ tính đơn có doanh số VND dương; đơn 0đ không được làm lệch Số đơn TT.
-  // Trùng order_code: chỉ đếm 1 lần.
+  // Trùng order_code: chỉ đếm 1 lần. Đơn SP quà không cộng khi NV đã có SP chính trong ngày.
+  const mainDays = staffDaysWithMainProduct(orders);
   for (const order of dropGiftAddonDuplicateOrders(orders || [])) {
     const groups = orderShiftGroupsForRecalc(order.shift);
 
     if (!normalizeNgayForKey(order.order_date) || !normalizeNameForKey(order.marketing_staff)) continue;
+    if (isGiftSkippedForStaffDay(order.product, order.order_date, order.marketing_staff, mainDays)) continue;
 
     const key = buildKey(order.order_date, order.marketing_staff, order.product, order.country);
     if (!key) continue;
