@@ -496,11 +496,6 @@ function isMktGiftProductName(product) {
   return MKT_GIFT_PRODUCT_KEYS.has(normalizeFieldForKey(product));
 }
 
-/** Mặt hàng 1 (danh sách đơn) — ưu tiên hơn cột product ads/quà. */
-function orderProductForTt(order) {
-  return String(order?.product_name_1 || order?.product || '').trim();
-}
-
 function mktOrderCustomerKey(order) {
   const phone = String(order?.customer_phone ?? '').replace(/\D/g, '');
   if (phone.length >= 8) return `p:${phone}`;
@@ -526,7 +521,7 @@ function dropGiftAddonDuplicateOrders(ordersList) {
       b = { main: [], gift: [] };
       bucket.set(k, b);
     }
-    if (isMktGiftProductName(orderProductForTt(order))) {
+    if (isMktGiftProductName(order?.product)) {
       b.gift.push(order);
     } else {
       b.main.push(order);
@@ -798,7 +793,7 @@ function mapExternalApiOrderToRecalcShape(raw) {
       ''
   ).trim();
   const product = String(
-    raw.product_name_1 ?? raw.product ?? raw.san_pham ?? raw.mat_hang ?? raw.San_pham ?? raw['mặt_hàng'] ?? ''
+    raw.product ?? raw.san_pham ?? raw.mat_hang ?? raw.San_pham ?? raw['mặt_hàng'] ?? ''
   ).trim();
   const country = String(
     raw.country ?? raw.thi_truong ?? raw.khu_vuc ?? raw.Khu_vuc ?? raw.market ?? ''
@@ -808,7 +803,6 @@ function mapExternalApiOrderToRecalcShape(raw) {
     order_date,
     marketing_staff,
     product,
-    product_name_1: String(raw.product_name_1 ?? '').trim(),
     country,
     shift: raw.shift ?? raw.ca ?? '',
     team: raw.team ?? '',
@@ -890,7 +884,7 @@ async function fetchAllOrdersInRangeFromSupabaseTable(startDate, endDate, tableN
     const { data, error } = await supabase
       .from(table)
       .select(
-        'order_code, order_date, marketing_staff, product, product_name_1, country, shift, team, check_result, payment_status, customer_name, customer_phone, gift, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
+        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, customer_name, customer_phone, gift, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
       .gte('order_date', startDate)
       .lte('order_date', endDate)
@@ -974,14 +968,14 @@ async function fetchOrdersForExactKeysFromSupabaseTable(exactKeys, tableName = '
     const { data, error } = await supabase
       .from(table)
       .select(
-        'order_code, order_date, marketing_staff, product, product_name_1, country, shift, team, check_result, payment_status, customer_name, customer_phone, gift, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
+        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, customer_name, customer_phone, gift, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
       .gte('order_date', k.date)
       .lt('order_date', next)
       .ilike('marketing_staff', k.name);
     if (error) throw error;
     for (const r of data || []) {
-      const rp = normalizeFieldForKey(orderProductForTt(r));
+      const rp = normalizeFieldForKey(r.product || '');
       const rc = normalizeFieldForKey(r.country || '');
       const kp = normalizeFieldForKey(k.product);
       const kc = normalizeFieldForKey(k.market);
@@ -1224,7 +1218,7 @@ export async function recalcMktSoDonThucTeFromOrders({
 
     if (!normalizeNgayForKey(order.order_date) || !normalizeNameForKey(order.marketing_staff)) continue;
 
-    const key = buildKey(order.order_date, order.marketing_staff, orderProductForTt(order), order.country);
+    const key = buildKey(order.order_date, order.marketing_staff, order.product, order.country);
     if (!key) continue;
 
     const vnd = orderAmountVndHcmOverlay(order);
@@ -1260,7 +1254,7 @@ export async function recalcMktSoDonThucTeFromOrders({
           sample: {
             date: normalizeDateStr(order.order_date),
             name: String(order.marketing_staff || '').trim(),
-            product: orderProductForTt(order),
+            product: String(order.product || '').trim(),
             market: String(order.country || '').trim(),
             team: String(order.team || '').trim(),
           },
