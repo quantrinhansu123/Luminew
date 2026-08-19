@@ -297,7 +297,13 @@ export function computeMktOrderMetricsForReportRow(report, ordersList) {
   let totalRevenueVnd = 0;
   let cancelRevenueVnd = 0;
 
-  for (const order of ordersList || []) {
+  const seenOrderCodes = new Set();
+  for (const order of dropGiftAddonDuplicateOrders(ordersList || [])) {
+    const oc = String(order?.order_code ?? '').trim();
+    if (oc) {
+      if (seenOrderCodes.has(oc)) continue;
+      seenOrderCodes.add(oc);
+    }
     const orderKey = buildKey(
       order.order_date,
       order.marketing_staff,
@@ -454,6 +460,93 @@ function orderAmountVndHcmOverlay(order) {
 
 function isMktActualOrderCountable(order) {
   return orderAmountVndHcmOverlay(order) > 0;
+}
+
+/** Một mã đơn chỉ đếm 1 lần (tránh 2 dòng orders trùng order_code làm Số đơn TT +1). */
+function uniqueOrdersByOrderCode(ordersList) {
+  const seen = new Set();
+  const out = [];
+  for (const order of ordersList || []) {
+    const oc = String(order?.order_code ?? '').trim();
+    if (oc) {
+      if (seen.has(oc)) continue;
+      seen.add(oc);
+    }
+    out.push(order);
+  }
+  return out;
+}
+
+/** SP hay dùng làm quà — đơn quà cùng KH/ngày/MKT với đơn SP chính không cộng thêm Số đơn TT. */
+const MKT_GIFT_PRODUCT_KEYS = new Set(
+  [
+    'Kem Body',
+    'Serum Sâm',
+    'Cream Sâm',
+    'VIT C',
+    'Dưỡng Tóc',
+    'Cream Bakuchiol',
+    'Serum Bakuchiol',
+    'Kẹo Dâu Glu',
+    'Dầu gội',
+  ].map((n) => normalizeFieldForKey(n))
+);
+
+function isMktGiftProductName(product) {
+  return MKT_GIFT_PRODUCT_KEYS.has(normalizeFieldForKey(product));
+}
+
+/** Mặt hàng 1 (danh sách đơn) — ưu tiên hơn cột product ads/quà. */
+function orderProductForTt(order) {
+  return String(order?.product_name_1 || order?.product || '').trim();
+}
+
+function mktOrderCustomerKey(order) {
+  const phone = String(order?.customer_phone ?? '').replace(/\D/g, '');
+  if (phone.length >= 8) return `p:${phone}`;
+  const name = normalizeNameForKey(order?.customer_name);
+  return name ? `n:${name}` : '';
+}
+
+/**
+ * Cùng NV MKT + ngày + khách: nếu đã có đơn SP chính thì bỏ đơn SP quà (vd. Kem Body)
+ * — tránh cộng thừa 1 đơn quà vào Số đơn TT.
+ */
+function dropGiftAddonDuplicateOrders(ordersList) {
+  const unique = uniqueOrdersByOrderCode(ordersList);
+  const bucket = new Map();
+  for (const order of unique) {
+    const cust = mktOrderCustomerKey(order);
+    const day = normalizeNgayForKey(order?.order_date);
+    const staff = normalizeNameForKey(order?.marketing_staff);
+    if (!cust || !day || !staff) continue;
+    const k = `${day}|${staff}|${cust}`;
+    let b = bucket.get(k);
+    if (!b) {
+      b = { main: [], gift: [] };
+      bucket.set(k, b);
+    }
+    if (isMktGiftProductName(orderProductForTt(order))) {
+      b.gift.push(order);
+    } else {
+      b.main.push(order);
+    }
+  }
+  const drop = new Set();
+  for (const b of bucket.values()) {
+    if (!b.main.length || !b.gift.length) continue;
+    for (const g of b.gift) {
+      const oc = String(g?.order_code ?? '').trim();
+      if (oc) drop.add(oc);
+      else drop.add(g);
+    }
+  }
+  if (!drop.size) return unique;
+  return unique.filter((o) => {
+    const oc = String(o?.order_code ?? '').trim();
+    if (oc) return !drop.has(oc);
+    return !drop.has(o);
+  });
 }
 
 function isOrderHuyHcmOverlay(order) {
@@ -705,7 +798,7 @@ function mapExternalApiOrderToRecalcShape(raw) {
       ''
   ).trim();
   const product = String(
-    raw.product ?? raw.san_pham ?? raw.mat_hang ?? raw.San_pham ?? raw['mặt_hàng'] ?? ''
+    raw.product_name_1 ?? raw.product ?? raw.san_pham ?? raw.mat_hang ?? raw.San_pham ?? raw['mặt_hàng'] ?? ''
   ).trim();
   const country = String(
     raw.country ?? raw.thi_truong ?? raw.khu_vuc ?? raw.Khu_vuc ?? raw.market ?? ''
@@ -715,6 +808,7 @@ function mapExternalApiOrderToRecalcShape(raw) {
     order_date,
     marketing_staff,
     product,
+    product_name_1: String(raw.product_name_1 ?? '').trim(),
     country,
     shift: raw.shift ?? raw.ca ?? '',
     team: raw.team ?? '',
@@ -796,7 +890,7 @@ async function fetchAllOrdersInRangeFromSupabaseTable(startDate, endDate, tableN
     const { data, error } = await supabase
       .from(table)
       .select(
-        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
+        'order_code, order_date, marketing_staff, product, product_name_1, country, shift, team, check_result, payment_status, customer_name, customer_phone, gift, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
       .gte('order_date', startDate)
       .lte('order_date', endDate)
@@ -880,14 +974,14 @@ async function fetchOrdersForExactKeysFromSupabaseTable(exactKeys, tableName = '
     const { data, error } = await supabase
       .from(table)
       .select(
-        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
+        'order_code, order_date, marketing_staff, product, product_name_1, country, shift, team, check_result, payment_status, customer_name, customer_phone, gift, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
       .gte('order_date', k.date)
       .lt('order_date', next)
       .ilike('marketing_staff', k.name);
     if (error) throw error;
     for (const r of data || []) {
-      const rp = normalizeFieldForKey(r.product || '');
+      const rp = normalizeFieldForKey(orderProductForTt(r));
       const rc = normalizeFieldForKey(r.country || '');
       const kp = normalizeFieldForKey(k.product);
       const kc = normalizeFieldForKey(k.market);
@@ -1124,12 +1218,13 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy).
   // MKT actual chỉ tính đơn có doanh số VND dương; đơn 0đ không được làm lệch Số đơn TT.
-  for (const order of orders || []) {
+  // Trùng order_code: chỉ đếm 1 lần.
+  for (const order of dropGiftAddonDuplicateOrders(orders || [])) {
     const groups = orderShiftGroupsForRecalc(order.shift);
 
     if (!normalizeNgayForKey(order.order_date) || !normalizeNameForKey(order.marketing_staff)) continue;
 
-    const key = buildKey(order.order_date, order.marketing_staff, order.product, order.country);
+    const key = buildKey(order.order_date, order.marketing_staff, orderProductForTt(order), order.country);
     if (!key) continue;
 
     const vnd = orderAmountVndHcmOverlay(order);
@@ -1165,7 +1260,7 @@ export async function recalcMktSoDonThucTeFromOrders({
           sample: {
             date: normalizeDateStr(order.order_date),
             name: String(order.marketing_staff || '').trim(),
-            product: String(order.product || '').trim(),
+            product: orderProductForTt(order),
             market: String(order.country || '').trim(),
             team: String(order.team || '').trim(),
           },
