@@ -18,13 +18,13 @@ export default function XemBaoCaoSaleHcm({ embedded = false } = {}) {
 
   const iframeSrc = useMemo(() => {
     const qs = new URLSearchParams();
-    qs.set('v', '20260817ds');
     const idFromQuery = String(searchParams.get('id') || '').trim();
     const idFromStorage =
       typeof window !== 'undefined' ? String(localStorage.getItem('idAppsheet') || '').trim() : '';
     const id = idFromQuery || idFromStorage;
     if (id) qs.set('id', id);
-    return `${SALE_HCM_LEGACY_HTML}?${qs.toString()}`;
+    const q = qs.toString();
+    return q ? `${SALE_HCM_LEGACY_HTML}?${q}` : SALE_HCM_LEGACY_HTML;
   }, [searchParams]);
 
   if (!hasAccess) {
