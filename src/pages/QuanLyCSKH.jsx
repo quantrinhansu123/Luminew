@@ -1,12 +1,15 @@
-import { Edit, Eye, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
+import { Edit, Eye, History, RefreshCw, Search, Settings, Trash2, Truck, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
+import { logDataChange } from '../services/logging';
 import { getSelectedPersonnel } from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
+import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
+import { fetchVanDonStaffNameList } from '../utils/vanDonStaffNameList';
 import {
   mergeUniqueRowsById,
   orderRangeToCreatedAtIsoBounds,
@@ -66,6 +69,7 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Phản hồi tiêu cực": item.feedback_neg,
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
+    _log: item.log ?? null,
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount,
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier,
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
@@ -536,6 +540,19 @@ function QuanLyCSKH({
   const [isViewing, setIsViewing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyOrderCode, setHistoryOrderCode] = useState(null);
+  const [historyTableRows, setHistoryTableRows] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const [showEditNvVanDonModal, setShowEditNvVanDonModal] = useState(false);
+  const [editNvVanDonRow, setEditNvVanDonRow] = useState(null);
+  const [editNvVanDonValue, setEditNvVanDonValue] = useState('');
+  const [nvVanDonOptions, setNvVanDonOptions] = useState([]);
+  const [nvVanDonOptionsSearch, setNvVanDonOptionsSearch] = useState('');
+  const [loadingNvVanDonOptions, setLoadingNvVanDonOptions] = useState(false);
+  const [savingNvVanDon, setSavingNvVanDon] = useState(false);
+
   // List of columns that should be hidden/removed (no longer needed)
   const REMOVED_COLUMNS = [
     'Tiền Hàng',
@@ -654,6 +671,13 @@ function QuanLyCSKH({
     const roleLower = (role || '').toLowerCase();
     return roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
   };
+
+  const isAdminOnly = () => {
+    const roleLower = (role || '').toLowerCase();
+    return roleLower === 'admin' || roleLower === 'super_admin';
+  };
+
+  const nvVanDonListBranch = isHcmOrders ? 'hcm' : 'hanoi';
 
   // Debounce search text for better performance
   useEffect(() => {
@@ -1514,6 +1538,230 @@ function QuanLyCSKH({
     }
   };
 
+  const formatHistoryCell = (v) => {
+    if (v === null || v === undefined || v === '') return '(Trống)';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  };
+
+  const formatHistoryTime = (t) => {
+    if (t == null || t === '') return '—';
+    const d = new Date(t);
+    if (!Number.isFinite(d.getTime())) return String(t);
+    return d.toLocaleString('vi-VN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const getHistoryChanges = (oldData, newData) => {
+    const changes = [];
+    if (!oldData || !newData) return changes;
+    Object.keys(newData).forEach((key) => {
+      if (['updated_at', 'last_modified_by', 'created_at', 'id', 'order_time'].includes(key)) return;
+      const oldVal = oldData[key];
+      const newVal = newData[key];
+      if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+        changes.push({
+          key,
+          label: COLUMN_MAPPING[key] || key,
+          old: oldVal,
+          new: newVal,
+        });
+      }
+    });
+    return changes;
+  };
+
+  const buildUnifiedHistoryRows = (orderLogRaw, salesLogs) => {
+    const rows = [];
+    parseOrderLogJsonb(orderLogRaw).forEach((e, i) => {
+      const cot = e.cot != null && String(e.cot).trim() !== '' ? String(e.cot) : labelForOrderLogDbKey(e.cot_db);
+      rows.push({
+        id: `jsonb-${i}-${e.thoi_gian || ''}`,
+        thoi_gian: e.thoi_gian || '',
+        nhan_vien: e.nhan_vien != null ? String(e.nhan_vien) : '',
+        cot,
+        gia_tri_cu: formatHistoryCell(e.gia_tri_cu),
+        gia_tri_moi: formatHistoryCell(e.gia_tri_moi),
+      });
+    });
+    (salesLogs || []).forEach((log) => {
+      getHistoryChanges(log.old_data, log.new_data).forEach((ch, idx) => {
+        rows.push({
+          id: `sales-${log.id}-${ch.key}-${idx}`,
+          thoi_gian: log.changed_at || '',
+          nhan_vien: log.changed_by != null ? String(log.changed_by) : '',
+          cot: ch.label,
+          gia_tri_cu: formatHistoryCell(ch.old),
+          gia_tri_moi: formatHistoryCell(ch.new),
+        });
+      });
+    });
+    rows.sort((a, b) => {
+      const ta = new Date(a.thoi_gian).getTime();
+      const tb = new Date(b.thoi_gian).getTime();
+      return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+    });
+    return rows;
+  };
+
+  const isSalesOrderLogsTableMissing = (err) => {
+    if (!err) return false;
+    const msg = String(err.message || err.details || '');
+    return (
+      msg.includes('sales_order_logs') ||
+      (msg.includes('schema cache') && msg.includes('Could not find')) ||
+      err.code === 'PGRST205'
+    );
+  };
+
+  const handleViewHistory = async (orderCode, preloadedLog) => {
+    if (!isAdminOnly()) return;
+    if (!orderCode || String(orderCode).startsWith('UNK-') || String(orderCode).startsWith('NO_CODE_')) {
+      toast.error('Không thể xem lịch sử đơn hàng này vì thiếu mã đơn hàng');
+      return;
+    }
+    setHistoryOrderCode(orderCode);
+    setShowHistoryModal(true);
+    setLoadingHistory(true);
+    setHistoryTableRows([]);
+    try {
+      const logPromise =
+        preloadedLog !== undefined && preloadedLog !== null
+          ? Promise.resolve({ data: { log: preloadedLog }, error: null })
+          : supabase.from(ordersTableName).select('log').eq('order_code', orderCode).maybeSingle();
+      const [orderRes, salesRes] = await Promise.all([
+        logPromise,
+        supabase.from('sales_order_logs').select('*').eq('order_code', orderCode).order('changed_at', { ascending: false }),
+      ]);
+      if (orderRes.error) throw orderRes.error;
+      let salesLogs = [];
+      if (salesRes.error) {
+        if (!isSalesOrderLogsTableMissing(salesRes.error)) throw salesRes.error;
+      } else {
+        salesLogs = salesRes.data || [];
+      }
+      setHistoryTableRows(buildUnifiedHistoryRows(orderRes.data?.log ?? null, salesLogs));
+    } catch (error) {
+      console.error('Error fetching history:', error);
+      toast.error('Lỗi khi tải lịch sử chỉnh sửa: ' + error.message);
+      setHistoryTableRows([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const openEditNvVanDonModal = async (row) => {
+    const orderCode = row?.['Mã đơn hàng'];
+    const codeStr = orderCode != null ? String(orderCode).trim() : '';
+    if (!codeStr || codeStr.startsWith('UNK-') || codeStr.startsWith('NO_CODE_')) {
+      toast.error('Không thể đổi vận đơn: thiếu mã đơn hợp lệ');
+      return;
+    }
+    setEditNvVanDonRow(row);
+    setEditNvVanDonValue(String(row['NV Vận đơn'] ?? row.delivery_staff ?? '').trim());
+    setNvVanDonOptionsSearch('');
+    setShowEditNvVanDonModal(true);
+    setLoadingNvVanDonOptions(true);
+    setNvVanDonOptions([]);
+    try {
+      const sorted = await fetchVanDonStaffNameList(supabase, { vanDonBranch: nvVanDonListBranch });
+      setNvVanDonOptions(sorted);
+      if (sorted.length === 0) {
+        toast.warning('Chưa có nhân sự bộ phận Vận đơn (kiểm tra users.department / danh_sach_van_don).', {
+          autoClose: 5000,
+        });
+      }
+    } catch (e) {
+      console.error('load nhân sự bộ phận Vận đơn:', e);
+      toast.warning('Không tải được danh sách nhân sự — thử lại sau.', { autoClose: 4000 });
+      setNvVanDonOptions([]);
+    } finally {
+      setLoadingNvVanDonOptions(false);
+    }
+  };
+
+  const closeEditNvVanDonModal = () => {
+    setShowEditNvVanDonModal(false);
+    setEditNvVanDonRow(null);
+    setEditNvVanDonValue('');
+    setNvVanDonOptions([]);
+    setNvVanDonOptionsSearch('');
+  };
+
+  const saveEditNvVanDon = async () => {
+    if (!editNvVanDonRow) return;
+    const orderCode = String(editNvVanDonRow['Mã đơn hàng'] || '').trim();
+    const rowId = editNvVanDonRow.id;
+    const trimmed = String(editNvVanDonValue || '').trim();
+    const newDb = trimmed || null;
+    const oldStr = String(editNvVanDonRow['NV Vận đơn'] ?? editNvVanDonRow.delivery_staff ?? '').trim();
+    const oldDb = oldStr || null;
+    if (oldDb === newDb) {
+      toast.info('Không có thay đổi.', { autoClose: 1500, hideProgressBar: true });
+      closeEditNvVanDonModal();
+      return;
+    }
+    setSavingNvVanDon(true);
+    try {
+      const payload = { delivery_staff: newDb };
+      let error = null;
+      if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
+        ({ error } = await supabase.from(ordersTableName).update(payload).eq('order_code', orderCode));
+      } else if (rowId) {
+        ({ error } = await supabase.from(ordersTableName).update(payload).eq('id', rowId));
+      } else {
+        throw new Error('Thiếu order_code hoặc id');
+      }
+      if (error) throw error;
+      await logDataChange({
+        action: 'UPDATE',
+        table_name: ordersTableName,
+        record_id: orderCode || String(rowId),
+        field: 'delivery_staff',
+        old_value: oldDb ?? '',
+        new_value: newDb ?? '',
+        details: { note: 'Đổi NV vận đơn (Quản lý CSKH)', orderCode },
+      });
+      setAllData((prev) =>
+        (prev || []).map((r) => {
+          const c = String(r['Mã đơn hàng'] || '').trim();
+          if (orderCode && c === orderCode) {
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb };
+          }
+          if (rowId && r.id === rowId) {
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb };
+          }
+          return r;
+        })
+      );
+      toast.success('Đã cập nhật nhân viên vận đơn.', { autoClose: 2200, hideProgressBar: true });
+      closeEditNvVanDonModal();
+    } catch (err) {
+      console.error('save NV vận đơn:', err);
+      toast.error(err?.message || 'Lỗi khi lưu NV vận đơn');
+    } finally {
+      setSavingNvVanDon(false);
+    }
+  };
+
+  const nvVanDonSelectOptions = useMemo(() => {
+    const cur = String(editNvVanDonValue || '').trim();
+    const set = new Set((nvVanDonOptions || []).filter(Boolean));
+    if (cur) set.add(cur);
+    return [...set].sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [nvVanDonOptions, editNvVanDonValue]);
+
+  const nvVanDonSelectOptionsFiltered = useMemo(() => {
+    const kw = String(nvVanDonOptionsSearch || '').trim().toLowerCase();
+    if (!kw) return nvVanDonSelectOptions;
+    return nvVanDonSelectOptions.filter((n) => String(n || '').toLowerCase().includes(kw));
+  }, [nvVanDonOptionsSearch, nvVanDonSelectOptions]);
+
   if (!canAccessPage) {
     const codes = accessPermissionCodes.join(', ');
     return (
@@ -2324,7 +2572,7 @@ function QuanLyCSKH({
                     </th>
                   ))}
                   {isAdmin() && (
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider bg-gray-50 border-l border-gray-200 sticky right-0 z-10 w-[120px]">
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider bg-gray-50 border-l border-gray-200 sticky right-0 z-10 min-w-[280px]">
                       Thao tác
                     </th>
                   )}
@@ -2383,7 +2631,35 @@ function QuanLyCSKH({
                           }`}
                           onMouseDown={(e) => e.stopPropagation()}
                         >
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            {isAdminOnly() && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewHistory(row['Mã đơn hàng'], row._log);
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded transition-colors"
+                                title="Xem lịch sử chỉnh sửa (bảng)"
+                              >
+                                <History className="w-3.5 h-3.5" />
+                                Lịch sử
+                              </button>
+                            )}
+                            {(canEditFromThisList || isAdmin()) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditNvVanDonModal(row);
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded transition-colors"
+                                title="Đổi vận đơn — can thiệp cột nhân viên vận đơn (delivery_staff)"
+                              >
+                                <Truck className="w-3.5 h-3.5" />
+                                Đổi VĐ
+                              </button>
+                            )}
                             {/* View - Open Modal Read Only */}
                             <button
                               onClick={() => openViewModal(row)}
@@ -2720,6 +2996,207 @@ function QuanLyCSKH({
                   {isUpdating ? "Đang lưu..." : "Lưu thay đổi"}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHistoryModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => setShowHistoryModal(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Lịch sử chỉnh sửa đơn hàng</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Mã đơn: <span className="font-mono font-bold text-blue-600">{historyOrderCode}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingHistory ? (
+                <div className="text-center py-8 text-gray-500">
+                  <div className="animate-spin h-8 w-8 border-2 border-[#F37021] border-t-transparent rounded-full mx-auto mb-2" />
+                  Đang tải lịch sử...
+                </div>
+              ) : historyTableRows.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>Chưa có lịch sử chỉnh sửa nào cho đơn hàng này.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="min-w-full text-sm text-left">
+                    <thead className="bg-gray-100 text-gray-700 text-xs uppercase tracking-wide">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Thời gian</th>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Nhân viên</th>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Cột</th>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị cũ</th>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị mới</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {historyTableRows.map((r) => (
+                        <tr key={r.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-800 whitespace-nowrap align-top">
+                            {formatHistoryTime(r.thoi_gian)}
+                          </td>
+                          <td className="px-3 py-2 text-gray-800 align-top max-w-[140px] break-words">
+                            {r.nhan_vien || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-gray-800 align-top max-w-[160px] break-words">
+                            {r.cot || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-red-800 align-top max-w-[220px] break-words">
+                            {r.gia_tri_cu}
+                          </td>
+                          <td className="px-3 py-2 text-green-800 align-top max-w-[220px] break-words">
+                            {r.gia_tri_moi}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal(false)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditNvVanDonModal && editNvVanDonRow && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => {
+            if (!savingNvVanDon) closeEditNvVanDonModal();
+          }}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-gray-200">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-amber-600" />
+                  Đổi vận đơn
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Mã đơn:{' '}
+                  <span className="font-mono font-semibold text-gray-800">
+                    {editNvVanDonRow['Mã đơn hàng']}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditNvVanDonModal}
+                disabled={savingNvVanDon}
+                className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
+                  NV vận đơn (delivery_staff)
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Danh sách từ: <span className="font-medium">users.department</span>,{' '}
+                  <span className="font-medium">danh_sach_van_don.ho_va_ten</span> (Vận đơn / Logistics).
+                </p>
+                {nvVanDonListBranch === 'hanoi' && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mb-2">
+                    Chỉ hiển thị nhân sự bộ phận Vận đơn thuộc <strong>chi nhánh Hà Nội</strong>.
+                  </p>
+                )}
+                {nvVanDonListBranch === 'hcm' && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mb-2">
+                    Chỉ hiển thị nhân sự bộ phận Vận đơn thuộc <strong>chi nhánh HCM</strong>.
+                  </p>
+                )}
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">Tìm tên nhanh</label>
+                <input
+                  type="search"
+                  value={nvVanDonOptionsSearch}
+                  onChange={(e) => setNvVanDonOptionsSearch(e.target.value)}
+                  placeholder="Gõ để lọc danh sách tên…"
+                  disabled={savingNvVanDon || loadingNvVanDonOptions}
+                  className="w-full px-3 py-2 mb-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] disabled:bg-gray-100"
+                  autoComplete="off"
+                />
+                <select
+                  value={editNvVanDonValue}
+                  onChange={(e) => setEditNvVanDonValue(e.target.value)}
+                  disabled={savingNvVanDon || loadingNvVanDonOptions}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] disabled:bg-gray-100 bg-white"
+                >
+                  <option value="">— Để trống (xóa NV vận đơn) —</option>
+                  {nvVanDonSelectOptionsFiltered.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                {nvVanDonOptionsSearch.trim() && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Hiển thị {nvVanDonSelectOptionsFiltered.length}/{nvVanDonSelectOptions.length} tên
+                  </p>
+                )}
+                {loadingNvVanDonOptions && (
+                  <p className="text-xs text-gray-500 mt-1.5">Đang tải danh sách nhân sự…</p>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">
+                Giá trị đang có trên đơn nhưng không thuộc danh sách vẫn hiện trong sổ xuống để giữ đúng dữ liệu cũ.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 p-5 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={closeEditNvVanDonModal}
+                disabled={savingNvVanDon}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={saveEditNvVanDon}
+                disabled={savingNvVanDon}
+                className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg text-sm font-medium transition-colors disabled:bg-gray-400 flex items-center gap-2"
+              >
+                {savingNvVanDon ? (
+                  <>
+                    <span className="inline-block h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Đang lưu…
+                  </>
+                ) : (
+                  'Lưu'
+                )}
+              </button>
             </div>
           </div>
         </div>
