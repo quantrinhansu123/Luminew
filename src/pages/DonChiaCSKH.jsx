@@ -239,15 +239,36 @@ const DON_CHIA_SUMMARY_MODAL_META = {
   __EMPTY__: { title: 'Chưa gán CSKH (cột trống)' },
 };
 
+function donChiaRowMatchesSearchText(row, searchLower) {
+  if (!searchLower) return true;
+  const fields = [
+    row['Mã_đơn_hàng'],
+    row['Mã đơn hàng'],
+    row.order_code,
+    row['Name*'],
+    row['Phone*'],
+    row['Add'],
+    row['Mã Tracking'],
+    row.tracking_code,
+    row['CSKH'],
+    row['NV_CSKH'],
+    row['Nhân viên Sale'],
+    row['Nhân viên Marketing'],
+    row['Khu vực'],
+    row['Mặt hàng'],
+    row['Kết quả Check'],
+    row['Trạng thái CSKH'],
+    row['Trạng thái giao hàng'],
+  ];
+  return fields.some((val) => String(val ?? '').toLowerCase().includes(searchLower));
+}
+
 function applyDonChiaClientTableFilters(data, ctx) {
   let rows = [...data];
 
   if (ctx.debouncedSearchText) {
     const searchLower = ctx.debouncedSearchText.toLowerCase().trim();
-    rows = rows.filter((row) => {
-      const cskh = String(row['CSKH'] ?? row['NV_CSKH'] ?? '').toLowerCase();
-      return cskh.includes(searchLower);
-    });
+    rows = rows.filter((row) => donChiaRowMatchesSearchText(row, searchLower));
   }
 
   if (ctx.filterMarket.length > 0) {
@@ -1932,12 +1953,12 @@ function DonChiaCSKH({
             <div className="flex flex-wrap items-end gap-4">
               {/* Search */}
               <div className="flex-1 min-w-[300px]">
-                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tìm kiếm CSKH</label>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tìm kiếm</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Lọc theo tên trong cột CSKH..."
+                    placeholder="Mã đơn, tên KH, SĐT, CSKH, tracking..."
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}

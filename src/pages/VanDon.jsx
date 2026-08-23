@@ -80,7 +80,7 @@ const HIDDEN_COLUMNS = [
  * Cột chỉ đọc trên lưới Vận đơn.
  * "Mã Tracking" bị khóa để tránh sửa trực tiếp/paste nhầm ngay trên bảng.
  */
-const VAN_DON_GRID_READ_ONLY_COLS = ['Mã Tracking', 'Mã tracking', 'tracking_code'];
+const VAN_DON_GRID_READ_ONLY_COLS = ['Mã Tracking', 'Mã tracking', 'tracking_code', 'Giá bán'];
 
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
@@ -336,7 +336,7 @@ function normalizeVanDonBulkOrderCode(code) {
   return String(code ?? '').trim().toLowerCase();
 }
 
-/** Cột được sửa trực tiếp trên lưới vận đơn (Mã Tracking chỉ đọc; Cảnh báo trùng không nằm trong EDITABLE_COLS — mọi tab). */
+/** Cột chỉ đọc trên lưới vận đơn (Mã Tracking, Giá bán; Cảnh báo trùng không nằm trong EDITABLE_COLS — mọi tab). */
 function isVanDonUserEditableColumn(col) {
   if (isVanDonGridReadOnlyColumnKey(col)) return false;
   if (!colInList(col, EDITABLE_COLS)) return false;
