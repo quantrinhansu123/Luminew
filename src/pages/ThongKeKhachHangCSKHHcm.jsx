@@ -438,7 +438,7 @@ export default function ThongKeKhachHangCSKHHcm() {
     const ensure = (market) => {
       let e = byMarket.get(market);
       if (!e) {
-        e = { market, tongSoDon: 0, tongDoanhSo: 0, tongKH: 0, muaLai: 0 };
+        e = { market, tongDonHang: 0, tongDonMuaLai: 0, tongDoanhSo: 0, tongDoanhSoMuaLai: 0, tongKH: 0, muaLai: 0 };
         byMarket.set(market, e);
       }
       return e;
@@ -447,19 +447,24 @@ export default function ThongKeKhachHangCSKHHcm() {
       if (!customerKeyFor(row)) continue; // cùng tập KH với tongKH / mua lại (bỏ đơn thiếu tên)
       const market = canonicalMarket(row.country);
       const e = ensure(market);
-      e.tongSoDon += 1;
+      e.tongDonHang += 1;
       e.tongDoanhSo += Number(row.total_amount_vnd) || 0;
     }
     // KH mua lại theo TT = unique KH có ≥2 đơn tại đúng TT đó (mọi SP) — không yêu cầu cùng 1 SP
+    // Tổng đơn mua lại = tổng số đơn của các KH đó (gồm cả đơn đầu).
     for (const m of aggregates.byMarket.values()) {
       const e = ensure(m.market);
       e.tongKH += 1;
-      if (m.orderCount >= REPEAT_THRESHOLD) e.muaLai += 1;
+      if (m.orderCount >= REPEAT_THRESHOLD) {
+        e.muaLai += 1;
+        e.tongDonMuaLai += m.orderCount;
+        e.tongDoanhSoMuaLai += m.totalAmount;
+      }
     }
     const rows = [...byMarket.values()]
       .filter((e) => e.muaLai > 0)
       .map((e) => ({ ...e, tyLeMuaLai: e.tongKH > 0 ? e.muaLai / e.tongKH : 0 }))
-      .sort((a, b) => b.tongSoDon - a.tongSoDon || a.market.localeCompare(b.market, 'vi'));
+      .sort((a, b) => b.tongDonHang - a.tongDonHang || a.market.localeCompare(b.market, 'vi'));
     if (!rows.length) return rows;
 
     const kept = new Set(rows.map((r) => r.market));
@@ -473,8 +478,10 @@ export default function ThongKeKhachHangCSKHHcm() {
 
     const total = {
       market: 'TỔNG',
-      tongSoDon: rows.reduce((s, r) => s + r.tongSoDon, 0),
+      tongDonHang: rows.reduce((s, r) => s + r.tongDonHang, 0),
+      tongDonMuaLai: rows.reduce((s, r) => s + r.tongDonMuaLai, 0),
       tongDoanhSo: rows.reduce((s, r) => s + r.tongDoanhSo, 0),
+      tongDoanhSoMuaLai: rows.reduce((s, r) => s + (r.tongDoanhSoMuaLai || 0), 0),
       tongKH: khUnique.size,
       muaLai: muaLaiUnique.size,
       isTotal: true,
@@ -489,7 +496,7 @@ export default function ThongKeKhachHangCSKHHcm() {
     const ensure = (product) => {
       let e = byProduct.get(product);
       if (!e) {
-        e = { product, tongSoDon: 0, doanhThu: 0, tongKH: 0, muaLai: 0, lan2: 0, lan3: 0, tu4: 0 };
+        e = { product, tongDonHang: 0, tongDonMuaLai: 0, doanhThu: 0, doanhThuMuaLai: 0, tongKH: 0, muaLai: 0, lan2: 0, lan3: 0, tu4: 0 };
         byProduct.set(product, e);
       }
       return e;
@@ -498,7 +505,7 @@ export default function ThongKeKhachHangCSKHHcm() {
       if (!customerKeyFor(row)) continue;
       const product = String(row.product ?? '').trim() || '(Không rõ)';
       const e = ensure(product);
-      e.tongSoDon += 1;
+      e.tongDonHang += 1;
       e.doanhThu += Number(row.total_amount_vnd) || 0;
     }
     for (const p of aggregates.byProduct.values()) {
@@ -506,6 +513,8 @@ export default function ThongKeKhachHangCSKHHcm() {
       e.tongKH += 1;
       if (p.orderCount >= REPEAT_THRESHOLD) {
         e.muaLai += 1;
+        e.tongDonMuaLai += p.orderCount;
+        e.doanhThuMuaLai += p.totalAmount;
         if (p.orderCount === 2) e.lan2 += 1;
         else if (p.orderCount === 3) e.lan3 += 1;
         else e.tu4 += 1;
@@ -514,7 +523,7 @@ export default function ThongKeKhachHangCSKHHcm() {
 
     const rows = [...byProduct.values()]
       .filter((e) => e.muaLai > 0)
-      .sort((a, b) => b.tongSoDon - a.tongSoDon || a.product.localeCompare(b.product, 'vi'));
+      .sort((a, b) => b.tongDonHang - a.tongDonHang || a.product.localeCompare(b.product, 'vi'));
     if (!rows.length) return rows;
 
     const productsKept = new Set(rows.map((r) => r.product));
@@ -541,8 +550,10 @@ export default function ThongKeKhachHangCSKHHcm() {
 
     const total = {
       product: 'TỔNG',
-      tongSoDon: rows.reduce((s, r) => s + r.tongSoDon, 0),
+      tongDonHang: rows.reduce((s, r) => s + r.tongDonHang, 0),
+      tongDonMuaLai: rows.reduce((s, r) => s + r.tongDonMuaLai, 0),
       doanhThu: rows.reduce((s, r) => s + r.doanhThu, 0),
+      doanhThuMuaLai: rows.reduce((s, r) => s + (r.doanhThuMuaLai || 0), 0),
       tongKH: khUnique.size,
       muaLai,
       lan2,
@@ -553,36 +564,31 @@ export default function ThongKeKhachHangCSKHHcm() {
     return [...rows, total];
   }, [aggregates, filteredRows]);
 
-  // Khối tổng quan — mua lại = unique KH có ≥2 đơn trong filter; ẩn đơn TT mua lại = 0
+  // Khối tổng quan — Tổng đơn hàng = mọi đơn (có tên KH) trong filter; Tổng đơn mua lại = đơn của KH ≥2 đơn.
   const kpi = useMemo(() => {
-    const marketsWithMuaLai = new Set();
-    for (const m of aggregates.byMarket.values()) {
-      if (m.orderCount >= REPEAT_THRESHOLD) marketsWithMuaLai.add(m.market);
-    }
-
     let muaLai = 0;
     let lan2 = 0;
     let lan3 = 0;
     let tu4 = 0;
     let doanhThuMuaLai = 0;
+    let tongDonMuaLai = 0;
     for (const o of aggregates.overall.values()) {
       if (o.orderCount < REPEAT_THRESHOLD) continue;
       muaLai += 1;
+      tongDonMuaLai += o.orderCount;
       if (o.orderCount === 2) lan2 += 1;
       else if (o.orderCount === 3) lan3 += 1;
       else tu4 += 1;
       doanhThuMuaLai += o.totalAmount;
     }
 
-    let tongSoDon = 0;
+    let tongDonHang = 0;
     let tongDoanhSo = 0;
     const tongKHSet = new Set();
     for (const row of filteredRows) {
       const custKey = customerKeyFor(row);
       if (!custKey) continue;
-      const market = canonicalMarket(row.country);
-      if (!marketsWithMuaLai.has(market)) continue;
-      tongSoDon += 1;
+      tongDonHang += 1;
       tongDoanhSo += Number(row.total_amount_vnd) || 0;
       tongKHSet.add(custKey);
     }
@@ -596,7 +602,9 @@ export default function ThongKeKhachHangCSKHHcm() {
       lan3,
       tu4,
       doanhThuMuaLai,
-      tongSoDon,
+      tongDonHang,
+      tongDonMuaLai,
+      tongSoDon: tongDonHang,
       tongDoanhSo,
     };
   }, [aggregates, filteredRows]);
@@ -623,11 +631,13 @@ export default function ThongKeKhachHangCSKHHcm() {
     const dataRows = section2Rows.filter((r) => !r.isTotal);
     exportSheetToExcel(
       'Theo_thi_truong',
-      ['Thị trường', 'Tổng số đơn', 'Tổng doanh số', 'Tổng KH', 'KH mua lại', 'Tỷ lệ mua lại (%)'],
+      ['Thị trường', 'Tổng đơn hàng', 'Tổng đơn mua lại', 'Tổng tất cả doanh số', 'Tổng doanh số mua lại', 'Tổng KH', 'KH mua lại', 'Tỷ lệ mua lại (%)'],
       dataRows.map((r) => [
         r.market,
-        r.tongSoDon,
+        r.tongDonHang,
+        r.tongDonMuaLai,
         r.tongDoanhSo,
+        r.tongDoanhSoMuaLai || 0,
         r.tongKH,
         r.muaLai,
         Number(((r.tyLeMuaLai || 0) * 100).toFixed(1)),
@@ -640,8 +650,19 @@ export default function ThongKeKhachHangCSKHHcm() {
     const dataRows = section3Rows.filter((r) => !r.isTotal);
     exportSheetToExcel(
       'Theo_san_pham',
-      ['Sản phẩm', 'Tổng số đơn', 'Tổng doanh số', 'Tổng KH', 'KH mua lại', 'Lần 2', 'Lần 3', '≥4 lần'],
-      dataRows.map((r) => [r.product, r.tongSoDon, r.doanhThu, r.tongKH, r.muaLai, r.lan2, r.lan3, r.tu4]),
+      ['Sản phẩm', 'Tổng đơn hàng', 'Tổng đơn mua lại', 'Tổng tất cả doanh số', 'Tổng doanh số mua lại', 'Tổng KH', 'KH mua lại', 'Lần 2', 'Lần 3', '≥4 lần'],
+      dataRows.map((r) => [
+        r.product,
+        r.tongDonHang,
+        r.tongDonMuaLai,
+        r.doanhThu,
+        r.doanhThuMuaLai || 0,
+        r.tongKH,
+        r.muaLai,
+        r.lan2,
+        r.lan3,
+        r.tu4,
+      ]),
       `ThongKeKH_HCM_SanPham_${startDate}_${endDate}`
     );
   }, [section3Rows, startDate, endDate]);
@@ -651,15 +672,16 @@ export default function ThongKeKhachHangCSKHHcm() {
       'Tong_quan',
       ['Chỉ tiêu', 'Giá trị'],
       [
-        ['Tổng số đơn', kpi.tongSoDon],
-        ['Tổng doanh số', kpi.tongDoanhSo],
+        ['Tổng đơn hàng', kpi.tongDonHang],
+        ['Tổng đơn mua lại', kpi.tongDonMuaLai],
+        ['Tổng tất cả doanh số', kpi.tongDoanhSo],
+        ['Tổng doanh số mua lại', kpi.doanhThuMuaLai],
         ['Tổng khách hàng', kpi.tongKH],
         ['Khách mua lại', kpi.muaLai],
         ['Tỷ lệ mua lại (%)', Number(((kpi.tyLe || 0) * 100).toFixed(1))],
         ['Khách mua lần 2', kpi.lan2],
         ['Khách mua lần 3', kpi.lan3],
         ['Khách mua ≥4 lần', kpi.tu4],
-        ['Doanh thu khách mua lại', kpi.doanhThuMuaLai],
       ],
       `ThongKeKH_HCM_TongQuan_${startDate}_${endDate}`
     );
@@ -680,8 +702,9 @@ export default function ThongKeKhachHangCSKHHcm() {
         <h1 className="text-xl font-bold text-gray-800">Thống Kê KH-HCM</h1>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Mua lại = khách có từ {REPEAT_THRESHOLD} đơn tại cùng thị trường (gộp Us/USA → US) — không thống kê TT/SP mua lại
-        = 0 — dữ liệu từ {ORDERS_TABLE}
+        Mua lại = khách có từ {REPEAT_THRESHOLD} đơn tại cùng thị trường (gộp Us/USA → US). Tổng đơn hàng / tổng
+        tất cả doanh số = mọi đơn (có tên KH). Tổng đơn mua lại / tổng doanh số mua lại = đơn và doanh số của
+        khách ≥{REPEAT_THRESHOLD} đơn — không thống kê TT/SP mua lại = 0 — dữ liệu từ {ORDERS_TABLE}
       </p>
 
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 mb-4">
@@ -761,17 +784,29 @@ export default function ThongKeKhachHangCSKHHcm() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng số đơn</div>
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng đơn hàng</div>
           <div className="mt-1 text-2xl font-bold text-gray-900">
-            {loading ? '…' : kpi.tongSoDon.toLocaleString('vi-VN')}
+            {loading ? '…' : kpi.tongDonHang.toLocaleString('vi-VN')}
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng doanh số</div>
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng đơn mua lại</div>
           <div className="mt-1 text-2xl font-bold text-[#F37021]">
+            {loading ? '…' : kpi.tongDonMuaLai.toLocaleString('vi-VN')}
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng tất cả doanh số</div>
+          <div className="mt-1 text-2xl font-bold text-gray-900">
             {loading ? '…' : formatCurrency(kpi.tongDoanhSo)}
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng doanh số mua lại</div>
+          <div className="mt-1 text-2xl font-bold text-[#F37021]">
+            {loading ? '…' : formatCurrency(kpi.doanhThuMuaLai)}
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3">
@@ -814,7 +849,7 @@ export default function ThongKeKhachHangCSKHHcm() {
         loading={loading}
         onExport={exportListExcel}
         emptyText={
-          marketsWithoutRepeat.length > 0 && kpi.tongSoDon > 0
+          marketsWithoutRepeat.length > 0 && kpi.tongDonHang > 0
             ? `Không có KH mua lại từ ${REPEAT_THRESHOLD} đơn tại cùng thị trường. TT vẫn có đơn nhưng chưa mua lại: ${marketsWithoutRepeat
                 .map((m) => `${m.market} (${m.tongSoDon.toLocaleString('vi-VN')} đơn)`)
                 .join(', ')}.`
@@ -850,7 +885,7 @@ export default function ThongKeKhachHangCSKHHcm() {
       {activeTab === 'market' && (
       <ReportTable
         title="Bảng tổng theo thị trường"
-        columns={['Thị trường', 'Tổng số đơn', 'Tổng doanh số', 'Tổng KH', 'KH mua lại', 'Tỷ lệ mua lại']}
+        columns={['Thị trường', 'Tổng đơn hàng', 'Tổng đơn mua lại', 'Tổng tất cả doanh số', 'Tổng doanh số mua lại', 'Tổng KH', 'KH mua lại', 'Tỷ lệ mua lại']}
         rows={section2Rows}
         loading={loading}
         onExport={exportMarketExcel}
@@ -859,10 +894,16 @@ export default function ThongKeKhachHangCSKHHcm() {
           <tr key={r.market} className={r.isTotal ? 'bg-orange-50 font-bold' : 'hover:bg-orange-50/40'}>
             <td className="px-3 py-2 text-sm text-gray-800 border border-gray-200">{r.market}</td>
             <td className="px-3 py-2 text-sm text-gray-800 text-center border border-gray-200">
-              {r.tongSoDon.toLocaleString('vi-VN')}
+              {r.tongDonHang.toLocaleString('vi-VN')}
+            </td>
+            <td className="px-3 py-2 text-sm font-semibold text-[#F37021] text-center border border-gray-200">
+              {r.tongDonMuaLai.toLocaleString('vi-VN')}
             </td>
             <td className="px-3 py-2 text-sm text-[#F37021] text-right border border-gray-200">
               {formatCurrency(r.tongDoanhSo)}
+            </td>
+            <td className="px-3 py-2 text-sm font-semibold text-[#F37021] text-right border border-gray-200">
+              {formatCurrency(r.tongDoanhSoMuaLai || 0)}
             </td>
             <td className="px-3 py-2 text-sm text-gray-700 text-center border border-gray-200">
               {r.tongKH.toLocaleString('vi-VN')}
@@ -879,7 +920,7 @@ export default function ThongKeKhachHangCSKHHcm() {
       {activeTab === 'product' && (
       <ReportTable
         title="Bảng tổng theo sản phẩm"
-        columns={['Sản phẩm', 'Tổng số đơn', 'Tổng doanh số', 'Tổng KH', 'KH mua lại', 'Lần 2', 'Lần 3', '≥4 lần']}
+        columns={['Sản phẩm', 'Tổng đơn hàng', 'Tổng đơn mua lại', 'Tổng tất cả doanh số', 'Tổng doanh số mua lại', 'Tổng KH', 'KH mua lại', 'Lần 2', 'Lần 3', '≥4 lần']}
         rows={section3Rows}
         loading={loading}
         onExport={exportProductExcel}
@@ -888,10 +929,16 @@ export default function ThongKeKhachHangCSKHHcm() {
           <tr key={r.product} className={r.isTotal ? 'bg-orange-50 font-bold' : 'hover:bg-orange-50/40'}>
             <td className="px-3 py-2 text-sm text-gray-800 border border-gray-200">{r.product}</td>
             <td className="px-3 py-2 text-sm text-gray-800 text-center border border-gray-200">
-              {r.tongSoDon.toLocaleString('vi-VN')}
+              {r.tongDonHang.toLocaleString('vi-VN')}
+            </td>
+            <td className="px-3 py-2 text-sm font-semibold text-[#F37021] text-center border border-gray-200">
+              {r.tongDonMuaLai.toLocaleString('vi-VN')}
             </td>
             <td className="px-3 py-2 text-sm text-[#F37021] text-right border border-gray-200">
               {formatCurrency(r.doanhThu)}
+            </td>
+            <td className="px-3 py-2 text-sm font-semibold text-[#F37021] text-right border border-gray-200">
+              {formatCurrency(r.doanhThuMuaLai || 0)}
             </td>
             <td className="px-3 py-2 text-sm text-gray-700 text-center border border-gray-200">{r.tongKH}</td>
             <td className="px-3 py-2 text-sm font-bold text-[#F37021] text-center border border-gray-200">{r.muaLai}</td>
@@ -909,15 +956,16 @@ export default function ThongKeKhachHangCSKHHcm() {
         columns={['', 'Giá trị']}
         colSpan={2}
         rows={[
-          { label: 'Tổng số đơn', value: kpi.tongSoDon.toLocaleString('vi-VN') },
-          { label: 'Tổng doanh số', value: formatCurrency(kpi.tongDoanhSo) },
+          { label: 'Tổng đơn hàng', value: kpi.tongDonHang.toLocaleString('vi-VN') },
+          { label: 'Tổng đơn mua lại', value: kpi.tongDonMuaLai.toLocaleString('vi-VN') },
+          { label: 'Tổng tất cả doanh số', value: formatCurrency(kpi.tongDoanhSo) },
+          { label: 'Tổng doanh số mua lại', value: formatCurrency(kpi.doanhThuMuaLai) },
           { label: 'Tổng khách hàng', value: kpi.tongKH.toLocaleString('vi-VN') },
           { label: 'Khách mua lại', value: kpi.muaLai.toLocaleString('vi-VN') },
           { label: 'Tỷ lệ mua lại', value: formatPercent(kpi.tyLe) },
           { label: 'Khách mua lần 2', value: kpi.lan2.toLocaleString('vi-VN') },
           { label: 'Khách mua lần 3', value: kpi.lan3.toLocaleString('vi-VN') },
           { label: 'Khách mua ≥4 lần', value: kpi.tu4.toLocaleString('vi-VN') },
-          { label: 'Doanh thu khách mua lại', value: formatCurrency(kpi.doanhThuMuaLai) },
         ]}
         loading={loading}
         onExport={exportOverviewExcel}

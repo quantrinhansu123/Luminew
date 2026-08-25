@@ -10,9 +10,12 @@ export function isCheckResultHuy(val) {
   const s = String(val ?? '').trim();
   if (!s) return false;
   const ascii = s
+    .replace(/\u00a0/g, ' ')
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
   return ascii === 'huy';
 }
 

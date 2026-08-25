@@ -3443,7 +3443,7 @@
         let q = supabase
           .from(MKT_HN_ORDERS_TABLE)
           .select(
-            'order_code, order_date, marketing_staff, product, country, shift, check_result, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
+            'order_code, order_date, marketing_staff, product, country, shift, check_result, payment_status, customer_name, customer_phone, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
           );
         if (startYmd) q = q.gte('order_date', startYmd);
         if (endYmd) q = q.lte('order_date', endYmd);
@@ -3514,13 +3514,26 @@
     }
 
     function isOrderHuyForActualOverlay(order) {
+      const s = String(order?.check_result ?? '').trim() || String(order?.payment_status ?? '').trim();
+      if (!s) return false;
+      const ascii = s
+        .replace(/\u00a0/g, ' ')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+      return ascii === 'huy';
+    }
+
+    function isOrderOkForActualOverlay(order) {
       const s = String(order?.check_result ?? '').trim();
       if (!s) return false;
       const ascii = s
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .toLowerCase();
-      return ascii === 'huy';
+      return ascii === 'ok';
     }
 
     function isOrderOkForActualOverlay(order) {

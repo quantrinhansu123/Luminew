@@ -284,7 +284,8 @@
             margin-left: 20px;
         }
 
-        .sidebar input[type="date"] {
+        .sidebar input[type="date"],
+        .sidebar select.quick-month-select {
             width: 100%;
             box-sizing: border-box;
             padding: 10px 12px;
@@ -294,9 +295,11 @@
             font-weight: 500;
             font-size: 0.95em;
             transition: border 0.2s ease;
+            background: #fff;
         }
 
-        .sidebar input[type="date"]:focus {
+        .sidebar input[type="date"]:focus,
+        .sidebar select.quick-month-select:focus {
             outline: none;
             border-color: var(--primary-light);
             box-shadow: 0 0 0 2px rgba(139, 195, 74, 0.2);
@@ -438,6 +441,24 @@
     <div class="report-container">
         <div class="sidebar">
             <h3>Bộ lọc</h3>
+            <label>Lọc nhanh theo tháng:
+                <select id="quick-month" class="quick-month-select" aria-label="Lọc nhanh theo tháng">
+                    <option value="">— Chọn tháng —</option>
+                    <option value="thisMonth">Tháng này</option>
+                    <option value="month_1">Tháng 1</option>
+                    <option value="month_2">Tháng 2</option>
+                    <option value="month_3">Tháng 3</option>
+                    <option value="month_4">Tháng 4</option>
+                    <option value="month_5">Tháng 5</option>
+                    <option value="month_6">Tháng 6</option>
+                    <option value="month_7">Tháng 7</option>
+                    <option value="month_8">Tháng 8</option>
+                    <option value="month_9">Tháng 9</option>
+                    <option value="month_10">Tháng 10</option>
+                    <option value="month_11">Tháng 11</option>
+                    <option value="month_12">Tháng 12</option>
+                </select>
+            </label>
             <label>Từ ngày:<input type="date" id="start-date"></label>
             <label>Đến ngày:<input type="date" id="end-date"></label>
             <h3>Sản phẩm</h3>
@@ -597,9 +618,50 @@
             fetchAndProcessData();
         });
 
+        /** Cả tháng theo lịch (tháng 1–12): Từ = mùng 1, Đến = ngày cuối tháng (local, không dùng toISOString). */
+        function calendarMonthDateBounds(year, month1to12) {
+            const y = Number(year);
+            const m = Number(month1to12);
+            if (!y || !m || m < 1 || m > 12) return null;
+            const mm = String(m).padStart(2, '0');
+            const lastDay = new Date(y, m, 0).getDate();
+            return {
+                start: `${y}-${mm}-01`,
+                end: `${y}-${mm}-${String(lastDay).padStart(2, '0')}`,
+            };
+        }
+
+        function applyQuickMonthFilter(key) {
+            const selectEl = document.getElementById('quick-month');
+            if (selectEl) selectEl.value = key || '';
+            if (!key) return;
+            const now = new Date();
+            const year = now.getFullYear();
+            let bounds = null;
+            if (key === 'thisMonth') {
+                bounds = calendarMonthDateBounds(year, now.getMonth() + 1);
+            } else if (String(key).startsWith('month_')) {
+                bounds = calendarMonthDateBounds(year, Number(String(key).slice(6)));
+            }
+            if (!bounds?.start || !bounds?.end) return;
+            document.getElementById('start-date').value = bounds.start;
+            document.getElementById('end-date').value = bounds.end;
+            fetchAndProcessData();
+        }
+
         function addEventListeners() {
             document.body.addEventListener('change', (e) => {
-                if (e.target.matches('input[type="checkbox"], input[type="date"]')) {
+                if (e.target.id === 'quick-month') {
+                    applyQuickMonthFilter(e.target.value);
+                    return;
+                }
+                if (e.target.matches('input[type="date"]')) {
+                    const qm = document.getElementById('quick-month');
+                    if (qm) qm.value = '';
+                    fetchAndProcessData();
+                    return;
+                }
+                if (e.target.matches('input[type="checkbox"]')) {
                     handleFilterChange(e.target);
                 }
             });
@@ -646,11 +708,11 @@
 
         function setDefaultDates() {
             const today = new Date();
-            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-            const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-            const formatDateForInput = (date) => date.toISOString().split('T')[0];
-            document.getElementById('start-date').value = formatDateForInput(firstDay);
-            document.getElementById('end-date').value = formatDateForInput(lastDay);
+            const bounds = calendarMonthDateBounds(today.getFullYear(), today.getMonth() + 1);
+            document.getElementById('start-date').value = bounds.start;
+            document.getElementById('end-date').value = bounds.end;
+            const qm = document.getElementById('quick-month');
+            if (qm) qm.value = 'thisMonth';
         }
 
         function normalizeViAscii(s) {
@@ -913,7 +975,60 @@
             }
         }
 
-        function summarizeAndSortSalesData(data) {
+        function numMax(a, b) {
+            const x = Number(a) || 0;
+            const y = Number(b) || 0;
+            return Math.max(x, y);
+        }
+        /**
+         * Khóa Ngày + Tên + SP + TT (không gồm ca). Recalc ghi cùng order_count vào mọi ca
+         * → cộng dồn sẽ x2; gộp bằng max giống /xem-bao-cao-sale (React).
+         */
+        function buildSalesReportRowDedupeKey(r) {
+            const ngay = String(r?.ngay ?? '').trim().slice(0, 10);
+            const ten = normalizeViAscii(r?.ten ?? '');
+            const sp = normalizeViAscii(r?.sanPham ?? '');
+            const tt = normalizeViAscii(r?.thiTruong ?? '');
+            return `${ngay}|${ten}|${sp}|${tt}`;
+        }
+        function mergeDuplicateSalesReportRows(prev, next) {
+            const merged = {
+                ...prev,
+                soMessCmt: numMax(prev.soMessCmt, next.soMessCmt),
+                soDon: numMax(prev.soDon, next.soDon),
+                dsChot: numMax(prev.dsChot, next.dsChot),
+                phanHoi: numMax(prev.phanHoi, next.phanHoi),
+                doanhSoDi: numMax(prev.doanhSoDi, next.doanhSoDi),
+                soDonHuy: numMax(prev.soDonHuy, next.soDonHuy),
+                doanhSoHuy: numMax(prev.doanhSoHuy, next.doanhSoHuy),
+                soDonThanhCong: numMax(prev.soDonThanhCong, next.soDonThanhCong),
+                doanhSoThanhCong: numMax(prev.doanhSoThanhCong, next.doanhSoThanhCong),
+                soDonThucTe: numMax(prev.soDonThucTe, next.soDonThucTe),
+                doanhThuChotThucTe: numMax(prev.doanhThuChotThucTe, next.doanhThuChotThucTe),
+                doanhSoDiThucTe: numMax(prev.doanhSoDiThucTe, next.doanhSoDiThucTe),
+                soDonHoanHuyThucTe: numMax(prev.soDonHoanHuyThucTe, next.soDonHoanHuyThucTe),
+                doanhSoHoanHuyThucTe: numMax(prev.doanhSoHoanHuyThucTe, next.doanhSoHoanHuyThucTe),
+            };
+            merged.doanhSoSauHoanHuyThucTe =
+                (Number(merged.doanhThuChotThucTe) || 0) - (Number(merged.doanhSoHoanHuyThucTe) || 0);
+            return merged;
+        }
+        function dedupeSalesReportRowsByTTKey(rows) {
+            if (!Array.isArray(rows) || rows.length === 0) return rows;
+            const map = new Map();
+            for (const r of rows) {
+                const k = buildSalesReportRowDedupeKey(r);
+                if (!map.has(k)) {
+                    map.set(k, { ...r });
+                    continue;
+                }
+                map.set(k, mergeDuplicateSalesReportRows(map.get(k), r));
+            }
+            return Array.from(map.values());
+        }
+        function summarizeAndSortSalesData(data, options = {}) {
+            const rawList = options.rawRowsForMess;
+            const useRawMessSum = Array.isArray(rawList) && rawList.length > 0;
             const summaryData = {};
             const initialSummary = {
                 mess: 0, don: 0, chot: 0, phanHoi: 0,
@@ -931,7 +1046,9 @@
                         ...JSON.parse(JSON.stringify(initialSummary))
                     };
                 }
-                summaryData[name].mess += r.soMessCmt;
+                if (!useRawMessSum) {
+                    summaryData[name].mess += r.soMessCmt;
+                }
                 summaryData[name].don += r.soDon;
                 summaryData[name].chot += r.doanhThuChotThucTe;
                 summaryData[name].phanHoi += r.phanHoi;
@@ -946,6 +1063,18 @@
                 summaryData[name].doanhSoThanhCong += r.doanhSoThanhCong;
             });
 
+            if (useRawMessSum) {
+                const messByName = {};
+                for (const r of rawList) {
+                    const name = r.ten;
+                    if (!name) continue;
+                    messByName[name] = (messByName[name] || 0) + (Number(r.soMessCmt) || 0);
+                }
+                Object.keys(summaryData).forEach((name) => {
+                    summaryData[name].mess = messByName[name] ?? 0;
+                });
+            }
+
             const flatList = Object.keys(summaryData).map(name => ({ name, ...summaryData[name] }))
                 .sort((a, b) => a.team.localeCompare(b.team) || b.chot - a.chot || a.name.localeCompare(b.name));
 
@@ -955,6 +1084,10 @@
             }, JSON.parse(JSON.stringify(initialSummary)));
 
             return { flatList, total };
+        }
+        function summarizeHcmReport(filtered) {
+            const deduped = dedupeSalesReportRowsByTTKey(filtered);
+            return summarizeAndSortSalesData(deduped, { rawRowsForMess: filtered });
         }
 
         function populateAllFilters(data) {
@@ -1044,7 +1177,7 @@
         }
 
         function renderSummary(data) {
-            const { flatList, total } = summarizeAndSortSalesData(data);
+            const { flatList, total } = summarizeHcmReport(data);
 
             // Lọc bỏ team "Đã nghỉ"
             const flatListFiltered = flatList.filter(item => {
@@ -1057,7 +1190,7 @@
             const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
             const totalRateSauHuy = total.mess ? soDonSauHuyTotal / total.mess : 0;
             // Lấy flatList báo cáo tay để đồng bộ số đơn và doanh số
-            const { flatList: flatListChot } = summarizeAndSortSalesData(data);
+            const { flatList: flatListChot } = summarizeHcmReport(data);
             const soDonMap = {};
             const doanhSoMap = {};
             const soDonTTMap = {};
@@ -1121,7 +1254,7 @@
 
             sortedDates.forEach(date => {
                 const dailyData = groupedByDate[date];
-                const { flatList, total } = summarizeAndSortSalesData(dailyData);
+                const { flatList, total } = summarizeHcmReport(dailyData);
 
                 // Lọc bỏ team "Đã nghỉ"
                 const flatListFiltered = flatList.filter(item => {

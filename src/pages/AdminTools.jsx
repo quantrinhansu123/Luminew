@@ -2144,30 +2144,6 @@ const AdminTools = () => {
         });
     };
 
-    /** HCM: chia đều lại toàn bộ đơn Có Bill trong tháng (ghi đè CSKH, bỏ Sale tự chăm). */
-    const handlePhanBoDonHangHcmFull = async () => {
-        if (
-            !window.confirm(
-                `Chia đều CSKH — HCM (tháng ${selectedMonth})?\n\n` +
-                    (() => {
-                        const b = monthKeyToOrderDateBounds(selectedMonth);
-                        return b ? `· order_date từ ${b.start} đến ${b.end}\n` : '';
-                    })() +
-                    '· Bảng order_code_hcm, đơn Có Bill\n' +
-                    '· Chia đều cho mọi nhân sự CSKH HCM (lệch tối đa 1 đơn)\n' +
-                    '· Ghi đè CSKH đã có; bỏ rule Sale → chính họ\n\n' +
-                    'Thao tác không hoàn tác tự động.'
-            )
-        ) {
-            return;
-        }
-        await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, {
-            requireCoBillPayment: true,
-            team: 'HCM',
-            evenDistributeAll: true,
-        });
-    };
-
     const handleHachToanBaoCao = async () => {
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
@@ -3996,28 +3972,6 @@ const AdminTools = () => {
                                                 <>
                                                     <Users className="w-5 h-5 shrink-0" />
                                                     Phân bổ — HCM (order_code_hcm)
-                                                </>
-                                            )}
-                                        </button>
-                                    </div>
-                                    <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-                                        <div className="hidden sm:block flex-1" aria-hidden />
-                                        <button
-                                            type="button"
-                                            onClick={handlePhanBoDonHangHcmFull}
-                                            disabled={autoAssignLoading}
-                                            className="flex-1 bg-cyan-700 hover:bg-cyan-800 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                                            title="HCM: chia đều toàn bộ đơn Có Bill trong tháng — ghi đè CSKH, bỏ Sale tự chăm"
-                                        >
-                                            {autoAssignLoading ? (
-                                                <>
-                                                    <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
-                                                    Đang xử lý...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Users className="w-5 h-5 shrink-0" />
-                                                    Chia đều CSKH — HCM
                                                 </>
                                             )}
                                         </button>

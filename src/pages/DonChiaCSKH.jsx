@@ -154,6 +154,32 @@ function resolveDonChiaDateBounds(startDate, endDate) {
 /** Mặc định khớp menu Home + rbac (`/don-chia-cskh`). */
 const DEFAULT_DON_CHIA_ACCESS_CODES = ['CSKH_PAID'];
 
+function normalizeDeptBranchCompare(v) {
+  return String(v ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function userDepartmentIsCSKH(dept) {
+  const d = normalizeDeptBranchCompare(dept);
+  return Boolean(d && (d === 'cskh' || d.includes('cskh')));
+}
+
+function userMatchesDonChiaCskhBranch(user, isHcmPage) {
+  const blob = normalizeDeptBranchCompare(`${user?.branch ?? ''} ${user?.team ?? ''}`);
+  if (isHcmPage) {
+    return (
+      blob.includes('hcm') ||
+      blob.includes('ho chi minh') ||
+      blob.includes('sai gon')
+    );
+  }
+  return blob.includes('ha noi') || blob.includes('hanoi') || /(^|\s)hn(\s|$)/.test(blob);
+}
+
 function mapDonChiaOrderToFriendly(item) {
   const tracking = resolveTrackingFromOrder(item);
   return {
@@ -213,14 +239,36 @@ const DON_CHIA_SUMMARY_MODAL_META = {
   __EMPTY__: { title: 'Chưa gán CSKH (cột trống)' },
 };
 
+function donChiaRowMatchesSearchText(row, searchLower) {
+  if (!searchLower) return true;
+  const fields = [
+    row['Mã_đơn_hàng'],
+    row['Mã đơn hàng'],
+    row.order_code,
+    row['Name*'],
+    row['Phone*'],
+    row['Add'],
+    row['Mã Tracking'],
+    row.tracking_code,
+    row['CSKH'],
+    row['NV_CSKH'],
+    row['Nhân viên Sale'],
+    row['Nhân viên Marketing'],
+    row['Khu vực'],
+    row['Mặt hàng'],
+    row['Kết quả Check'],
+    row['Trạng thái CSKH'],
+    row['Trạng thái giao hàng'],
+  ];
+  return fields.some((val) => String(val ?? '').toLowerCase().includes(searchLower));
+}
+
 function applyDonChiaClientTableFilters(data, ctx) {
   let rows = [...data];
 
   if (ctx.debouncedSearchText) {
-    const searchLower = ctx.debouncedSearchText.toLowerCase();
-    rows = rows.filter((row) =>
-      Object.values(row).some((val) => String(val || '').toLowerCase().includes(searchLower))
-    );
+    const searchLower = ctx.debouncedSearchText.toLowerCase().trim();
+    rows = rows.filter((row) => donChiaRowMatchesSearchText(row, searchLower));
   }
 
   if (ctx.filterMarket.length > 0) {
@@ -256,20 +304,20 @@ function applyDonChiaClientTableFilters(data, ctx) {
 
   if (ctx.filterPersonnel.length > 0) {
     rows = rows.filter((row) => {
-      const cskh = String(row["CSKH"] || '').trim();
+      const cskh = String(row['CSKH'] ?? row['NV_CSKH'] ?? '').trim();
       return ctx.filterPersonnel.some((filterName) => {
-        const name = String(filterName).trim();
-        return cskh.toLowerCase() === name.toLowerCase() ||
-          cskh.toLowerCase().includes(name.toLowerCase());
+        const name = String(filterName).trim().toLowerCase();
+        if (!name) return false;
+        return cskh.toLowerCase() === name || cskh.toLowerCase().includes(name);
       });
     });
   }
 
   if (ctx.filterCSKH.length > 0) {
     rows = rows.filter((row) => {
-      const cskh = String(row["CSKH"] || '').trim();
+      const cskh = String(row['CSKH'] ?? row['NV_CSKH'] ?? '').trim();
       return ctx.filterCSKH.some((filterValue) => {
-        if (filterValue === '__EMPTY__') return !cskh || cskh === '';
+        if (filterValue === '__EMPTY__') return !cskh;
         return cskh.toLowerCase() === String(filterValue).trim().toLowerCase();
       });
     });
@@ -337,6 +385,7 @@ function DonChiaCSKH({
   const [filterMonth, setFilterMonth] = useState('');
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const [filterCSKH, setFilterCSKH] = useState([]); // Array for multiple selection
+  const [cskhStaffList, setCskhStaffList] = useState([]); // Toàn bộ NV CSKH (users) — dropdown cột CSKH
   const [filterTrangThai, setFilterTrangThai] = useState([]); // Array for multiple selection
   
   // State for dropdown open/close
@@ -554,6 +603,34 @@ function DonChiaCSKH({
       console.log('👤 [DonChiaCSKH] Current user email:', userEmail.trim().toLowerCase());
     }
   }, []);
+
+  const isHcmDonChiaPage = ordersTableName === 'order_code_hcm';
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('name, department, branch, team')
+          .order('name', { ascending: true });
+        if (error) throw error;
+        const cskhUsers = (data || []).filter((u) => userDepartmentIsCSKH(u.department));
+        const byBranch = cskhUsers.filter((u) => userMatchesDonChiaCskhBranch(u, isHcmDonChiaPage));
+        const source = byBranch.length > 0 ? byBranch : cskhUsers;
+        const names = [
+          ...new Set(source.map((u) => String(u.name || '').trim()).filter(Boolean)),
+        ].sort((a, b) => a.localeCompare(b, 'vi'));
+        if (!cancelled) setCskhStaffList(names);
+      } catch (err) {
+        console.error('❌ [DonChiaCSKH] Lỗi tải danh sách CSKH từ users:', err);
+        if (!cancelled) setCskhStaffList([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isHcmDonChiaPage]);
 
   // Helper function để kiểm tra xem tên cột có phải là tiếng Anh không (cột DB gốc)
   const isEnglishColumn = (columnName) => {
@@ -845,17 +922,7 @@ function DonChiaCSKH({
       if (filterPersonnel && filterPersonnel.length > 0 && typeof filterPersonnel[0] === 'string') {
         const name = filterPersonnel[0].trim();
         const pattern = `%${name}%`;
-        const orConditions = [
-          `sale_staff.ilike.${pattern}`,
-          `marketing_staff.ilike.${pattern}`,
-          `delivery_staff.ilike.${pattern}`
-        ];
-        try {
-          query = query.or(orConditions.join(','));
-        } catch (orError) {
-          console.error('❌ [DonChiaCSKH] Admin error applying personnel OR filter, falling back to sale_staff:', orError);
-          query = query.ilike('sale_staff', pattern);
-        }
+        query = query.ilike('cskh', pattern);
       }
     }
 
@@ -1140,15 +1207,23 @@ function DonChiaCSKH({
 
   const uniqueCSKH = useMemo(() => {
     const cskhSet = new Set();
-    // Lấy từ allMappedData (tất cả dữ liệu) thay vì allData (đã filter) để hiển thị đầy đủ các CSKH
-    allMappedData.forEach(row => {
-      const cskh = row["CSKH"];
+    allMappedData.forEach((row) => {
+      const cskh = row['CSKH'] ?? row['NV_CSKH'];
       if (cskh && String(cskh).trim() !== '') {
         cskhSet.add(String(cskh).trim());
       }
     });
-    return Array.from(cskhSet).sort();
+    return Array.from(cskhSet).sort((a, b) => a.localeCompare(b, 'vi'));
   }, [allMappedData]);
+
+  /** Dropdown gán CSKH trên từng dòng: nhân sự CSKH + tên đang có trên đơn. */
+  const cskhAssignOptions = useMemo(() => {
+    const set = new Set(uniqueCSKH);
+    cskhStaffList.forEach((name) => {
+      if (name) set.add(name);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [uniqueCSKH, cskhStaffList]);
 
   const uniqueCheckResults = useMemo(() => {
     const checkResults = new Set();
@@ -1682,7 +1757,7 @@ function DonChiaCSKH({
 
   const normCskh = (s) => String(s ?? '').trim().toLowerCase();
 
-  /** Admin: xóa cột CSKH + Trạng thái cskh trên các đơn đang hiển thị sau bộ lọc (để điền lại). */
+  /** Admin: xóa cột CSKH + Trạng thái CSKH trên các đơn đang hiển thị sau bộ lọc (để điền lại). */
   const handleClearCskhBulkForTarget = async () => {
     if (!isStrictAdminForCskhClear()) {
       toast.error('Chỉ Admin mới được thao tác này.');
@@ -1690,27 +1765,26 @@ function DonChiaCSKH({
     }
     if (clearingCskhBulk) return;
 
+    const rowHasCskhOrStatus = (row) => {
+      const hasCskh = Boolean(normCskh(row['CSKH'] ?? row._cskh_raw));
+      const hasStatus = Boolean(
+        String(row['Trạng thái cskh'] ?? row['Trạng thái CSKH'] ?? row.cskh_status ?? '').trim()
+      );
+      return hasCskh || hasStatus;
+    };
+
     const ids = [
-      ...new Set(
-        filteredData
-          .filter((row) => {
-            if (!row.id) return false;
-            const hasCskh = Boolean(normCskh(row['CSKH']));
-            const hasStatus = Boolean(String(row['Trạng thái cskh'] ?? '').trim());
-            return hasCskh || hasStatus;
-          })
-          .map((row) => row.id)
-      ),
+      ...new Set(filteredData.filter((row) => row.id && rowHasCskhOrStatus(row)).map((row) => row.id)),
     ];
 
     if (ids.length === 0) {
-      toast.info('Không có đơn nào trong bộ lọc hiện tại còn dữ liệu cột CSKH / Trạng thái cskh.');
+      toast.info('Không có đơn nào trong bộ lọc hiện tại còn dữ liệu cột CSKH / Trạng thái CSKH.');
       return;
     }
 
     if (
       !window.confirm(
-        `Xóa hết cột CSKH (tên nhân sự + trạng thái cskh) cho ${ids.length} đơn đang khớp bộ lọc?\n` +
+        `Xóa hết cột CSKH và cột Trạng thái CSKH cho ${ids.length} đơn đang khớp bộ lọc?\n` +
           'Hai cột sẽ để trống để bạn điền lại. Thao tác không hoàn tác tự động.'
       )
     ) {
@@ -1720,12 +1794,17 @@ function DonChiaCSKH({
     setClearingCskhBulk(true);
     try {
       const chunkSize = 500;
+      const clearPayload = { cskh: null, cskh_status: null };
       for (let i = 0; i < ids.length; i += chunkSize) {
         const chunk = ids.slice(i, i + chunkSize);
-        const { error: upErr } = await supabase
+        let { error: upErr } = await supabase
           .from(ordersTableName)
-          .update({ cskh: null, cskh_status: null })
+          .update(clearPayload)
           .in('id', chunk);
+        if (upErr && /cskh_status/i.test(String(upErr.message || ''))) {
+          const retry = await supabase.from(ordersTableName).update({ cskh: null, cskh_status: '' }).in('id', chunk);
+          upErr = retry.error;
+        }
         if (upErr) throw upErr;
       }
 
@@ -1736,18 +1815,22 @@ function DonChiaCSKH({
           ...row,
           CSKH: '',
           'Trạng thái cskh': '',
+          'Trạng thái CSKH': '',
           cskh_status: '',
           _cskh_raw: '',
         };
       };
       setAllData((prev) => prev.map(wipeLocal));
       setAllMappedData((prev) => prev.map(wipeLocal));
+      setFilterTrangThai([]);
 
-      toast.success(`Đã xóa hết cột CSKH trên ${ids.length} đơn (theo bộ lọc).`);
+      toast.success(
+        `Đã xóa cột CSKH và Trạng thái CSKH trên ${ids.length} đơn (theo bộ lọc).`
+      );
       await loadData();
     } catch (err) {
       console.error('Clear CSKH bulk:', err);
-      toast.error(err?.message || 'Lỗi khi xóa cột CSKH');
+      toast.error(err?.message || 'Lỗi khi xóa cột CSKH / Trạng thái CSKH');
     } finally {
       setClearingCskhBulk(false);
     }
@@ -1846,14 +1929,14 @@ function DonChiaCSKH({
                   onClick={handleClearCskhBulkForTarget}
                   disabled={loading || clearingCskhBulk}
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                  title="Chỉ Admin: xóa hết cột CSKH + Trạng thái cskh trên các đơn đang khớp bộ lọc (để điền lại)"
+                  title="Chỉ Admin: xóa hết cột CSKH và Trạng thái CSKH trên các đơn đang khớp bộ lọc (để điền lại)"
                 >
                   {clearingCskhBulk ? (
                     <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
                   ) : (
                     <Trash2 className="w-4 h-4" />
                   )}
-                  {clearingCskhBulk ? 'Đang xử lý...' : 'Xóa hết cột CSKH'}
+                  {clearingCskhBulk ? 'Đang xử lý...' : 'Xóa hết cột CSKH + Trạng thái CSKH'}
                 </button>
               )}
             </div>
@@ -1875,7 +1958,7 @@ function DonChiaCSKH({
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Tìm kiếm trong tất cả các cột..."
+                    placeholder="Mã đơn, tên KH, SĐT, CSKH, tracking..."
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
@@ -2383,7 +2466,7 @@ function DonChiaCSKH({
               <span>{summary.totalTongTien.toLocaleString('vi-VN')} ₫</span>
             </div>
           </div>
-          <div className="overflow-x-auto max-h-[320px]">
+          <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
@@ -2547,7 +2630,7 @@ function DonChiaCSKH({
                                 className="w-full min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                               >
                                 <option value="">(Trống)</option>
-                                {uniqueCSKH.map((option) => (
+                                {cskhAssignOptions.map((option) => (
                                   <option key={option} value={option}>
                                     {option}
                                   </option>
