@@ -1991,7 +1991,11 @@ restrictedForPopulate,
                         key={key}
                         style={{ '--row-index': index }}
                         className={selectedRowKey === key ? 'row-selected' : ''}
-                        onClick={() => setSelectedRowKey((k) => (k === key ? null : key))}
+                        onClick={() => {
+                          const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+                          if (sel && String(sel.toString()).trim()) return;
+                          setSelectedRowKey((k) => (k === key ? null : key));
+                        }}
                       >
                         <td className="text-center">{index + 1}</td>
                         <td className="text-left">{item.team}</td>
@@ -2077,7 +2081,11 @@ restrictedForPopulate,
                         key={key}
                         style={{ '--row-index': index }}
                         className={selectedRowKey === key ? 'row-selected' : ''}
-                        onClick={() => setSelectedRowKey((k) => (k === key ? null : key))}
+                        onClick={() => {
+                          const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+                          if (sel && String(sel.toString()).trim()) return;
+                          setSelectedRowKey((k) => (k === key ? null : key));
+                        }}
                       >
                         <td className="text-center">{index + 1}</td>
                         <td className="text-left">{item.team}</td>
