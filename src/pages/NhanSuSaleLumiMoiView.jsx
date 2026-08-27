@@ -198,6 +198,8 @@ function SaleStaffProductMarketModal({
           acc.phanHoi += r.phanHoi;
           acc.don += r.don;
           acc.soDonThucTe += r.soDonThucTe;
+          acc.soDonThanhCong += r.soDonThanhCong;
+          acc.doanhSoThanhCong += r.doanhSoThanhCong;
           acc.chot += r.chot;
           acc.doanhThuChotThucTe += r.doanhThuChotThucTe;
           acc.soDonHoanHuyThucTe += r.soDonHoanHuyThucTe;
@@ -209,6 +211,8 @@ function SaleStaffProductMarketModal({
           phanHoi: 0,
           don: 0,
           soDonThucTe: 0,
+          soDonThanhCong: 0,
+          doanhSoThanhCong: 0,
           chot: 0,
           doanhThuChotThucTe: 0,
           soDonHoanHuyThucTe: 0,
@@ -226,10 +230,7 @@ function SaleStaffProductMarketModal({
   const renderMetricCells = (s) => {
     if (isSauHuy) {
       const soDonNb = s.soDonThucTe;
-      const soDonHuy = s.soDonHoanHuyThucTe || 0;
-      const dsHuy = s.doanhSoHoanHuyThucTe || 0;
-      const soDonOk = soDonNb - soDonHuy;
-      const doanhSoOk = s.doanhThuChotThucTe - dsHuy;
+      const { soDonOk, doanhSoOk } = saleOkMetrics(s);
       const rateTt = s.mess > 0 ? soDonOk / s.mess : 0;
       const rateClass = rateTt >= 0.1 ? 'bg-green' : rateTt > 0.05 ? 'bg-yellow' : '';
       return (

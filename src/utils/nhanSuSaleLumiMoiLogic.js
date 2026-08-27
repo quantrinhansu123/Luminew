@@ -4,6 +4,7 @@
 
 import { canonicalizeReportCa } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
+import { normalizePersonKey } from './emailFromName';
 import { convertDateToAPIFormat } from '../services/ordersApiService';
 
 /**
@@ -854,46 +855,48 @@ export function summarizeAndSortSalesData(data, options = {}) {
   const tmpl = initialSummary();
 
   data.forEach((r) => {
-    const name = r.ten;
-    if (!summaryData[name]) {
-      summaryData[name] = {
+    const nameKey = normalizePersonKey(r.ten);
+    if (!nameKey) return;
+    if (!summaryData[nameKey]) {
+      summaryData[nameKey] = {
+        name: String(r.ten || '').trim(),
         chiNhanh: r.chiNhanh,
         team: r.team,
         ...initialSummary(),
       };
     }
     if (!useRawMessSum) {
-      summaryData[name].mess += r.soMessCmt;
+      summaryData[nameKey].mess += r.soMessCmt;
     }
-    summaryData[name].don += r.soDon;
+    summaryData[nameKey].don += r.soDon;
     // DS Chốt (tab Dữ liệu báo cáo tay): cộng revenue_actual (doanhThuChotThucTe), không dùng revenue_mess (dsChot).
-    summaryData[name].chot += r.doanhThuChotThucTe;
-    summaryData[name].phanHoi += r.phanHoi;
-    summaryData[name].soDonThucTe += r.soDonThucTe;
-    summaryData[name].doanhThuChotThucTe += r.doanhThuChotThucTe;
-    summaryData[name].soDonHoanHuyThucTe += r.soDonHoanHuyThucTe;
-    summaryData[name].doanhSoHoanHuyThucTe += r.doanhSoHoanHuyThucTe;
-    summaryData[name].doanhSoDi += r.doanhSoDi;
-    summaryData[name].soDonHuy += r.soDonHuy;
-    summaryData[name].doanhSoHuy += r.doanhSoHuy;
-    summaryData[name].soDonThanhCong += r.soDonThanhCong;
-    summaryData[name].doanhSoThanhCong += r.doanhSoThanhCong;
+    summaryData[nameKey].chot += r.doanhThuChotThucTe;
+    summaryData[nameKey].phanHoi += r.phanHoi;
+    summaryData[nameKey].soDonThucTe += r.soDonThucTe;
+    summaryData[nameKey].doanhThuChotThucTe += r.doanhThuChotThucTe;
+    summaryData[nameKey].soDonHoanHuyThucTe += r.soDonHoanHuyThucTe;
+    summaryData[nameKey].doanhSoHoanHuyThucTe += r.doanhSoHoanHuyThucTe;
+    summaryData[nameKey].doanhSoDi += r.doanhSoDi;
+    summaryData[nameKey].soDonHuy += r.soDonHuy;
+    summaryData[nameKey].doanhSoHuy += r.doanhSoHuy;
+    summaryData[nameKey].soDonThanhCong += r.soDonThanhCong;
+    summaryData[nameKey].doanhSoThanhCong += r.doanhSoThanhCong;
   });
 
   if (useRawMessSum) {
     const messByName = {};
     for (const r of rawList) {
-      const name = r.ten;
-      if (!name) continue;
-      messByName[name] = (messByName[name] || 0) + (Number(r.soMessCmt) || 0);
+      const nameKey = normalizePersonKey(r.ten);
+      if (!nameKey) continue;
+      messByName[nameKey] = (messByName[nameKey] || 0) + (Number(r.soMessCmt) || 0);
     }
-    Object.keys(summaryData).forEach((name) => {
-      summaryData[name].mess = messByName[name] ?? 0;
+    Object.keys(summaryData).forEach((nameKey) => {
+      summaryData[nameKey].mess = messByName[nameKey] ?? 0;
     });
   }
 
   const flatList = Object.keys(summaryData)
-    .map((name) => ({ name, ...summaryData[name] }))
+    .map((nameKey) => ({ name: summaryData[nameKey].name || nameKey, ...summaryData[nameKey] }))
     .sort(
       (a, b) =>
         a.team.localeCompare(b.team) || b.chot - a.chot || a.name.localeCompare(b.name)
@@ -911,10 +914,10 @@ export function summarizeAndSortSalesData(data, options = {}) {
  * @param {object[]} [rawRowsForMess] — dòng gốc để cộng Số Mess theo SP×TT (nếu có).
  */
 export function buildSaleStaffProductMarketBreakdown(staffName, dedupedRows, rawRowsForMess = []) {
-  const nameKey = normalizeViAscii(staffName);
+  const nameKey = normalizePersonKey(staffName);
   if (!nameKey) return { rows: [], sourceRowCount: 0 };
 
-  const matchName = (r) => normalizeViAscii(r?.ten) === nameKey;
+  const matchName = (r) => normalizePersonKey(r?.ten) === nameKey;
   const rows = (dedupedRows || []).filter(matchName);
   const messSource = Array.isArray(rawRowsForMess) && rawRowsForMess.length > 0 ? rawRowsForMess : rows;
 
@@ -929,6 +932,8 @@ export function buildSaleStaffProductMarketBreakdown(staffName, dedupedRows, raw
         phanHoi: 0,
         don: 0,
         soDonThucTe: 0,
+        soDonThanhCong: 0,
+        doanhSoThanhCong: 0,
         chot: 0,
         doanhThuChotThucTe: 0,
         soDonHoanHuyThucTe: 0,
@@ -945,6 +950,8 @@ export function buildSaleStaffProductMarketBreakdown(staffName, dedupedRows, raw
     G.phanHoi += Number(r.phanHoi) || 0;
     G.don += Number(r.soDon) || 0;
     G.soDonThucTe += Number(r.soDonThucTe) || 0;
+    G.soDonThanhCong += Number(r.soDonThanhCong) || 0;
+    G.doanhSoThanhCong += Number(r.doanhSoThanhCong) || 0;
     // DS Chốt (tab báo cáo tay): cộng revenue_actual giống summarizeAndSortSalesData
     G.chot += Number(r.doanhThuChotThucTe) || 0;
     G.doanhThuChotThucTe += Number(r.doanhThuChotThucTe) || 0;
