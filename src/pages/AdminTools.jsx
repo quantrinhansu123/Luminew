@@ -9,6 +9,7 @@ import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
 import { supabase } from '../supabase/config';
 import { resolveTrangThaiThuTienFromOrder, orderTrangThaiThuTienIsCoBill } from '../utils/orderTracking';
+import { orderAmountVnd } from '../utils/orderCheckAndVnd';
 import {
     mergeUniqueRowsById,
     orderRangeToCreatedAtIsoBounds,
@@ -245,6 +246,11 @@ const getSupabaseFetchHint = (err) => {
 /** Trạng thái thanh toán: ưu tiên payment_status_detail, fallback payment_status — khớp "Có Bill". */
 function orderTrangThaiThanhToanIsCoBill(order) {
     return orderTrangThaiThuTienIsCoBill(order);
+}
+
+/** Đơn có giá trị VND > 0 — không chia đơn 0 đồng cho CSKH. */
+function orderIsNonZeroVnd(order) {
+    return orderAmountVnd(order) > 0;
 }
 
 /** Tháng YYYY-MM → [from, to] ngày local (vd. 2026-01 → 2026-01-01 .. 2026-01-31). Không dùng toISOString (lệch UTC). */
@@ -1847,6 +1853,13 @@ const AdminTools = () => {
                 }
             }
 
+            const beforeZeroFilter = (orders || []).length;
+            orders = (orders || []).filter(orderIsNonZeroVnd);
+            const skippedZeroVnd = beforeZeroFilter - orders.length;
+            if (skippedZeroVnd > 0) {
+                console.log(`⏭️ [Chia đơn CSKH] Bỏ qua ${skippedZeroVnd} đơn 0 đồng (không phân bổ CSKH).`);
+            }
+
             // HCM: đơn team trống → gắn HCM trước khi chia (tránh lệch với danh sách Đơn chia)
             if (ordersTable === CSKH_ORDER_TABLE_HCM) {
                 const needTeam = (orders || []).filter((o) => !String(o.team || '').trim());
@@ -2083,8 +2096,8 @@ const AdminTools = () => {
 
             const tableHint =
                 ordersTable === CSKH_ORDER_TABLE_HCM
-                    ? '\n- Nguồn: bảng order_code_hcm (toàn bảng trong tháng, không cắt 1000 dòng); chỉ Có Bill.'
-                    : '\n- Nguồn: bảng orders; chỉ đơn Có Bill; lọc team.';
+                    ? '\n- Nguồn: bảng order_code_hcm (toàn bảng trong tháng, không cắt 1000 dòng); chỉ Có Bill; bỏ qua đơn 0 đồng.'
+                    : '\n- Nguồn: bảng orders; chỉ đơn Có Bill; lọc team; bỏ qua đơn 0 đồng.';
 
             const modeHint = evenDistributeAll
                 ? '\n- Chế độ: CHIA ĐƠN FULL (chia đều toàn bộ, bỏ rule Sale CSKH → về chính họ; ghi đè CSKH cũ).'
@@ -2103,6 +2116,7 @@ const AdminTools = () => {
                 `✅ Phân bổ đơn hàng thành công! (${teamFilter})${tableHint}${modeHint}\n\n` +
                 `- Tháng: ${selectedMonth} (order_date ${startDateStr} → ${endDateStr})\n` +
                 `- Đơn Có Bill trong phạm vi: ${orders?.length || 0}\n` +
+                (skippedZeroVnd > 0 ? `- Bỏ qua (0 đồng): ${skippedZeroVnd}\n` : '') +
                 `- Tổng đơn đã gán/cập nhật CSKH: ${successCount}\n` +
                 (evenDistributeAll
                     ? `- Đơn chia đều (thành công): ${successCount}\n`
