@@ -161,11 +161,70 @@ function getEffectiveCuocMaDonHang(row, pendingChanges) {
 }
 
 /** Mã tracking hiện trên bảng bill (ưu tiên pending). */
+function normalizeTrackingOrOrderCodeCell(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return String(value).trim();
+    return value.toLocaleString('fullwide', { useGrouping: false });
+  }
+  const s = String(value).trim();
+  if (/^[\d.]+e[+-]?\d+$/i.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) {
+      return n.toLocaleString('fullwide', { useGrouping: false });
+    }
+  }
+  return s;
+}
+
+function normalizeTrackingComparable(value) {
+  return normalizeTrackingOrOrderCodeCell(value)
+    .toLowerCase()
+    .replace(/[\s,;._-]+/g, '');
+}
+
+/** Nhiều tracking: tách theo xuống dòng / dấu phẩy / chấm phẩy — KHÔNG tách theo khoảng trắng trong 1 mã. */
+function parseTrackingFilterEntries(text) {
+  if (!text) return [];
+  return String(text)
+    .split(/[\r\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function matchesTrackingFilterText(value, text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return true;
+  const haystack = normalizeTrackingComparable(value);
+  if (!haystack) return false;
+
+  const entries = parseTrackingFilterEntries(raw);
+  const needles = (entries.length > 0 ? entries : [raw])
+    .map((entry) => normalizeTrackingComparable(entry))
+    .filter(Boolean);
+  if (needles.length === 0) return true;
+
+  return needles.some((needle) => {
+    if (needle.length >= 6) {
+      return haystack === needle || haystack.includes(needle) || needle.includes(haystack);
+    }
+    return haystack === needle || haystack.includes(needle);
+  });
+}
+
+function getRowMaTrackingForFilter(row, pendingChanges) {
+  const pendRow = row?.id ? pendingChanges.get(row.id) : null;
+  if (pendRow?.has('ma_tracking')) {
+    return normalizeTrackingOrOrderCodeCell(pendRow.get('ma_tracking'));
+  }
+  const raw = row?.ma_tracking ?? row?.__source_row?.ma_tracking ?? '';
+  return normalizeTrackingOrOrderCodeCell(raw);
+}
+
 function getEffectiveBillMaTracking(row, pendingChanges) {
   const pendRow = pendingChanges.get(row.id);
   const v = pendRow?.has('ma_tracking') ? pendRow.get('ma_tracking') : row.ma_tracking;
-  if (v == null || v === '') return '';
-  return String(v).trim();
+  return normalizeTrackingOrOrderCodeCell(v);
 }
 
 /** Mã đơn hiện trên bảng bill (ưu tiên pending). */
@@ -1102,6 +1161,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
             : {};
         return {
           ...sourceRow,
+          ma_tracking: normalizeTrackingOrOrderCodeCell(sourceRow.ma_tracking),
           id: `history-${item.id}`,
           __history_id: item.id,
           __history_table: 'bill_uploaded_history',
@@ -1669,7 +1729,9 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
     return (rows || []).filter((row) => {
       if (!matchesFilterText(getEffectiveFilterValue(row, 'ma_don_hang'), tableFilters.orderCodes)) return false;
-      if (isBillTab && !matchesFilterText(getEffectiveFilterValue(row, 'ma_tracking'), tableFilters.tracking)) return false;
+      if (isBillTab && !matchesTrackingFilterText(getRowMaTrackingForFilter(row, pendingChanges), tableFilters.tracking)) {
+        return false;
+      }
       if (!matchesFilterText(getEffectiveFilterValue(row, 'sync_batch_label'), tableFilters.syncBatch)) return false;
       if (!matchesFilterText(getEffectiveFilterValue(row, 'synced_by'), tableFilters.syncedBy)) return false;
       if (
@@ -4142,6 +4204,12 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 record[dbKey] = normalizedCurrency;
                 hasData = true;
               }
+            } else if (dbKey === 'ma_tracking') {
+              const normalized = normalizeTrackingOrOrderCodeCell(value);
+              if (normalized) {
+                record[dbKey] = normalized;
+                hasData = true;
+              }
             } else if (dbKey.includes('tien') || dbKey.includes('so_tien') || dbKey.includes('ty_gia') || dbKey.includes('cuoc') || dbKey === 'stt') {
               // Number field
               if (value !== null && value !== undefined && value !== '') {
@@ -5084,7 +5152,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
             const isUploadedFilterTab = activeTab === 'bill_view' || activeTab === 'cuoc_view';
             const activeFilterCount =
               parseMaDonHangFilterTokens(tableFilters.orderCodes).length +
-              parseMaDonHangFilterTokens(tableFilters.tracking).length +
+              parseTrackingFilterEntries(tableFilters.tracking).length +
               (tableFilters.syncBatch.trim() ? 1 : 0) +
               (tableFilters.syncedBy.trim() ? 1 : 0) +
               (tableFilters.accountantConfirm.trim() ? 1 : 0) +
