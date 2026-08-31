@@ -4984,11 +4984,27 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                     className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none"
                   />
                 </div>
-                {tokenCount > 0 && (
-                  <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600">
-                    {tokenCount} mã từ bộ lọc cũ
-                  </span>
-                )}
+
+                <div className="flex items-start gap-2">
+                  <span className="text-xs font-bold text-gray-700 mt-2">Mã đơn hàng</span>
+                  <div className="flex flex-col">
+                    <textarea
+                      rows={1}
+                      value={currentMaDonFilter}
+                      onChange={(e) => {
+                        setCurrentMaDonFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      placeholder="Tìm / dán nhiều mã (dấu phẩy, xuống dòng, khoảng trắng)…"
+                      className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none w-72 min-h-[36px] max-h-32 resize-y focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    />
+                    {tokenCount > 0 && (
+                      <span className="text-[11px] text-blue-600 font-semibold mt-1">
+                        Đang lọc theo {tokenCount} mã
+                      </span>
+                    )}
+                  </div>
+                </div>
 
                 <button
                   type="button"
