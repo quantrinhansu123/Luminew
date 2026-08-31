@@ -1537,23 +1537,61 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     setCurrentPage(1);
   };
 
-  const hasTableFilters = Object.values(tableFilters).some((v) => {
+  const hasTableFilters = Object.entries(tableFilters).some(([key, v]) => {
     if (typeof v === 'boolean') return v;
-    return String(v ?? '').trim() !== '';
+    const s = String(v ?? '').trim();
+    if (!s) return false;
+    // Spinner ô number hay để lại 0 — coi như chưa lọc
+    if (key === 'amountMin' && s === '0') return false;
+    return true;
   });
 
+  /** Chuẩn hóa chuỗi lọc: bỏ khoảng trắng/dấu câu để khớp tracking dán "9201 9903 …" với DB "92019903…". */
+  const normalizeFilterHaystack = (value) =>
+    String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s,;._-]+/g, '');
+
   const matchesFilterText = (value, text) => {
-    const tokens = parseMaDonHangFilterTokens(text);
-    if (tokens.length === 0) return true;
-    const haystack = String(value ?? '').trim().toLowerCase();
+    const raw = String(text ?? '').trim();
+    if (!raw) return true;
+    const haystack = normalizeFilterHaystack(value);
     if (!haystack) return false;
-    return tokens.some((t) => haystack === t || haystack.includes(t));
+    const fullNeedle = normalizeFilterHaystack(raw);
+    if (
+      fullNeedle.length >= 4 &&
+      (haystack === fullNeedle || haystack.includes(fullNeedle) || fullNeedle.includes(haystack))
+    ) {
+      return true;
+    }
+    const tokens = parseMaDonHangFilterTokens(raw);
+    if (tokens.length === 0) return true;
+    return tokens.some((t) => {
+      const nt = normalizeFilterHaystack(t);
+      if (!nt) return false;
+      return haystack === nt || haystack.includes(nt);
+    });
   };
 
   const getEffectiveFilterValue = (row, key) => {
     const rowPendingChanges = row?.id ? pendingChanges.get(row.id) : null;
-    if (rowPendingChanges?.has(key)) return rowPendingChanges.get(key);
-    return row?.[key];
+    let v;
+    if (rowPendingChanges?.has(key)) v = rowPendingChanges.get(key);
+    else v = row?.[key];
+    if (v == null || v === '') return v;
+    if (typeof v === 'number' && (key === 'ma_tracking' || key === 'ma_don_hang')) {
+      return String(v);
+    }
+    return v;
+  };
+
+  const parseFilterAmountBound = (raw, { allowZero = false } = {}) => {
+    const s = String(raw ?? '').trim();
+    if (s === '') return null;
+    if (!allowZero && s === '0') return null;
+    const n = parseFloat(s.replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
   };
 
   const normalizeExactFilterValue = (value) =>
@@ -1591,10 +1629,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   };
 
   const applyTableFilters = (rows, isBillTab) => {
-    const minAmount =
-      tableFilters.amountMin === '' ? null : parseFloat(String(tableFilters.amountMin).replace(/,/g, ''));
-    const maxAmount =
-      tableFilters.amountMax === '' ? null : parseFloat(String(tableFilters.amountMax).replace(/,/g, ''));
+    const minAmount = parseFilterAmountBound(tableFilters.amountMin);
+    const maxAmount = parseFilterAmountBound(tableFilters.amountMax, { allowZero: true });
 
     let dupOrderAmountKeys = null;
     if (tableFilters.sameOrderSameAmountOnly) {
@@ -1645,8 +1681,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       if (tableFilters.duplicateOnly && Number(row?.dem_lan_thanh_toan || 0) <= 1) return false;
 
       const amount = getRowFilterAmount(row, isBillTab);
-      if (Number.isFinite(minAmount) && (amount === null || amount < minAmount)) return false;
-      if (Number.isFinite(maxAmount) && (amount === null || amount > maxAmount)) return false;
+      if (minAmount !== null && amount !== null && amount < minAmount) return false;
+      if (maxAmount !== null && amount !== null && amount > maxAmount) return false;
 
       if (tableFilters.sameOrderSameAmountOnly) {
         const k = getOrderAmountDupKey(row, isBillTab);
@@ -1671,24 +1707,40 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     });
   };
 
-  const getCurrentData = () => {
+  const filteredTableData = useMemo(() => {
     const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
     const baseData = isBillTab ? billDataWithTableDemLan : cuocDataWithTableDemLan;
 
-    // Lọc nhiều mã đơn hàng (FFM-style) cho các tab xem lịch sử
+    // Lọc nhanh mã đơn (ô trên) + bộ lọc dữ liệu (panel) cho tab lịch sử đã tải
     if (activeTab === 'bill_view' || activeTab === 'cuoc_view') {
-      const filterText =
+      const quickMaDonFilter =
         activeTab === 'bill_view' ? billUploadedMaDonFilter : cuocUploadedMaDonFilter;
-      const tokens = parseMaDonHangFilterTokens(filterText);
-      const historyFiltered = tokens.length === 0 ? baseData : baseData.filter((row) => {
-        const code = String(row?.ma_don_hang ?? '').trim().toLowerCase();
-        if (!code) return false;
-        return tokens.some((t) => code === t || code.includes(t));
-      });
+      const quickTokens = parseMaDonHangFilterTokens(quickMaDonFilter);
+      const historyFiltered =
+        quickTokens.length === 0
+          ? baseData
+          : baseData.filter((row) => {
+              const code = normalizeFilterHaystack(getEffectiveFilterValue(row, 'ma_don_hang'));
+              if (!code) return false;
+              return quickTokens.some((t) => {
+                const nt = normalizeFilterHaystack(t);
+                return nt && (code === nt || code.includes(nt));
+              });
+            });
       return applyTableFilters(historyFiltered, isBillTab);
     }
     return applyTableFilters(baseData, isBillTab);
-  };
+  }, [
+    activeTab,
+    billDataWithTableDemLan,
+    cuocDataWithTableDemLan,
+    billUploadedMaDonFilter,
+    cuocUploadedMaDonFilter,
+    tableFilters,
+    pendingChanges,
+  ]);
+
+  const getCurrentData = useCallback(() => filteredTableData, [filteredTableData]);
 
   const getCurrentColumns = () => {
     const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
@@ -5037,7 +5089,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               (tableFilters.syncedBy.trim() ? 1 : 0) +
               (tableFilters.accountantConfirm.trim() ? 1 : 0) +
               (tableFilters.ffmBranch.trim() ? 1 : 0) +
-              (tableFilters.amountMin.trim() ? 1 : 0) +
+              (tableFilters.amountMin.trim() && tableFilters.amountMin.trim() !== '0' ? 1 : 0) +
               (tableFilters.amountMax.trim() ? 1 : 0) +
               (tableFilters.duplicateOnly ? 1 : 0) +
               (tableFilters.sameOrderSameAmountOnly ? 1 : 0) +
