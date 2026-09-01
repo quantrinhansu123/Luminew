@@ -1609,6 +1609,8 @@ function handleData(response) {
                 sortState: null,
                 lastSummaryRows: [],
                 lastGrandTotal: null,
+                lastGrandTotalAll: null,
+                lastStaffStatsRaw: null,
                 columnVisibility: {},
 
                 init: function () {
@@ -1812,13 +1814,49 @@ function handleData(response) {
                             billOkTrenGiaoThanhCong: s["Giao Thành Công"].count > 0 ? ((s["Đã Thanh Toán (có bill)"].count + s["Bill 1 phần"].count) / s["Giao Thành Công"].count * 100) : 0
                         };
                     });
+                    this.lastStaffStatsRaw = staffStats;
+                    this.lastGrandTotalAll = grandTotal;
                     this.lastGrandTotal = grandTotal;
+                },
+
+                getVisibleStaffTypeFilters: function () {
+                    return new Set(Array.from(document.querySelectorAll('#reportStaffTypeDropdown input:checked:not(#reportStaffTypeSelectAll)')).map(cb => cb.value));
+                },
+
+                mergeSummaryStats: function (target, source) {
+                    Object.keys(target).forEach((key) => {
+                        const t = target[key];
+                        const s = source[key];
+                        if (!t || !s) return;
+                        if (typeof t.count === 'number') t.count += s.count || 0;
+                        if (typeof t.amount === 'number') t.amount += s.amount || 0;
+                    });
+                },
+
+                resolveGrandTotalForRender: function (visibleRows) {
+                    const filters = this.getVisibleStaffTypeFilters();
+                    if (filters.size === 0 || filters.size === 4) {
+                        return this.lastGrandTotalAll || this.lastGrandTotal;
+                    }
+                    if (!this.lastStaffStatsRaw) return this.lastGrandTotal;
+                    const summed = this.createEmptyStats();
+                    visibleRows.forEach((row) => {
+                        const key = `${row.staff}|||${row.staffType || ''}`;
+                        const stats = this.lastStaffStatsRaw[key];
+                        if (stats) this.mergeSummaryStats(summed, stats);
+                    });
+                    return summed;
                 },
 
                 renderSummaryTable: function () {
                     const tbody = document.getElementById('summaryTableBody');
                     tbody.innerHTML = '';
-                    const g = this.lastGrandTotal;
+                    let rows = [...this.lastSummaryRows];
+                    const staffTypeFilters = this.getVisibleStaffTypeFilters();
+                    if (staffTypeFilters.size > 0 && staffTypeFilters.size < 4) {
+                        rows = rows.filter((r) => staffTypeFilters.has(r.staffType || ''));
+                    }
+                    const g = this.resolveGrandTotalForRender(rows);
                     if (g) {
                         const tr = document.createElement('tr');
                         tr.className = 'summary-grand-total total-row';
@@ -1851,8 +1889,6 @@ function handleData(response) {
                                         <td data-col-id="ttThanhCongTrenDonTinhPhi">(${VandonNvRegion.formatVndAmount(grandTrackingBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandTrackingBillRate.trackingAmount)}) = ${tongTyLeTTThanhCong.toFixed(1)}%</td>`;
                         tbody.appendChild(tr);
                     }
-                    let rows = [...this.lastSummaryRows];
-                    console.log('🔍 Total rows to render:', rows.length);
                     const st = this.sortState || {};
                     if (st.key) {
                         rows.sort((a, b) => {
@@ -2314,30 +2350,7 @@ function handleData(response) {
                 updateStaffTypeFilterButtonText: function () { this.updateFilterButtonText('reportStaffTypeFilterBtn', 'reportStaffTypeDropdown', 'reportStaffTypeSelectAll', 'Tất cả loại NV', 'loại'); },
 
                 applyStaffTypeFilter: function () {
-                    // Lấy các loại nhân viên đã chọn từ dropdown (không cố định Sale nữa)
-                    const staffTypeFilters = new Set(Array.from(document.querySelectorAll('#reportStaffTypeDropdown input:checked:not(#reportStaffTypeSelectAll)')).map(cb => cb.value));
-
-                    // Nếu không chọn gì hoặc chọn tất cả -> hiển thị hết
-                    if (staffTypeFilters.size === 0 || staffTypeFilters.size === 4) {
-                        document.querySelectorAll('#summaryTableBody tr').forEach(tr => {
-                            if (!tr.classList.contains('summary-grand-total')) {
-                                tr.style.display = '';
-                            }
-                        });
-                        return;
-                    }
-
-                    // Lọc theo loại nhân viên được chọn
-                    document.querySelectorAll('#summaryTableBody tr').forEach(tr => {
-                        if (tr.classList.contains('summary-grand-total')) return;
-
-                        // Lấy staffType từ data attribute thay vì parse từ textContent
-                        const staffType = tr.getAttribute('data-staff-type') || '';
-                        
-                        const shouldShow = staffTypeFilters.has(staffType);
-
-                        tr.style.display = shouldShow ? '' : 'none';
-                    });
+                    this.renderSummaryTable();
                 },
                 applyAllFilters: function () {
                     // BẮT ĐẦU TỪ GLOBALDATA - KHÔNG LỌC PHÂN QUYỀN Ở ĐÂY

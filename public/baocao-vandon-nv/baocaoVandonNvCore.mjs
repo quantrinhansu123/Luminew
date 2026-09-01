@@ -629,9 +629,13 @@ export async function fetchF3LegacyMapped(supabase, opts = {}) {
     }
   };
 
+  // `orders` (/bao-cao-van-don): chỉ lọc theo order_date — không bổ sung đơn null order_date theo created_at.
+  const includeCreatedAtFallback = tableName !== ORDER_DEFAULT_SUPABASE_TABLE;
   if (startDate && endDate) {
     await paginate('order_date');
-    await paginate('created_at_null_order_date');
+    if (includeCreatedAtFallback) {
+      await paginate('created_at_null_order_date');
+    }
   } else {
     await paginate('order_date');
   }

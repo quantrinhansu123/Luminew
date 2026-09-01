@@ -223,15 +223,27 @@
             return url + sep + parts.join('&');
         }
 
+        var IFRAME_TAB_MAP = {
+            'BaocaoVanDonTongKetSub': { id: 'baocaovandontongket-iframe', base: './baocaotongketvandontab1.html' },
+            'BaoCaoVanDonCEOSub': { id: 'baocaovandonceo-iframe', base: './vandonCEO.html' },
+            'ChiTietVanDonSub': { id: 'chitietvandon-iframe', base: './chitietvandon.html' },
+            'VanDonSub': { id: 'vandontab3-iframe', base: './Baocaovandontab3.html' },
+            'KpiCEOSub': { id: 'ceokpi-iframe', base: './KPIVandon.html?view=vandon' }
+        };
+
+        /** Chỉ tab đang mở được gán src — tab khác gỡ src để không tải/tính song song. */
+        function unloadInactiveIframes(activeSubTabName) {
+            Object.keys(IFRAME_TAB_MAP).forEach(function (subTabName) {
+                if (subTabName === activeSubTabName) return;
+                var el = document.getElementById(IFRAME_TAB_MAP[subTabName].id);
+                if (el && el.getAttribute('src')) {
+                    el.removeAttribute('src');
+                }
+            });
+        }
+
         function ensureIframeLoaded(subTabName) {
-            var map = {
-                'BaocaoVanDonTongKetSub': { id: 'baocaovandontongket-iframe', base: './baocaotongketvandontab1.html' },
-                'BaoCaoVanDonCEOSub': { id: 'baocaovandonceo-iframe', base: './vandonCEO.html' },
-                'ChiTietVanDonSub': { id: 'chitietvandon-iframe', base: './chitietvandon.html' },
-                'VanDonSub': { id: 'vandontab3-iframe', base: './Baocaovandontab3.html' },
-                'KpiCEOSub': { id: 'ceokpi-iframe', base: './KPIVandon.html?view=vandon' }
-            };
-            var c = map[subTabName];
+            var c = IFRAME_TAB_MAP[subTabName];
             if (!c) return;
             var el = document.getElementById(c.id);
             if (!el) return;
@@ -255,6 +267,7 @@
             document.getElementById(subTabName).style.display = "block";
             document.getElementById(subTabName).classList.add("active");
             evt.currentTarget.className += " active";
+            unloadInactiveIframes(subTabName);
             ensureIframeLoaded(subTabName);
             applyUrlParamsToIframes(subTabName);
         }
