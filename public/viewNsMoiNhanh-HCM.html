@@ -2532,15 +2532,9 @@
         const rowsPersonnelFiltered = rowsTeamFiltered.filter((r) =>
           rowTenMatchesPersonnelScope(r['Tên'] || r.ten || r.name)
         );
-        let rowsActualized = rowsPersonnelFiltered;
-        try {
-          rowsActualized = await overlayHcmActualsFromOrders(rowsPersonnelFiltered, dateRange);
-        } catch (actualsErr) {
-          console.warn(
-            `[MKT HCM] Không phủ được số TT từ ${MKT_HCM_ORDERS_TABLE}; dùng số đã lưu trên ${MKT_REPORTS_TABLE}:`,
-            actualsErr?.message || actualsErr
-          );
-        }
+        // Số Đơn (TT) / DS TT: lấy thẳng từ marketing_report_hcm (cùng nguồn danh-sach-bao-cao-tay-mkt HCM).
+        // Không phủ lại từ order_code_hcm — tránh lệch số so với báo cáo tay.
+        const rowsActualized = rowsPersonnelFiltered;
 
         // Gộp trùng key (HCM): CPQC, Số Mess, Số đơn, Doanh số (nhập tay) cộng dồn; TT/hủy/DS TT lấy max.
         // Map → masterData; footer cộng theo từng dòng sau gộp.

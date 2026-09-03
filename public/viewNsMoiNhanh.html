@@ -3686,18 +3686,11 @@
         const rawRows = extractDetailReportsRows(resultMKT);
         const rowsNorm = rawRows.map(normalizeDetailReportRow);
         const lo = document.getElementById('loading-overlay');
-        if (lo) lo.textContent = 'Đang đồng bộ số TT từ đơn hàng…';
-        let rowsActualized = rowsNorm;
-        try {
-          rowsActualized = await overlayHnActualsFromOrders(rowsNorm, dateRange);
-        } catch (actualsErr) {
-          console.warn(
-            `[MKT HN] Không phủ được số TT từ ${MKT_HN_ORDERS_TABLE}; dùng số đã lưu trên detail_reports:`,
-            actualsErr?.message || actualsErr
-          );
-        }
-        const rowsDeduped = dedupeMktDetailReportRows(rowsActualized);
+        // Số Đơn (TT) / DS TT: lấy thẳng từ detail_reports (cùng nguồn danh-sach-bao-cao-tay-mkt).
+        // Không phủ lại từ orders — overlay từng làm lệch số (vd. +1) so với báo cáo tay.
         if (lo) lo.textContent = 'Đang xử lý dữ liệu…';
+        const rowsActualized = rowsNorm;
+        const rowsDeduped = dedupeMktDetailReportRows(rowsActualized);
         await new Promise((r) => requestAnimationFrame(r));
         let rdProductsSet = null;
         if (RD_PRODUCTS_ONLY) {
