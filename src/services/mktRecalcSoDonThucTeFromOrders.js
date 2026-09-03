@@ -615,7 +615,12 @@ function isOrderHuyHcmOverlay(order) {
 
 function buildHcmActualsByReportKeyFromOrders(orders) {
   const counts = new Map();
-  for (const order of orders || []) {
+  const deduped = dropGiftAddonDuplicateOrders(orders);
+  const mainDays = staffDaysWithMainProduct(deduped);
+  for (const order of deduped) {
+    if (isGiftSkippedForStaffDay(order.product, order.order_date, order.marketing_staff, mainDays)) {
+      continue;
+    }
     if (!isMktActualOrderCountable(order)) continue;
     const baseKey = buildKey(
       order.order_date,
@@ -647,6 +652,8 @@ function buildHcmActualsByReportKeyFromOrders(orders) {
  * Khớp `overlayHcmActualsFromOrders` trong `viewNsMoiNhanh-HCM.html`.
  */
 export function overlayHcmMarketingReportRowsFromOrders(reportRows, orders) {
+  const deduped = dropGiftAddonDuplicateOrders(orders);
+  const mainDays = staffDaysWithMainProduct(deduped);
   const actualsByKey = buildHcmActualsByReportKeyFromOrders(orders);
   return (reportRows || []).map((row) => {
     const r = row || {};
@@ -656,6 +663,26 @@ export function overlayHcmMarketingReportRowsFromOrders(reportRows, orders) {
     const tt = r['Thị_trường'] ?? r['Thị trường'] ?? r.thi_truong ?? r.market;
     const baseKey = buildKey(ngay, ten, sp, tt);
     if (!baseKey || baseKey.split('|').some((part) => !part)) return r;
+
+    // Dòng SP quà khi NV đã có SP chính trong ngày → ép TT = 0 (khớp recalc / overlay HTML).
+    if (isGiftSkippedForStaffDay(sp, ngay, ten, mainDays)) {
+      return {
+        ...r,
+        'Số đơn thực tế': 0,
+        so_don_thuc_te: r.so_don_thuc_te != null ? 0 : r.so_don_thuc_te,
+        order_count_actual: r.order_count_actual != null ? 0 : r.order_count_actual,
+        'Doanh số TT': 0,
+        doanh_so_tt: r.doanh_so_tt != null ? 0 : r.doanh_so_tt,
+        'Số đơn hoàn hủy': 0,
+        'Số đơn hoàn hủy thực tế': 0,
+        so_don_hoan_huy: r.so_don_hoan_huy != null ? 0 : r.so_don_hoan_huy,
+        so_don_hoan_huy_thuc_te:
+          r.so_don_hoan_huy_thuc_te != null ? 0 : r.so_don_hoan_huy_thuc_te,
+        'Doanh số hoàn hủy thực tế': 0,
+        doanh_so_hoan_huy_thuc_te:
+          r.doanh_so_hoan_huy_thuc_te != null ? 0 : r.doanh_so_hoan_huy_thuc_te,
+      };
+    }
 
     const caKey = normalizeCaForRowKey(r.ca ?? r['Ca'] ?? r.shift);
     const actual = actualsByKey.get(`${baseKey}|${caKey}`);
