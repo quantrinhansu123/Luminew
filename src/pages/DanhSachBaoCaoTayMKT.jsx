@@ -7,7 +7,6 @@ import {
     buildMktDetailReportRowKey,
     computeMktOrderMetricsForReportRow,
     fetchMktOrdersInDateRange,
-    isMktGiftAddonReportRow,
     mktRealValuesFallbackFromReportRow,
     recalcMktSoDonThucTeFromOrders,
 } from '../services/mktRecalcSoDonThucTeFromOrders';
@@ -150,25 +149,13 @@ function mktSoDonDisplayFromRealValues(realValues) {
     );
 }
 
-function mktZeroGiftAddonRealValues(rv) {
-    return {
-        ...rv,
-        so_don_thuc_te: 0,
-        so_don_huy: 0,
-        so_don_ok: 0,
-        doanh_so_ok: 0,
-        doanh_so_thuc_te: 0,
-        so_don_gross: 0,
-    };
-}
-
 function mktRealValuesForReportRow(item, realValuesMap, allRows) {
-    const base =
+    void allRows;
+    return (
         (item?.id != null && realValuesMap?.[item.id] != null
             ? realValuesMap[item.id]
-            : null) || mktRealValuesFallbackFromReportRow(item, { grossSoDon: false });
-    if (isMktGiftAddonReportRow(item, allRows)) return mktZeroGiftAddonRealValues(base);
-    return base;
+            : null) || mktRealValuesFallbackFromReportRow(item, { grossSoDon: false })
+    );
 }
 
 /** Phạm vi `detail_reports` (HN): MKT/null/non-RD + team Test. Không dùng cho `marketing_report_hcm` — bảng HCM không cùng schema department / trang xem legacy chỉ lọc Team. */
@@ -1280,12 +1267,11 @@ export default function DanhSachBaoCaoTayMKT({
             const id = r?.id;
             const fromMap = id != null && realValuesMap[id] !== undefined ? realValuesMap[id] : null;
             const rv = fromMap || mktRealValuesFallbackFromReportRow(r, { grossSoDon: false });
-            const effectiveRv = isMktGiftAddonReportRow(r, rows) ? mktZeroGiftAddonRealValues(rv) : rv;
-            const sd = mktSoDonDisplayFromRealValues(effectiveRv);
-            const sh = Number(effectiveRv.so_don_huy ?? 0);
-            const ok = Number(effectiveRv.so_don_ok ?? 0);
+            const sd = mktSoDonDisplayFromRealValues(rv);
+            const sh = Number(rv.so_don_huy ?? 0);
+            const ok = Number(rv.so_don_ok ?? 0);
             const st = Number(r?.['Số đơn'] ?? 0);
-            const ds = Number(effectiveRv.doanh_so_thuc_te ?? 0);
+            const ds = Number(rv.doanh_so_thuc_te ?? 0);
             const dst = Number(r?.['Doanh số'] ?? 0);
             const prev = byDetailKey.get(k);
             if (!prev) {

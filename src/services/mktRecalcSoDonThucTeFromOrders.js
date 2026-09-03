@@ -284,17 +284,7 @@ export function computeMktOrderMetricsForReportRow(report, ordersList, options =
     return { ...EMPTY_MKT_ORDER_METRICS };
   }
 
-  const mainDays = options.mainDays || staffDaysWithMainProduct(ordersList);
-  if (
-    isGiftSkippedForStaffDay(
-      mktReportProductName(r),
-      mktReportDateVal(r),
-      mktReportStaffName(r),
-      mainDays
-    )
-  ) {
-    return { ...EMPTY_MKT_ORDER_METRICS };
-  }
+  void options;
 
   const ek = effectiveKeyPartsForReportRow(r, ordersList);
   const key = ek.key;
@@ -310,7 +300,7 @@ export function computeMktOrderMetricsForReportRow(report, ordersList, options =
   let cancelRevenueVnd = 0;
 
   const seenOrderCodes = new Set();
-  for (const order of dropGiftAddonDuplicateOrders(ordersList || [])) {
+  for (const order of dropGiftColumnDuplicateOrders(ordersList || [])) {
     const oc = String(order?.order_code ?? '').trim();
     if (oc) {
       if (seenOrderCodes.has(oc)) continue;
@@ -489,67 +479,17 @@ function uniqueOrdersByOrderCode(ordersList) {
   return out;
 }
 
-/** SP hay dùng làm quà — đơn quà cùng KH/ngày/MKT với đơn SP chính không cộng thêm Số đơn TT. */
-const MKT_GIFT_PRODUCT_KEYS = new Set(
-  [
-    'Kem Body',
-    'Serum Sâm',
-    'Cream Sâm',
-    'VIT C',
-    'Dưỡng Tóc',
-    'Cream Bakuchiol',
-    'Serum Bakuchiol',
-    'Kẹo Dâu Glu',
-    'Dầu gội',
-  ].map((n) => normalizeFieldForKey(n))
-);
-
-export function isMktGiftProductName(product) {
-  return MKT_GIFT_PRODUCT_KEYS.has(normalizeFieldForKey(product));
+/** @deprecated Giữ export — không còn bỏ SP theo tên (Kem Body vẫn tính). */
+export function isMktGiftProductName(_product) {
+  return false;
 }
 
-function mktReportProductName(row) {
-  return row?.['Sản_phẩm'] ?? row?.sanPham ?? row?.san_pham ?? row?.product ?? '';
-}
-
-function mktReportStaffName(row) {
-  return row?.['Tên'] ?? row?.ten ?? row?.name ?? '';
-}
-
-function mktReportDateVal(row) {
-  return row?.['Ngày'] ?? row?.ngay ?? row?.date ?? '';
-}
-
-/** Dòng SP quà trên báo cáo khi cùng NV+ngày đã có SP chính. */
-export function isMktGiftAddonReportRow(row, allRows) {
-  if (!isMktGiftProductName(mktReportProductName(row))) return false;
-  const nk = normalizeNameForKey(mktReportStaffName(row));
-  const day = normalizeNgayForKey(mktReportDateVal(row));
-  if (!nk) return false;
-  return (allRows || []).some((other) => {
-    if (isMktGiftProductName(mktReportProductName(other))) return false;
-    if (normalizeNameForKey(mktReportStaffName(other)) !== nk) return false;
-    if (day && normalizeNgayForKey(mktReportDateVal(other)) !== day) return false;
-    return true;
-  });
-}
-
-function staffDaysWithMainProduct(ordersList) {
-  const set = new Set();
-  for (const order of ordersList || []) {
-    if (isMktGiftProductName(order?.product)) continue;
-    const day = normalizeNgayForKey(order?.order_date);
-    const nk = normalizeNameForKey(order?.marketing_staff);
-    if (day && nk) set.add(`${day}|${nk}`);
-  }
-  return set;
-}
-
-function isGiftSkippedForStaffDay(product, dateVal, nameVal, mainDays) {
-  if (!isMktGiftProductName(product) || !mainDays || mainDays.size === 0) return false;
-  const day = normalizeNgayForKey(dateVal);
-  const nk = normalizeNameForKey(nameVal);
-  return Boolean(day && nk && mainDays.has(`${day}|${nk}`));
+/**
+ * @deprecated Không zero dòng SP theo tên. Chống trùng chỉ theo cột `gift` khi đếm đơn.
+ * Giữ export để UI cũ không vỡ import.
+ */
+export function isMktGiftAddonReportRow(_row, _allRows) {
+  return false;
 }
 
 const EMPTY_MKT_ORDER_METRICS = {
@@ -568,39 +508,57 @@ function mktOrderCustomerKey(order) {
   return name ? `n:${name}` : '';
 }
 
+function orderGiftColumnRaw(order) {
+  return String(order?.gift ?? order?.gift_item ?? '').trim();
+}
+
+/** Ghép product với text cột quà (vd. «VIT C», «Tặng 1 bình nước»). */
+function productMatchesGiftColumn(product, giftRaw) {
+  const p = normalizeFieldForKey(product);
+  const g = normalizeFieldForKey(giftRaw);
+  if (!p || !g) return false;
+  if (p === g) return true;
+  if (g.includes(p) || p.includes(g)) return true;
+  return false;
+}
+
 /**
- * Cùng NV MKT + ngày + khách: nếu đã có đơn SP chính thì bỏ đơn SP quà (vd. Kem Body)
- * — tránh cộng thừa 1 đơn quà vào Số đơn TT.
+ * Chống đếm 2 lần (quà tách mã), vẫn đếm 1 lần:
+ * Cùng NV + ngày + khách:
+ *   - Đơn B: có cột gift = X  → vẫn đếm đơn B
+ *   - Đơn A: product = X      → không đếm A (trùng quà đã ghi trên B)
+ * Kem Body / SP khác bán thường (không khớp cột gift đơn khác) → vẫn đếm đủ.
  */
-function dropGiftAddonDuplicateOrders(ordersList) {
+function dropGiftColumnDuplicateOrders(ordersList) {
   const unique = uniqueOrdersByOrderCode(ordersList);
-  const bucket = new Map();
-  for (const order of unique) {
-    const cust = mktOrderCustomerKey(order);
-    const day = normalizeNgayForKey(order?.order_date);
-    const staff = normalizeNameForKey(order?.marketing_staff);
-    if (!cust || !day || !staff) continue;
-    const k = `${day}|${staff}|${cust}`;
-    let b = bucket.get(k);
-    if (!b) {
-      b = { main: [], gift: [] };
-      bucket.set(k, b);
-    }
-    if (isMktGiftProductName(order?.product)) {
-      b.gift.push(order);
-    } else {
-      b.main.push(order);
-    }
-  }
   const drop = new Set();
-  for (const b of bucket.values()) {
-    if (!b.main.length || !b.gift.length) continue;
-    for (const g of b.gift) {
-      const oc = String(g?.order_code ?? '').trim();
+
+  for (let i = 0; i < unique.length; i++) {
+    const orderA = unique[i];
+    const productA = String(orderA?.product ?? '').trim();
+    if (!productA) continue;
+    const cust = mktOrderCustomerKey(orderA);
+    const day = normalizeNgayForKey(orderA?.order_date);
+    const staff = normalizeNameForKey(orderA?.marketing_staff);
+    if (!cust || !day || !staff) continue;
+
+    for (let j = 0; j < unique.length; j++) {
+      if (i === j) continue;
+      const orderB = unique[j];
+      if (mktOrderCustomerKey(orderB) !== cust) continue;
+      if (normalizeNgayForKey(orderB?.order_date) !== day) continue;
+      if (normalizeNameForKey(orderB?.marketing_staff) !== staff) continue;
+      const giftOnB = orderGiftColumnRaw(orderB);
+      if (!giftOnB) continue;
+      if (!productMatchesGiftColumn(productA, giftOnB)) continue;
+      // Bỏ đơn A (product=X); giữ đơn B (có gift=X) → còn đúng 1 lần đếm.
+      const oc = String(orderA?.order_code ?? '').trim();
       if (oc) drop.add(oc);
-      else drop.add(g);
+      else drop.add(orderA);
+      break;
     }
   }
+
   if (!drop.size) return unique;
   return unique.filter((o) => {
     const oc = String(o?.order_code ?? '').trim();
@@ -1277,13 +1235,11 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy).
   // MKT actual chỉ tính đơn có doanh số VND dương; đơn 0đ không được làm lệch Số đơn TT.
-  // Trùng order_code: chỉ đếm 1 lần. Đơn SP quà không cộng khi NV đã có SP chính trong ngày.
-  const mainDays = staffDaysWithMainProduct(orders);
-  for (const order of dropGiftAddonDuplicateOrders(orders || [])) {
+  // Trùng order_code: chỉ đếm 1 lần. Chỉ bỏ đơn trùng khi product trùng cột `gift` đơn khác (cùng KH/ngày/NV) — Kem Body vẫn tính nếu là đơn bán.
+  for (const order of dropGiftColumnDuplicateOrders(orders || [])) {
     const groups = orderShiftGroupsForRecalc(order.shift);
 
     if (!normalizeNgayForKey(order.order_date) || !normalizeNameForKey(order.marketing_staff)) continue;
-    if (isGiftSkippedForStaffDay(order.product, order.order_date, order.marketing_staff, mainDays)) continue;
 
     const key = buildKey(order.order_date, order.marketing_staff, order.product, order.country);
     if (!key) continue;
