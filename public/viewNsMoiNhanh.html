@@ -3536,106 +3536,19 @@
       return ascii === 'ok';
     }
 
-    /** SP quà — khớp mktRecalcSoDonThucTeFromOrders (không cộng TT khi NV đã có SP chính trong ngày). */
-    const MKT_GIFT_PRODUCT_KEYS_OVERLAY = new Set(
-      [
-        'Kem Body',
-        'Serum Sâm',
-        'Cream Sâm',
-        'VIT C',
-        'Dưỡng Tóc',
-        'Cream Bakuchiol',
-        'Serum Bakuchiol',
-        'Kẹo Dâu Glu',
-        'Dầu gội',
-      ].map((n) => normalizeFieldForKey(n))
-    );
-
-    function isMktGiftProductNameOverlay(product) {
-      return MKT_GIFT_PRODUCT_KEYS_OVERLAY.has(normalizeFieldForKey(product));
-    }
-
-    function uniqueOrdersByOrderCodeOverlay(ordersList) {
-      const seen = new Set();
-      const out = [];
-      for (const order of ordersList || []) {
-        const oc = String(order?.order_code ?? '').trim();
-        if (oc) {
-          if (seen.has(oc)) continue;
-          seen.add(oc);
-        }
-        out.push(order);
-      }
-      return out;
-    }
-
-    function mktOrderCustomerKeyOverlay(order) {
-      const phone = String(order?.customer_phone ?? '').replace(/\D/g, '');
-      if (phone.length >= 8) return `p:${phone}`;
-      const name = normalizeNameForKey(order?.customer_name);
-      return name ? `n:${name}` : '';
-    }
-
-    function dropGiftAddonDuplicateOrdersOverlay(ordersList) {
-      const unique = uniqueOrdersByOrderCodeOverlay(ordersList);
-      const bucket = new Map();
-      for (const order of unique) {
-        const cust = mktOrderCustomerKeyOverlay(order);
-        const day = normalizeNgayForKey(order?.order_date);
-        const staff = normalizeNameForKey(order?.marketing_staff);
-        if (!cust || !day || !staff) continue;
-        const k = `${day}|${staff}|${cust}`;
-        let b = bucket.get(k);
-        if (!b) {
-          b = { main: [], gift: [] };
-          bucket.set(k, b);
-        }
-        if (isMktGiftProductNameOverlay(order?.product)) b.gift.push(order);
-        else b.main.push(order);
-      }
-      const drop = new Set();
-      for (const b of bucket.values()) {
-        if (!b.main.length || !b.gift.length) continue;
-        for (const g of b.gift) {
-          const oc = String(g?.order_code ?? '').trim();
-          if (oc) drop.add(oc);
-          else drop.add(g);
-        }
-      }
-      if (!drop.size) return unique;
-      return unique.filter((o) => {
-        const oc = String(o?.order_code ?? '').trim();
-        if (oc) return !drop.has(oc);
-        return !drop.has(o);
-      });
-    }
-
-    function staffDaysWithMainProductOverlay(ordersList) {
-      const set = new Set();
-      for (const order of ordersList || []) {
-        if (isMktGiftProductNameOverlay(order?.product)) continue;
-        const day = normalizeNgayForKey(order?.order_date);
-        const nk = normalizeNameForKey(order?.marketing_staff);
-        if (day && nk) set.add(`${day}|${nk}`);
-      }
-      return set;
-    }
-
-    function isGiftSkippedForStaffDayOverlay(product, dateVal, nameVal, mainDays) {
-      if (!isMktGiftProductNameOverlay(product) || !mainDays || mainDays.size === 0) return false;
-      const day = normalizeNgayForKey(dateVal);
-      const nk = normalizeNameForKey(nameVal);
-      return Boolean(day && nk && mainDays.has(`${day}|${nk}`));
+    function isOrderOkForActualOverlay(order) {
+      const s = String(order?.check_result ?? '').trim();
+      if (!s) return false;
+      const ascii = s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      return ascii === 'ok';
     }
 
     function buildHnActualsByReportKey(orders) {
       const counts = new Map();
-      const deduped = dropGiftAddonDuplicateOrdersOverlay(orders);
-      const mainDays = staffDaysWithMainProductOverlay(deduped);
-      for (const order of deduped) {
-        if (isGiftSkippedForStaffDayOverlay(order.product, order.order_date, order.marketing_staff, mainDays)) {
-          continue;
-        }
+      for (const order of orders || []) {
         const baseKey = buildMktActualBaseKey(
           order.order_date,
           order.marketing_staff,
@@ -3706,7 +3619,6 @@
     }
 
     async function overlayHnActualsFromOrders(rowsNorm, dateRange) {
-      // Khâu «tự động nhảy số TT»: phủ Số đơn TT / DS TT từ orders lên từng dòng báo cáo.
       const { orders, complete } = await fetchAllHnOrdersForActualOverlay(dateRange);
       if (!complete) {
         console.warn(
@@ -3714,8 +3626,6 @@
         );
         return rowsNorm;
       }
-      const dedupedOrders = dropGiftAddonDuplicateOrdersOverlay(orders);
-      const mainDays = staffDaysWithMainProductOverlay(dedupedOrders);
       const actualsByKey = buildHnActualsByReportKey(orders);
       let changedRows = 0;
 
@@ -3727,20 +3637,6 @@
           row['Thị_trường']
         );
         if (!baseKey || baseKey.split('|').some((part) => !part)) return row;
-
-        // Dòng SP quà khi NV đã có SP chính trong ngày → ép TT = 0 (khớp nút Tính lại / recalc).
-        if (
-          isGiftSkippedForStaffDayOverlay(
-            row['Sản_phẩm'] ?? row.san_pham ?? row.product,
-            row['Ngày'] ?? row.ngay ?? row.date,
-            row['Tên'] ?? row.ten ?? row.name,
-            mainDays
-          )
-        ) {
-          const beforeCount = parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
-          if (beforeCount !== 0) changedRows += 1;
-          return applyMktActualsToReportRow(row, null);
-        }
 
         const caKey = normalizeCaForRowKey(row.ca ?? row['Ca'] ?? row.shift);
         const actual = actualsByKey.get(`${baseKey}|${caKey}`);
