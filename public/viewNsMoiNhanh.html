@@ -3443,7 +3443,7 @@
         let q = supabase
           .from(MKT_HN_ORDERS_TABLE)
           .select(
-            'order_code, order_date, marketing_staff, product, country, shift, check_result, payment_status, customer_name, customer_phone, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
+            'order_code, order_date, marketing_staff, product, country, shift, check_result, payment_status, customer_name, customer_phone, gift, gift_item, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
           );
         if (startYmd) q = q.gte('order_date', startYmd);
         if (endYmd) q = q.lte('order_date', endYmd);
@@ -3536,19 +3536,78 @@
       return ascii === 'ok';
     }
 
-    function isOrderOkForActualOverlay(order) {
-      const s = String(order?.check_result ?? '').trim();
-      if (!s) return false;
-      const ascii = s
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase();
-      return ascii === 'ok';
+    function mktOrderCustomerKeyOverlay(order) {
+      const phone = String(order?.customer_phone ?? '').replace(/\D/g, '');
+      if (phone.length >= 8) return `p:${phone}`;
+      const name = normalizeNameForKey(order?.customer_name);
+      return name ? `n:${name}` : '';
+    }
+
+    function orderGiftColumnRawOverlay(order) {
+      return String(order?.gift ?? order?.gift_item ?? '').trim();
+    }
+
+    function productMatchesGiftColumnOverlay(product, giftRaw) {
+      const p = normalizeFieldForKey(product);
+      const g = normalizeFieldForKey(giftRaw);
+      if (!p || !g) return false;
+      if (p === g) return true;
+      if (g.includes(p) || p.includes(g)) return true;
+      return false;
+    }
+
+    function uniqueOrdersByOrderCodeOverlay(ordersList) {
+      const seen = new Set();
+      const out = [];
+      for (const order of ordersList || []) {
+        const oc = String(order?.order_code ?? '').trim();
+        if (oc) {
+          if (seen.has(oc)) continue;
+          seen.add(oc);
+        }
+        out.push(order);
+      }
+      return out;
+    }
+
+    /** Cùng rule danh-sach «Số đơn»: bỏ trùng cột gift; Kem Body bán thường vẫn đếm. */
+    function dropGiftColumnDuplicateOrdersOverlay(ordersList) {
+      const unique = uniqueOrdersByOrderCodeOverlay(ordersList);
+      const drop = new Set();
+      for (let i = 0; i < unique.length; i++) {
+        const orderA = unique[i];
+        const productA = String(orderA?.product ?? '').trim();
+        if (!productA) continue;
+        const cust = mktOrderCustomerKeyOverlay(orderA);
+        const day = normalizeNgayForKey(orderA?.order_date);
+        const staff = normalizeNameForKey(orderA?.marketing_staff);
+        if (!cust || !day || !staff) continue;
+        for (let j = 0; j < unique.length; j++) {
+          if (i === j) continue;
+          const orderB = unique[j];
+          if (mktOrderCustomerKeyOverlay(orderB) !== cust) continue;
+          if (normalizeNgayForKey(orderB?.order_date) !== day) continue;
+          if (normalizeNameForKey(orderB?.marketing_staff) !== staff) continue;
+          const giftOnB = orderGiftColumnRawOverlay(orderB);
+          if (!giftOnB) continue;
+          if (!productMatchesGiftColumnOverlay(productA, giftOnB)) continue;
+          const oc = String(orderA?.order_code ?? '').trim();
+          if (oc) drop.add(oc);
+          else drop.add(orderA);
+          break;
+        }
+      }
+      if (!drop.size) return unique;
+      return unique.filter((o) => {
+        const oc = String(o?.order_code ?? '').trim();
+        if (oc) return !drop.has(oc);
+        return !drop.has(o);
+      });
     }
 
     function buildHnActualsByReportKey(orders) {
       const counts = new Map();
-      for (const order of orders || []) {
+      for (const order of dropGiftColumnDuplicateOrdersOverlay(orders)) {
         const baseKey = buildMktActualBaseKey(
           order.order_date,
           order.marketing_staff,
@@ -3588,19 +3647,19 @@
     }
 
     function applyMktActualsToReportRow(row, actual) {
-      const count = actual?.count || 0;
+      // «Số đơn» trên danh-sach-bao-cao-tay-mkt = so_don_gross (count), không trừ hủy.
+      const grossCount = actual?.count || 0;
       const cancelCount = actual?.cancelCount || 0;
       const totalRevenueVnd = actual?.totalRevenueVnd || 0;
       const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
-      const netCount = Math.max(0, count - cancelCount);
       const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
       const okCount = actual?.okCount || 0;
       const okRevenueVnd = actual?.okRevenueVnd || 0;
       return {
         ...row,
-        'Số đơn thực tế': netCount,
-        so_don_thuc_te: row.so_don_thuc_te != null ? netCount : row.so_don_thuc_te,
-        order_count_actual: row.order_count_actual != null ? netCount : row.order_count_actual,
+        'Số đơn thực tế': grossCount,
+        so_don_thuc_te: row.so_don_thuc_te != null ? grossCount : row.so_don_thuc_te,
+        order_count_actual: row.order_count_actual != null ? grossCount : row.order_count_actual,
         'Doanh số TT': netRevenueVnd,
         doanh_so_tt: row.doanh_so_tt != null ? netRevenueVnd : row.doanh_so_tt,
         'Số đơn hoàn hủy': cancelCount,
@@ -3619,6 +3678,7 @@
     }
 
     async function overlayHnActualsFromOrders(rowsNorm, dateRange) {
+      // Đồng bộ Số Đơn (TT) với cột «Số đơn» trên danh-sach-bao-cao-tay-mkt (tính từ orders).
       const { orders, complete } = await fetchAllHnOrdersForActualOverlay(dateRange);
       if (!complete) {
         console.warn(
@@ -3642,15 +3702,15 @@
         const actual = actualsByKey.get(`${baseKey}|${caKey}`);
         const beforeCount = parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
         const beforeCancel = parseIntegerVi(row['Số đơn hoàn hủy'] ?? row.so_don_hoan_huy ?? 0);
-        const netCount = Math.max(0, (actual?.count || 0) - (actual?.cancelCount || 0));
+        const grossCount = actual?.count || 0;
         const cancelCount = actual?.cancelCount || 0;
-        if (beforeCount !== netCount || beforeCancel !== cancelCount) changedRows += 1;
+        if (beforeCount !== grossCount || beforeCancel !== cancelCount) changedRows += 1;
 
         return applyMktActualsToReportRow(row, actual);
       });
 
       console.log(
-        `🔁 Phủ số TT HN từ ${MKT_HN_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
+        `🔁 Phủ Số đơn (khớp danh-sach) HN từ ${MKT_HN_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
       );
       return rows;
     }
@@ -3686,11 +3746,19 @@
         const rawRows = extractDetailReportsRows(resultMKT);
         const rowsNorm = rawRows.map(normalizeDetailReportRow);
         const lo = document.getElementById('loading-overlay');
-        // Số Đơn (TT) / DS TT: lấy thẳng từ detail_reports (cùng nguồn danh-sach-bao-cao-tay-mkt).
-        // Không phủ lại từ orders — overlay từng làm lệch số (vd. +1) so với báo cáo tay.
-        if (lo) lo.textContent = 'Đang xử lý dữ liệu…';
-        const rowsActualized = rowsNorm;
+        // Số Đơn (TT) = cột «Số đơn» danh-sach-bao-cao-tay-mkt (so_don_gross từ orders, chống trùng gift).
+        if (lo) lo.textContent = 'Đang đồng bộ Số đơn từ đơn hàng…';
+        let rowsActualized = rowsNorm;
+        try {
+          rowsActualized = await overlayHnActualsFromOrders(rowsNorm, dateRange);
+        } catch (actualsErr) {
+          console.warn(
+            `[MKT HN] Không đồng bộ được Số đơn từ ${MKT_HN_ORDERS_TABLE}; dùng số đã lưu trên detail_reports:`,
+            actualsErr?.message || actualsErr
+          );
+        }
         const rowsDeduped = dedupeMktDetailReportRows(rowsActualized);
+        if (lo) lo.textContent = 'Đang xử lý dữ liệu…';
         await new Promise((r) => requestAnimationFrame(r));
         let rdProductsSet = null;
         if (RD_PRODUCTS_ONLY) {
@@ -5186,7 +5254,7 @@
       if (isHetcaOnlyCaFilter('tab1')) {
         el.style.display = 'block';
         el.innerHTML =
-          'Đang lọc <strong>Hết ca</strong>: <strong>Số Đơn</strong> và <strong>DS Chốt</strong> lấy theo <strong>Số Đơn (TT)</strong> / <strong>DS Chốt (TT)</strong>; <strong>Số Mess</strong> và <strong>CPQC</strong> chỉ từ dòng báo cáo <strong>Hết ca</strong>.';
+          'Đang lọc <strong>Hết ca</strong>: <strong>Số Đơn</strong> / <strong>Số Đơn (TT)</strong> khớp cột <strong>«Số đơn»</strong> trên danh-sach-bao-cao-tay-mkt; <strong>DS Chốt</strong> theo DS Chốt (TT); <strong>Số Mess</strong> và <strong>CPQC</strong> chỉ từ dòng báo cáo <strong>Hết ca</strong>.';
         return;
       }
       el.style.display = 'none';
