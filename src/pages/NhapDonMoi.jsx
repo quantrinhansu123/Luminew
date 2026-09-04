@@ -128,6 +128,45 @@ function rowMatchesCustomerDupOr(ctx, row) {
     return false;
 }
 
+/** Chuẩn hóa customer_type DB → value select (moi | cu | ban-cheo | vip). */
+function normalizeCustomerTypeSelectValue(raw) {
+    const s = String(raw ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .replace(/\s+/g, ' ');
+    if (!s) return '';
+    if (s === 'moi' || s.includes('khach moi') || s === 'new') return 'moi';
+    if (s === 'cu' || s.includes('khach cu') || s === 'old') return 'cu';
+    if (
+        s === 'ban-cheo' ||
+        s === 'ban_cheo' ||
+        s.includes('ban cheo') ||
+        s.includes('cross')
+    ) {
+        return 'ban-cheo';
+    }
+    if (s === 'vip') return 'vip';
+    return '';
+}
+
+/** Value select → lưu orders.customer_type. */
+function customerTypeValueToDb(value) {
+    switch (String(value || '').trim()) {
+        case 'moi':
+            return 'Khách mới';
+        case 'cu':
+            return 'Khách cũ';
+        case 'ban-cheo':
+            return 'Bán chéo';
+        case 'vip':
+            return 'VIP';
+        default:
+            return '';
+    }
+}
+
 /** datetime-local YYYY-MM-DDTHH:mm theo giờ máy (không dùng toISOString — tránh lệch giờ/ca so với UTC). */
 function formatDateTimeLocal(d = new Date()) {
     const y = d.getFullYear();
@@ -522,6 +561,7 @@ export default function NhapDonMoi({ isEdit = false }) {
         "ph-tn": "",
         "team": "",
         "creator_name": "",
+        customerType: "",
     });
 
     const [trangThaiDon, setTrangThaiDon] = useState(null); // 'hop-le', 'xem-xet'
@@ -1538,6 +1578,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 "ph-tn": data.feedback_neg || "",
                 "team": data.team || "",
                 "creator_name": data.created_by || "",
+                customerType: normalizeCustomerTypeSelectValue(data.customer_type),
             });
 
             // Sync date state với cùng ngày local như form (tránh lệch timezone)
@@ -1885,6 +1926,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                             : undefined)),
 
                 note: formData["note_sale"] || "",
+                customer_type: formData.customerType
+                    ? customerTypeValueToDb(formData.customerType)
+                    : "",
                 // Hotfix: tạm ngưng gửi feedback_* cho tới khi DB đã có cột đồng bộ
                 ...(FEEDBACK_COLUMNS_ENABLED
                     ? {
@@ -2182,6 +2226,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             "ph-tn": "",
             "team": "",
             "creator_name": "",
+            customerType: "",
         });
         setSelectedPage("");
         setPageSearch("");
@@ -3195,6 +3240,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                         <option value="">Chọn phân loại...</option>
                                                         <option value="moi">Khách mới</option>
                                                         <option value="cu">Khách cũ</option>
+                                                        <option value="ban-cheo">Bán chéo</option>
                                                         <option value="vip">VIP</option>
                                                     </select>
                                                 </div>
