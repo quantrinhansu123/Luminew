@@ -2091,7 +2091,7 @@
     }
 
     async function overlayHcmActualsFromOrders(rowsNorm, dateRange) {
-      // Đồng bộ Số Đơn (TT) với cột «Số đơn» trên danh-sach (so_don_gross từ orders).
+      // Đồng bộ Số Đơn (TT) net (đã trừ hủy) từ orders.
       const { orders, complete } = await fetchAllHcmOrdersForActualOverlay(dateRange);
       if (!complete) {
         console.warn(
@@ -2115,18 +2115,19 @@
         const actual = actualsByKey.get(`${baseKey}|${caKey}`);
         const grossCount = actual?.count || 0;
         const cancelCount = actual?.cancelCount || 0;
+        const netCount = Math.max(0, grossCount - cancelCount);
         const totalRevenueVnd = actual?.totalRevenueVnd || 0;
         const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
         const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
         const beforeCount = parseMktCountInt(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
         const beforeCancel = parseMktCountInt(row['Số đơn hoàn hủy'] ?? row.so_don_hoan_huy ?? 0);
-        if (beforeCount !== grossCount || beforeCancel !== cancelCount) changedRows += 1;
+        if (beforeCount !== netCount || beforeCancel !== cancelCount) changedRows += 1;
 
         return {
           ...row,
-          'Số đơn thực tế': grossCount,
-          so_don_thuc_te: row.so_don_thuc_te != null ? grossCount : row.so_don_thuc_te,
-          order_count_actual: row.order_count_actual != null ? grossCount : row.order_count_actual,
+          'Số đơn thực tế': netCount,
+          so_don_thuc_te: row.so_don_thuc_te != null ? netCount : row.so_don_thuc_te,
+          order_count_actual: row.order_count_actual != null ? netCount : row.order_count_actual,
           'Doanh số TT': netRevenueVnd,
           doanh_so_tt: row.doanh_so_tt != null ? netRevenueVnd : row.doanh_so_tt,
           'Số đơn hoàn hủy': cancelCount,
@@ -2141,7 +2142,7 @@
       });
 
       console.log(
-        `🔁 Phủ Số đơn (khớp danh-sach) HCM từ ${MKT_HCM_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
+        `🔁 Phủ Số đơn TT (net, trừ hủy) HCM từ ${MKT_HCM_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
       );
       return rows;
     }
@@ -2601,7 +2602,7 @@
         const rowsPersonnelFiltered = rowsTeamFiltered.filter((r) =>
           rowTenMatchesPersonnelScope(r['Tên'] || r.ten || r.name)
         );
-        // Số Đơn (TT) = cột «Số đơn» danh-sach (so_don_gross từ orders, chống trùng gift).
+        // Số Đơn (TT) = so_don_thuc_te net (đã trừ hủy) từ orders.
         let rowsActualized = rowsPersonnelFiltered;
         try {
           rowsActualized = await overlayHcmActualsFromOrders(rowsPersonnelFiltered, dateRange);

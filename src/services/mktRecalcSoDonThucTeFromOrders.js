@@ -902,15 +902,21 @@ async function fetchAllOrdersInRangeFromSupabaseTable(startDate, endDate, tableN
   const PAGE_SIZE = 2000;
   const orders = [];
   let from = 0;
+  /** Khớp /danh-sach-don (HN): bảng `orders` loại team chứa HCM — tránh đếm đơn HCM lẫn vào TT HN. */
+  const excludeHcmTeam = table === 'orders';
 
   while (true) {
-    const { data, error } = await supabase
+    let q = supabase
       .from(table)
       .select(
         'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, customer_name, customer_phone, gift, total_amount_vnd, total_vnd, tong_tien_vnd, van_don_line_total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
       .gte('order_date', startDate)
-      .lte('order_date', endDate)
+      .lte('order_date', endDate);
+    if (excludeHcmTeam) {
+      q = q.not('team', 'ilike', '%HCM%');
+    }
+    const { data, error } = await q
       .order('order_date', { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
