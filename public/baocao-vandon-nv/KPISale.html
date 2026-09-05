@@ -348,6 +348,10 @@
   <div class="container">
     <div class="header">
       <h1 id="page-title">KPI Sale</h1>
+      <button type="button" id="chotDataBtn" class="btn btn-primary" style="display:none; margin-left: 12px;">
+        Chốt data
+      </button>
+      <span id="chotDataStatus" class="status" style="margin-left: 8px;"></span>
       <span id="loading">Đang tải dữ liệu...</span>
       <span id="roleInfo" class="status"></span>
     </div>
@@ -668,17 +672,53 @@
       loadOrdersDebounce = setTimeout(() => loadData(), 400);
     }
 
-    /** KPI Sale: cột Nhân viên + số liệu luôn theo danh sách Sale (cột F3 «Nhân viên Sale»). */
+    /** Đã chốt → luôn ưu tiên DB (có grain SP/TT). */
+    function canServeKpisMktFromDb() {
+      return isKpisMktMode();
+    }
+
+    /**
+     * Ưu tiên đọc kpis_mkt (đã chốt) — không tính FE / không cần rawOrders.
+     * @returns {Promise<boolean>}
+     */
+    async function tryServeKpisMktFromDb() {
+      if (!canServeKpisMktFromDb()) return false;
+      const ext = externalFilterState;
+      const startVal = (ext && ext.startDate) || document.getElementById('startDate')?.value || '';
+      const endVal = (ext && ext.endDate) || document.getElementById('endDate')?.value || '';
+      if (!startVal || !endVal) return false;
+      const team = (ext && ext.team) || { all: true, values: [], empty: false };
+      const name = (ext && ext.name) || { all: true, values: [], empty: false };
+      const product = (ext && ext.product) || { all: true, values: [], empty: false };
+      const market = (ext && ext.market) || { all: true, values: [], empty: false };
+      return tryRenderKpisMktFromDb(startVal, endVal, team, name, product, market);
+    }
+
+    /** Phạm vi nhân viên theo ?dept= — Sale (mặc định) | MKT | Vận đơn. */
     function getActiveStaffScope() {
+      const deptRaw = String(getQueryParam('dept') || 'Sale').trim();
+      if (deptRaw === 'MKT' || deptRaw === 'Marketing') {
+        return { dept: 'MKT', staffType: 'Marketing', boPhan: 'MKT', col: 'Nhân viên Marketing' };
+      }
+      if (deptRaw === 'Vận đơn' || deptRaw === 'Van don' || /v[aậ]n\s*đ[oơ]n/i.test(deptRaw)) {
+        return { dept: 'Vận đơn', staffType: 'Vận đơn', boPhan: 'Vận đơn', col: 'NV Vận đơn' };
+      }
       return { dept: 'Sale', staffType: 'Sale', boPhan: 'Sale', col: 'Nhân viên Sale' };
     }
 
     function applyPageTitleFromQuery() {
+      const scope = getActiveStaffScope();
       const customTitle = String(getQueryParam('title') || '').trim();
-      const title = customTitle || 'KPI Sale';
+      const titleMap = {
+        Sale: 'KPI Sale',
+        MKT: 'KPI MKT',
+        'Vận đơn': 'KPI Vận đơn',
+      };
+      const title = customTitle || titleMap[scope.dept] || `KPI ${scope.dept}`;
       const h1 = document.getElementById('page-title');
       if (h1) h1.textContent = title;
       document.title = title;
+      syncChotDataButtonVisibility();
     }
 
     function shouldHideLocalFilters() {
@@ -694,6 +734,7 @@
     let embedInitialLoadStarted = false;
     const NSSL_KPI_FILTERS_MSG = 'LUMINEW_NSSL_KPI_FILTERS';
     const NSSL_KPI_READY_MSG = 'LUMINEW_NSSL_KPI_READY';
+    const NSSL_KPI_REQUEST_FILTERS_MSG = 'LUMINEW_NSSL_KPI_REQUEST_FILTERS';
 
     function asFilterSel(all, values) {
       const vals = Array.isArray(values)
@@ -715,6 +756,8 @@
         const ed = document.getElementById('endDate');
         if (ed) ed.value = end;
       }
+      // Embed hideFilters: không sync dropdown ẩn (tốn CPU mỗi lần lọc SP)
+      if (shouldHideLocalFilters()) return;
       try { updateRangeBadge(); } catch (_) { /* ignore */ }
       try {
         if (externalFilterState.team.all) setDropdownAll('filterTeam');
@@ -733,8 +776,6 @@
       if (!payload || typeof payload !== 'object') return;
       const start = String(payload.startDate || '').trim();
       const end = String(payload.endDate || '').trim();
-      const prevStart = document.getElementById('startDate')?.value || '';
-      const prevEnd = document.getElementById('endDate')?.value || '';
 
       externalFilterState = {
         startDate: start,
@@ -747,17 +788,35 @@
 
       syncExternalFilterUi();
 
-      // Embed: lần đầu đợi parent → chỉ load 1 lần (tránh load mặc định 10 ngày rồi load lại)
-      if (embedAwaitingParentFilters && !embedInitialLoadStarted) {
-        embedAwaitingParentFilters = false;
-        embedInitialLoadStarted = true;
-        loadData();
-        return;
-      }
+      if (!start || !end) return;
 
-      const datesChanged = (start && start !== prevStart) || (end && end !== prevEnd);
-      if (datesChanged) scheduleLoadOrdersFromApi();
-      else applyFiltersAndRender();
+      const run = async () => {
+        if (embedAwaitingParentFilters && !embedInitialLoadStarted) {
+          embedAwaitingParentFilters = false;
+          embedInitialLoadStarted = true;
+        }
+
+        // KPIs MKT: chỉ đọc kpis_mkt — tuyệt đối không fetch đơn hàng khi lọc
+        if (isKpisMktMode()) {
+          const ok = await tryServeKpisMktFromDb();
+          if (ok) return;
+          // Query lỗi → bảng trống + hướng dẫn, không tải orders
+          currentData = [];
+          renderKpiSummary([], null);
+          const stEl = document.getElementById('statusText');
+          if (stEl) {
+            stEl.textContent =
+              'Không đọc được kpis_mkt. Kiểm tra mạng/Supabase — hoặc bấm Chốt data.';
+          }
+          return;
+        }
+
+        await loadData({ forceOrders: true });
+      };
+
+      run().catch((err) => {
+        console.warn('[KPIs MKT] sync filter lỗi:', err);
+      });
     }
 
     function notifyParentKpiReady() {
@@ -801,24 +860,35 @@
       }
 
       if (embedMode) {
-        // Chờ bộ lọc thanh trái từ parent trước khi tải đơn (bỏ fetch thừa)
+        // Chờ bộ lọc thanh trái — KPIs MKT chỉ đọc DB, không preload orders
         embedAwaitingParentFilters = true;
-        toggleLoading(true);
         notifyParentKpiReady();
         setTimeout(() => {
           if (embedInitialLoadStarted) return;
           embedAwaitingParentFilters = false;
           embedInitialLoadStarted = true;
+          if (isKpisMktMode()) {
+            tryServeKpisMktFromDb();
+            return;
+          }
           setDefaultDates();
-          loadData();
+          loadData({ forceOrders: true });
         }, 1500);
       } else {
         setDefaultDates();
-        await loadData();
+        await loadData({ forceOrders: true });
       }
     });
 
     function setDefaultDates() {
+      const qStart = String(getQueryParam('start') || '').trim();
+      const qEnd = String(getQueryParam('end') || '').trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(qStart) && /^\d{4}-\d{2}-\d{2}$/.test(qEnd)) {
+        document.getElementById('startDate').value = qStart;
+        document.getElementById('endDate').value = qEnd;
+        updateRangeBadge();
+        return;
+      }
       if (window.VandonNvRegion && VandonNvRegion.applyPreloadDateRangeToInputs) {
         VandonNvRegion.applyPreloadDateRangeToInputs('startDate', 'endDate', PRELOAD_ORDER_DAYS);
       } else {
@@ -844,13 +914,29 @@
       el.textContent = (s && e) ? `Khoảng: ${s} → ${e}` : '';
     }
 
-    async function loadData() {
+    async function loadData(opts = {}) {
+      const forceOrders = opts.forceOrders === true;
       toggleLoading(true);
       try {
+        // KPIs MKT: mặc định chỉ đọc DB — không fetch order_code_hcm
+        if (isKpisMktMode() && !forceOrders) {
+          const ok = await tryServeKpisMktFromDb();
+          if (ok) return;
+          currentData = [];
+          renderKpiSummary([], null);
+          document.getElementById('statusText').textContent =
+            'Chưa có data chốt cho khoảng này. Bấm «Chốt data» để tính từ đơn và lưu DB.';
+          return;
+        }
+
+        if (isKpisMktMode() && forceOrders) {
+          // Chỉ khi Chốt data: vẫn thử hiện DB trước nếu không cần raw… không — chốt cần orders
+        }
+
         const embedMode = shouldHideLocalFilters();
         const dateRange = VandonNvRegion.resolveOrderHcmDateRange(getOrderDateRangeForApi());
 
-        // Embed KPIs Sale / Vận đơn: bỏ MKT (cột CPQC ẩn), cache HR giữa các lần đổi ngày
+        // Embed: bỏ MKT (cột CPQC ẩn), cache HR giữa các lần đổi ngày
         const skipMkt = embedMode;
         const reuseHr = embedMode && hrRowsCachePayload != null;
 
@@ -904,7 +990,10 @@
         computeAccessScope();
         populateAllFilters();
         syncExternalFilterUi();
-        applyFiltersAndRender();
+        // Sau khi tải đơn vì Chốt: không render FE nếu đang MKT — caller tự xử lý
+        if (!(isKpisMktMode() && forceOrders)) {
+          await applyFiltersAndRender();
+        }
       } catch (e) {
         console.error('Lỗi tải dữ liệu F3:', e);
         document.getElementById('statusText').textContent =
@@ -919,7 +1008,9 @@
         computeAccessScope();
         populateAllFilters();
         syncExternalFilterUi();
-        applyFiltersAndRender();
+        if (!(isKpisMktMode() && forceOrders)) {
+          await applyFiltersAndRender();
+        }
       } finally {
         toggleLoading(false);
       }
@@ -1452,6 +1543,9 @@
       });
       // Name dropdown uses checkbox menu; removed text search
       document.getElementById('refreshBtn').addEventListener('click', () => loadData());
+      const chotBtn = document.getElementById('chotDataBtn');
+      if (chotBtn) chotBtn.addEventListener('click', () => chotKpisMktData());
+      syncChotDataButtonVisibility();
       const showAllBtn = document.getElementById('showAllBtn');
       if (showAllBtn) showAllBtn.addEventListener('click', () => clearFiltersToShowAll());
       // Dropdown open/close for checkbox dropdowns
@@ -1712,6 +1806,490 @@
       return isNaN(d.getTime()) ? null : d;
     }
 
+    function formatYmdLocal(d) {
+      if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function isKpisMktMode() {
+      return getActiveStaffScope().dept === 'MKT';
+    }
+
+    function syncChotDataButtonVisibility() {
+      const btn = document.getElementById('chotDataBtn');
+      if (!btn) return;
+      btn.style.display = isKpisMktMode() ? 'inline-block' : 'none';
+    }
+
+    function emptyStaffAgg(name, team) {
+      return {
+        name: name || '',
+        team: team || '',
+        soDonChot: 0,
+        dsChot: 0,
+        soDonHuy: 0,
+        dsHuy: 0,
+        soDonDi: 0,
+        dsDi: 0,
+        soDonThuTien: 0,
+        dThuThanhCong: 0,
+        ship: 0,
+        cpqc: 0,
+      };
+    }
+
+    /** Cộng 1 đơn vào bucket agg (cùng công thức applyFiltersAndRender). */
+    function accumulateOrderIntoStaffAgg(agg, r) {
+      const ship = parseNumber(
+        getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
+      );
+      const tongTien = parseNumber(getRowValue(r, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ'));
+      const ketQuaCheck = (getRowValue(r, 'Kết_quả_Check', 'Kết quả Check') || '').toString().trim();
+      const maTracking = (getRowValue(r, 'Mã_Tracking', 'Mã Tracking') || '').toString().trim();
+      const tienVietDoiSoat = parseNumber(
+        getRowValue(r, 'Tiền_Việt_đã_đối_soát', 'Tiền Việt đã đối soát')
+      );
+      const isHuy = ketQuaCheck === 'Huỷ';
+      const isDi = maTracking !== '';
+
+      agg.soDonChot += 1;
+      agg.dsChot += tongTien;
+      if (isHuy) {
+        agg.soDonHuy += 1;
+        agg.dsHuy += tongTien;
+      }
+      if (isDi && !isHuy) {
+        agg.soDonDi += 1;
+        agg.dsDi += tongTien;
+        agg.ship += ship;
+      }
+      if (tienVietDoiSoat > 0) {
+        agg.soDonThuTien += 1;
+        agg.dThuThanhCong += tienVietDoiSoat;
+      }
+    }
+
+    function staffAggToDbRow(reportDate, agg) {
+      const donSauHuy = Math.max(0, (agg.soDonChot || 0) - (agg.soDonHuy || 0));
+      const dsSauHuy = Math.max(0, (agg.dsChot || 0) - (agg.dsHuy || 0));
+      const dthuKpi = (agg.dThuThanhCong || 0) - (agg.ship || 0);
+      const tyLeThu = agg.dsDi > 0 ? agg.dThuThanhCong / agg.dsDi : 0;
+      return {
+        report_date: reportDate,
+        employee_name: String(agg.name || '').trim(),
+        team: String(agg.team || '').trim() || null,
+        department: 'MKT',
+        product: String(agg.product || '').trim(),
+        market: String(agg.market || '').trim(),
+        don_chot: agg.soDonChot || 0,
+        ds_chot: agg.dsChot || 0,
+        don_huy: agg.soDonHuy || 0,
+        ds_huy: agg.dsHuy || 0,
+        don_sau_huy: donSauHuy,
+        ds_sau_huy: dsSauHuy,
+        don_di: agg.soDonDi || 0,
+        ds_di: agg.dsDi || 0,
+        don_thu_tien: agg.soDonThuTien || 0,
+        dthu_tc: agg.dThuThanhCong || 0,
+        ship: agg.ship || 0,
+        dthu_kpi: dthuKpi,
+        ty_le_thu: tyLeThu,
+        cpqc: agg.cpqc || 0,
+        source: 'orders',
+        updated_by: 'chot-data',
+      };
+    }
+
+    function dbRowsToSummaryRows(dbRows, selectedTeam, selectedName, selectedProduct, selectedMarket) {
+      const byName = new Map();
+      (dbRows || []).forEach((r) => {
+        const name = String(r.employee_name || '').trim();
+        if (!name) return;
+        if (!filterSelMatches(selectedName, name)) return;
+        const team = String(r.team || '').trim();
+        if (!filterSelMatches(selectedTeam, team)) return;
+        const product = String(r.product || '').trim();
+        if (!filterSelMatches(selectedProduct, product)) return;
+        const market = String(r.market || '').trim();
+        if (!filterSelMatches(selectedMarket, market)) return;
+
+        if (!byName.has(name)) {
+          byName.set(name, emptyStaffAgg(name, team));
+        }
+        const agg = byName.get(name);
+        if (!agg.team && team) agg.team = team;
+        agg.soDonChot += Number(r.don_chot) || 0;
+        agg.dsChot += Number(r.ds_chot) || 0;
+        agg.soDonHuy += Number(r.don_huy) || 0;
+        agg.dsHuy += Number(r.ds_huy) || 0;
+        agg.soDonDi += Number(r.don_di) || 0;
+        agg.dsDi += Number(r.ds_di) || 0;
+        agg.soDonThuTien += Number(r.don_thu_tien) || 0;
+        agg.dThuThanhCong += Number(r.dthu_tc) || 0;
+        agg.ship += Number(r.ship) || 0;
+        agg.cpqc += Number(r.cpqc) || 0;
+      });
+
+      let rows = [...byName.values()].map((it, idx) => {
+        const dsSauHuy = Math.max(0, (it.dsChot || 0) - (it.dsHuy || 0));
+        const dThuTinhKpi = (it.dThuThanhCong || 0) - (it.ship || 0);
+        return {
+          stt: idx + 1,
+          name: it.name,
+          type: 'Marketing',
+          team: it.team,
+          cpqc: it.cpqc,
+          soDonChot: it.soDonChot,
+          dsChot: it.dsChot,
+          soDonHuy: it.soDonHuy,
+          dsHuy: it.dsHuy,
+          soDonSauHuy: Math.max(0, it.soDonChot - it.soDonHuy),
+          dsSauHuy,
+          soDonDi: it.soDonDi,
+          dsDi: it.dsDi,
+          soDonThuTien: it.soDonThuTien,
+          dThuThanhCong: it.dThuThanhCong,
+          ship: it.ship,
+          dThuTinhKpi,
+        };
+      });
+
+      rows = rows.filter((row) => {
+        const team = (row.team || '').toString().trim();
+        if (team === '') return false;
+        return (
+          row.soDonChot > 0 ||
+          row.dsChot > 0 ||
+          row.soDonHuy > 0 ||
+          row.dsHuy > 0 ||
+          row.soDonDi > 0 ||
+          row.dsDi > 0 ||
+          row.soDonThuTien > 0 ||
+          row.dThuThanhCong > 0 ||
+          row.ship > 0 ||
+          row.dThuTinhKpi > 0
+        );
+      });
+
+      rows.sort((a, b) => {
+        const teamCmp = (a.team || '').localeCompare(b.team || '', 'vi');
+        if (teamCmp !== 0) return teamCmp;
+        return (a.name || '').localeCompare(b.name || '', 'vi');
+      });
+      return rows.map((row, idx) => ({ ...row, stt: idx + 1 }));
+    }
+
+    /**
+     * Đọc kpis_mkt theo khoảng ngày + lọc team/tên/SP/TT trên FE (cache).
+     * Query thành công (kể cả 0 dòng) → true: không fallback sang đơn hàng.
+     * @returns {Promise<boolean>}
+     */
+    async function tryRenderKpisMktFromDb(
+      startVal,
+      endVal,
+      selectedTeam,
+      selectedName,
+      selectedProduct,
+      selectedMarket
+    ) {
+      if (!isKpisMktMode()) return false;
+      if (!startVal || !endVal) return false;
+      try {
+        const mod = await import('./kpisMktDb.mjs');
+        const dbRows = await mod.fetchKpisMktInRange(startVal, endVal);
+        const productSel = selectedProduct || { all: true, values: [], empty: false };
+        const marketSel = selectedMarket || { all: true, values: [], empty: false };
+        const nameSel = selectedName || { all: true, values: [], empty: false };
+        const teamSel = selectedTeam || { all: true, values: [], empty: false };
+        const rows = dbRowsToSummaryRows(dbRows, teamSel, nameSel, productSel, marketSel);
+        currentData = rows;
+        renderKpiSummary(rows, null);
+        const st = document.getElementById('chotDataStatus');
+        if (!dbRows.length) {
+          document.getElementById('statusText').textContent =
+            `Chưa chốt ${startVal} → ${endVal}. Bấm «Chốt data» để lưu từ đơn hàng.`;
+          if (st) st.textContent = '';
+        } else {
+          const days = new Set(dbRows.map((r) => String(r.report_date).slice(0, 10))).size;
+          document.getElementById('statusText').textContent =
+            `Từ DB (đã chốt) · ${rows.length} NV · ${days} ngày — không tải đơn hàng`;
+          if (st) st.textContent = 'Đang xem data đã chốt';
+        }
+        return true;
+      } catch (err) {
+        console.warn('[KPIs MKT] đọc kpis_mkt thất bại:', err);
+        return false;
+      }
+    }
+
+    /** Bộ lọc hiện tại — ưu tiên thanh trái parent (externalFilterState). */
+    function getActiveKpiFilterContext() {
+      const ext = externalFilterState;
+      const startVal = (ext && ext.startDate) || document.getElementById('startDate')?.value || '';
+      const endVal = (ext && ext.endDate) || document.getElementById('endDate')?.value || '';
+      return {
+        startVal,
+        endVal,
+        s: startVal ? new Date(startVal + 'T00:00:00') : null,
+        e: endVal ? new Date(endVal + 'T23:59:59') : null,
+        selectedName: (ext && ext.name) || getSelectedDropdown('filterName'),
+        selectedTeam: (ext && ext.team) || getSelectedDropdown('filterTeam'),
+        selectedProduct: (ext && ext.product) || getSelectedDropdown('filterProduct'),
+        selectedMarket: (ext && ext.market) || getSelectedDropdown('filterMarket'),
+        selectedBranch: getSelectedDropdown('filterBranch'),
+        includeZero: document.getElementById('includeZeroShip')
+          ? document.getElementById('includeZeroShip').checked
+          : true,
+      };
+    }
+
+    /** Xin bộ lọc mới nhất từ thanh trái parent trước khi chốt / render. */
+    function requestLatestParentFilters(timeoutMs = 600) {
+      if (!shouldHideLocalFilters()) return Promise.resolve(false);
+      if (!window.parent || window.parent === window) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = (ok) => {
+          if (done) return;
+          done = true;
+          window.clearTimeout(timer);
+          window.removeEventListener('message', onMsg);
+          resolve(ok);
+        };
+        const onMsg = (event) => {
+          const data = event?.data;
+          if (!data || typeof data !== 'object') return;
+          if (data.type !== NSSL_KPI_FILTERS_MSG) return;
+          finish(true);
+        };
+        const timer = window.setTimeout(() => finish(false), timeoutMs);
+        window.addEventListener('message', onMsg);
+        try {
+          window.parent.postMessage({ type: NSSL_KPI_REQUEST_FILTERS_MSG }, '*');
+        } catch (_) {
+          finish(false);
+        }
+      });
+    }
+
+    function filterSelMatches(sel, value) {
+      if (!sel || sel.all) return true;
+      const v = (value || '').toString().trim();
+      const isEmpty = v === '';
+      if (sel.empty && isEmpty) return true;
+      if (sel.values && sel.values.length > 0 && sel.values.includes(v)) return true;
+      return false;
+    }
+
+    /** Cùng điều kiện đơn với applyFiltersAndRender (ngày / ship / ca / SP / TT / chi nhánh). */
+    function orderPassesKpiFilters(r, ctx) {
+      const d = toDate(getRowValue(r, 'Ngày_lên_đơn', 'Ngày lên đơn', 'Thời gian lên đơn'));
+      if (!inRange(d, ctx.s, ctx.e)) return false;
+
+      const ship = parseNumber(
+        getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
+      );
+      if (!ctx.includeZero && ship === 0) return false;
+
+      const caFields = ['Ca', 'ca', 'CA'];
+      let hasHetCa = false;
+      let hasCaField = false;
+      for (const field of caFields) {
+        if (r[field] !== undefined && r[field] !== null && r[field] !== '') {
+          hasCaField = true;
+          const cas = String(r[field] || '')
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean);
+          if (cas.includes('Hết ca')) {
+            hasHetCa = true;
+            break;
+          }
+        }
+      }
+      if (hasCaField && !hasHetCa) return false;
+
+      if (!filterSelMatches(ctx.selectedProduct, getRowValue(r, 'Mặt_hàng', 'Mặt hàng'))) {
+        return false;
+      }
+      if (!filterSelMatches(ctx.selectedBranch, getRowValue(r, 'Team', 'team'))) {
+        return false;
+      }
+      if (!filterSelMatches(ctx.selectedMarket, getRowValue(r, 'Khu_vực', 'Khu vực'))) {
+        return false;
+      }
+      return true;
+    }
+
+    /** HR MKT theo Team / Tên trên thanh trái. */
+    function buildMktStaffByNameForChot(selectedTeam, selectedName) {
+      const staffByName = new Map();
+      (hrRows || []).forEach((r) => {
+        const bp = (r['Bộ phận'] || r['Bo_phan'] || '').toString().trim();
+        const bpUpper = bp.toUpperCase();
+        const isMkt =
+          bp === 'MKT' ||
+          bpUpper === 'MKT' ||
+          bp === 'Marketing' ||
+          bpUpper === 'MARKETING';
+        if (!isMkt) return;
+        const name = (
+          r['Họ Và Tên'] ??
+          r['Tên'] ??
+          r['Name'] ??
+          r['Họ và tên'] ??
+          r['Họ_và_tên'] ??
+          r['Ho_va_ten'] ??
+          r.name ??
+          ''
+        )
+          .toString()
+          .trim();
+        if (!name) return;
+        const team = (r['Team'] || r.team || '').toString().trim();
+        if (!filterSelMatches(selectedTeam, team)) return;
+        if (!filterSelMatches(selectedName, name)) return;
+        staffByName.set(name.toLowerCase().replace(/\s+/g, ' '), { name, team });
+      });
+      return staffByName;
+    }
+
+    function describeSidebarFiltersForChot(ctx) {
+      const parts = [`${ctx.startVal} → ${ctx.endVal}`];
+      if (!ctx.selectedTeam.all) {
+        parts.push(
+          `Team: ${ctx.selectedTeam.values.length ? ctx.selectedTeam.values.join(', ') : '(rỗng)'}`
+        );
+      }
+      if (!ctx.selectedName.all) {
+        parts.push(
+          `Tên: ${ctx.selectedName.values.length ? ctx.selectedName.values.join(', ') : '(rỗng)'}`
+        );
+      }
+      if (!ctx.selectedProduct.all) {
+        parts.push(
+          `SP: ${ctx.selectedProduct.values.length ? ctx.selectedProduct.values.join(', ') : '(rỗng)'}`
+        );
+      }
+      if (!ctx.selectedMarket.all) {
+        parts.push(
+          `TT: ${ctx.selectedMarket.values.length ? ctx.selectedMarket.values.join(', ') : '(rỗng)'}`
+        );
+      }
+      return parts.join('\n');
+    }
+
+    /** Chốt: theo bộ lọc thanh trái → tính từng ngày → upsert kpis_mkt. */
+    async function chotKpisMktData() {
+      if (!isKpisMktMode()) return;
+      // Luôn lấy lại ngày / SP / TT từ thanh trái (tránh stale ngày mặc định trong iframe)
+      await requestLatestParentFilters();
+      clearTimeout(loadOrdersDebounce);
+      const ctx = getActiveKpiFilterContext();
+      if (!ctx.startVal || !ctx.endVal) {
+        alert('Chọn Từ ngày / Đến ngày trên thanh trái trước khi chốt.');
+        return;
+      }
+      if (
+        !confirm(
+          `Chốt KPI MKT theo khoảng ngày thanh trái?\n${ctx.startVal} → ${ctx.endVal}\n\nLưu đủ theo ngày × NV × SP × thị trường (để lọc SP/TT sau chỉ đọc DB).\nGhi đè các dòng trùng trong phạm vi ngày.`
+        )
+      ) {
+        return;
+      }
+
+      const btn = document.getElementById('chotDataBtn');
+      const st = document.getElementById('chotDataStatus');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Đang chốt…';
+      }
+      if (st) st.textContent = '';
+
+      try {
+        // Tải lại orders đúng khoảng ngày thanh trái (bắt buộc tính lại để chốt)
+        await loadData({ forceOrders: true });
+
+        const staffByName = buildMktStaffByNameForChot(ctx.selectedTeam, ctx.selectedName);
+        if (!staffByName.size) {
+          alert('Không có nhân sự MKT khớp bộ lọc Team / Tên trên thanh trái.');
+          return;
+        }
+
+        // Chốt full SP×TT trong khoảng ngày (bỏ lọc SP/TT khi ghi DB)
+        const ctxChot = {
+          ...ctx,
+          selectedProduct: { all: true, values: [], empty: false },
+          selectedMarket: { all: true, values: [], empty: false },
+        };
+
+        const byKey = new Map(); // `${ymd}|${name}|${product}|${market}` -> agg
+
+        (rawOrders || []).forEach((r) => {
+          if (!orderPassesKpiFilters(r, ctxChot)) return;
+          const d = toDate(getRowValue(r, 'Ngày_lên_đơn', 'Ngày lên đơn', 'Thời gian lên đơn'));
+          const ymd = formatYmdLocal(d);
+          if (!ymd) return;
+
+          const mktNameRaw = getRowValue(
+            r,
+            'Nhân_viên_Marketing',
+            'Nhân viên Marketing',
+            'Nhân viên MKT',
+            'Nhân_viên_MKT'
+          );
+          const mktName = (mktNameRaw || '').toString().trim();
+          if (!mktName) return;
+          const nameKey = mktName.toLowerCase().replace(/\s+/g, ' ');
+          const staff = staffByName.get(nameKey);
+          if (!staff) return;
+
+          const product = (getRowValue(r, 'Mặt_hàng', 'Mặt hàng') || '').toString().trim();
+          const market = (getRowValue(r, 'Khu_vực', 'Khu vực') || '').toString().trim();
+          const mapKey = `${ymd}|${nameKey}|${product}|${market}`;
+          if (!byKey.has(mapKey)) {
+            byKey.set(mapKey, {
+              ...emptyStaffAgg(staff.name, staff.team),
+              reportDate: ymd,
+              product,
+              market,
+            });
+          }
+          accumulateOrderIntoStaffAgg(byKey.get(mapKey), r);
+        });
+
+        const upsertRows = [...byKey.values()]
+          .filter((agg) => agg.soDonChot > 0 || agg.dThuThanhCong > 0 || agg.soDonDi > 0)
+          .map((agg) => staffAggToDbRow(agg.reportDate, agg));
+
+        if (!upsertRows.length) {
+          alert('Không có đơn MKT trong khoảng ngày để chốt.');
+          return;
+        }
+
+        const mod = await import('./kpisMktDb.mjs');
+        const { count } = await mod.upsertKpisMktRows(upsertRows, {
+          startDate: ctx.startVal,
+          endDate: ctx.endVal,
+        });
+        if (st) st.textContent = `Đã chốt ${count} dòng (ngày×NV×SP×TT)`;
+        alert(`Đã chốt ${count} dòng KPI MKT (${ctx.startVal} → ${ctx.endVal}).`);
+        await applyFiltersAndRender();
+      } catch (err) {
+        console.error('[KPIs MKT] chốt data lỗi:', err);
+        alert(`Chốt data thất bại: ${err?.message || err}`);
+        if (st) st.textContent = 'Chốt lỗi';
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Chốt data';
+        }
+      }
+    }
+
     function inRange(d, start, end) {
       if (!start && !end) return true;
       if (!d) return false;
@@ -1720,7 +2298,7 @@
       return true;
     }
 
-    function applyFiltersAndRender() {
+    async function applyFiltersAndRender() {
       const ext = externalFilterState;
       const startVal = (ext && ext.startDate) || document.getElementById('startDate').value;
       const endVal = (ext && ext.endDate) || document.getElementById('endDate').value;
@@ -1737,6 +2315,25 @@
       // Loại NV theo ?dept= (Sale / MKT / Vận đơn)
       const staffScope = getActiveStaffScope();
       const selectedStaffType = { all: false, values: [staffScope.staffType], empty: false };
+
+      // MKT đã chốt → đọc DB (lọc ngày/team/tên/SP/TT), bỏ tính FE
+      if (staffScope.dept === 'MKT' && canServeKpisMktFromDb()) {
+        const fromDb = await tryRenderKpisMktFromDb(
+          startVal,
+          endVal,
+          selectedTeam,
+          selectedName,
+          selectedProduct,
+          selectedMarket
+        );
+        if (fromDb) return;
+      }
+
+      // Fallback tính FE (chưa chốt)
+      if (staffScope.dept === 'MKT') {
+        const st = document.getElementById('chotDataStatus');
+        if (st && /đã chốt|Đang xem/i.test(st.textContent || '')) st.textContent = '';
+      }
       
       // Cột F3 + loại NV tương ứng bộ phận
       const roleColumns = [];
@@ -2101,7 +2698,7 @@
           // Map tên cột có thể có
           let possibleColumns = [];
           if (f3Column === 'Nhân viên Marketing') {
-            possibleColumns = ['Nhân_viên_Marketing', 'Nhân viên Marketing'];
+            possibleColumns = ['Nhân_viên_Marketing', 'Nhân viên Marketing', 'Nhân viên MKT', 'Nhân_viên_MKT'];
           } else if (f3Column === 'Nhân viên Sale') {
             possibleColumns = ['Nhân_viên_Sale', 'Nhân viên Sale'];
           } else if (f3Column === 'NV Vận đơn') {
