@@ -212,15 +212,16 @@
   }
 
   /**
-   * Tỷ lệ tiền có bill + bill 1 phần / tổng tiền giao thành công.
+   * Tỷ lệ tiền Có bill / tổng tiền giao thành công.
+   * Chỉ «Có bill» — không tính Bill 1 phần.
    * @param {Record<string, {count?:number, amount?:number}>} stats
    */
   function calcBillAmountOnSuccessRate(stats) {
     if (!stats) return { billAmount: 0, successAmount: 0, rate: 0 };
-    var paid = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].amount || 0 : 0;
-    var partial = stats['Bill 1 phần'] ? stats['Bill 1 phần'].amount || 0 : 0;
+    var billAmount = stats['Đã Thanh Toán (có bill)']
+      ? stats['Đã Thanh Toán (có bill)'].amount || 0
+      : 0;
     var success = stats['Giao Thành Công'] ? stats['Giao Thành Công'].amount || 0 : 0;
-    var billAmount = paid + partial;
     return {
       billAmount: billAmount,
       successAmount: success,
@@ -241,15 +242,18 @@
   }
 
   /**
-   * Tỷ lệ tiền có bill + bill 1 phần / doanh số đơn có mã tracking.
+   * Tỷ lệ tiền Có bill / doanh số đơn có mã tracking.
+   * Chỉ «Có bill» — không tính Bill 1 phần.
    * @param {Record<string, {count?:number, amount?:number}>} stats
    */
   function calcBillAmountOnTrackingCodeRate(stats) {
     if (!stats) return { billAmount: 0, trackingAmount: 0, rate: 0 };
-    var paid = stats['Đã Thanh Toán (có bill)'] ? stats['Đã Thanh Toán (có bill)'].amount || 0 : 0;
-    var partial = stats['Bill 1 phần'] ? stats['Bill 1 phần'].amount || 0 : 0;
-    var tracking = stats['Tổng đơn có mã tracking'] ? stats['Tổng đơn có mã tracking'].amount || 0 : 0;
-    var billAmount = paid + partial;
+    var billAmount = stats['Đã Thanh Toán (có bill)']
+      ? stats['Đã Thanh Toán (có bill)'].amount || 0
+      : 0;
+    var tracking = stats['Tổng đơn có mã tracking']
+      ? stats['Tổng đơn có mã tracking'].amount || 0
+      : 0;
     return {
       billAmount: billAmount,
       trackingAmount: tracking,
@@ -302,7 +306,11 @@
     }
 
     if (useOrdersLogic) {
-      if (payment.indexOf('Có bill') !== -1) {
+      // Chỉ «Có bill» đủ đkien — loại «Có bill 1 phần»
+      if (
+        payment.indexOf('Có bill') !== -1 &&
+        payment.indexOf('Có bill 1 phần') === -1
+      ) {
         stats['Tổng đơn đủ đkien đẩy vh'].count++;
       }
       if (deliveryCountsAsLenVanHanh(deliveryNb)) {
