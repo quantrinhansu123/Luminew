@@ -3146,10 +3146,14 @@
       document.querySelectorAll('.tablinks').forEach((tl) => tl.classList.remove('active'));
       const layout = document.getElementById('MktAdsKpiLayout');
       if (layout) layout.style.display = 'block';
-      const ads = document.getElementById('DetailedReport');
-      const kpi = document.getElementById('KpisMktReport');
-      if (ads) ads.style.display = 'block';
-      if (kpi) kpi.style.display = 'none';
+      if (typeof setMktSharedPaneMode === 'function') {
+        setMktSharedPaneMode('ads');
+      } else {
+        const ads = document.getElementById('DetailedReport');
+        const kpi = document.getElementById('KpisMktReport');
+        if (ads) ads.style.display = 'block';
+        if (kpi) kpi.style.display = 'none';
+      }
       const btn = document.getElementById('defaultOpen');
       if (btn) btn.classList.add('active');
     }
@@ -4002,6 +4006,7 @@
         if (target.id === 'start-date-tab1' || target.id === 'end-date-tab1') {
           if (typeof isKpisMktTabActive === 'function' && isKpisMktTabActive()) {
             // Tab KPIs MKT: chỉ đẩy filter sang iframe (đọc DB) — bỏ fetch ADS nặng
+            mktAdsNeedsRefetch = true;
             postKpisMktFilters();
             return;
           }
@@ -4617,18 +4622,26 @@
     }
 
     function applyFiltersForVisibleTab() {
-      const visibleTab = Array.from(document.querySelectorAll('.tab-content'))
-        .find((el) => el.style.display !== 'none');
-      const tabId = visibleTab ? visibleTab.id : 'DetailedReport';
-      if (tabId === 'DetailedReport') {
+      // DetailedReport nằm trong #MktAdsKpiLayout (không còn là .tab-content riêng)
+      const tabId = typeof getMktActiveTabId === 'function'
+        ? getMktActiveTabId()
+        : (Array.from(document.querySelectorAll('.tab-content')).find(
+            (el) => el.style.display !== 'none'
+          )?.id || 'DetailedReport');
+
+      if (tabId === 'DetailedReport' || tabId === 'MktAdsKpiLayout') {
+        if (typeof isKpisMktTabActive === 'function' && isKpisMktTabActive()) {
+          postKpisMktFilters();
+          return;
+        }
         applyTab1Filters({ immediate: true });
         updateMktFilterDdCounts();
-      }
-      else if (tabId === 'OkReport') {
+      } else if (tabId === 'KpisMktReport') {
+        postKpisMktFilters();
+      } else if (tabId === 'OkReport') {
         applyOkReportFilters();
         updateMktFilterDdCounts();
-      }
-      else if (tabId === 'KpiReport') applyTab3Filters();
+      } else if (tabId === 'KpiReport') applyTab3Filters();
       else if (tabId === 'MarketReport') applyTab4Filters();
     }
 
@@ -5828,6 +5841,8 @@
     }
 
     let mktSharedPaneMode = 'ads';
+    /** Khi đang ở KPIs MKT bỏ fetch ADS → về tab Báo cáo sau huỷ phải tải lại. */
+    let mktAdsNeedsRefetch = false;
 
     function isKpisMktTabActive() {
       return mktSharedPaneMode === 'kpi';
@@ -5907,7 +5922,14 @@
 
       setTimeout(async () => {
         try {
-          if (tabName === 'DetailedReport') applyTab1Filters({ immediate: true });
+          if (tabName === 'DetailedReport') {
+            if (mktAdsNeedsRefetch || !Array.isArray(masterData) || masterData.length === 0) {
+              mktAdsNeedsRefetch = false;
+              await fetchAndProcessData();
+            } else {
+              applyTab1Filters({ immediate: true });
+            }
+          }
           if (tabName === 'OkReport') applyOkReportFilters();
           if (tabName === 'KpiReport') applyTab3Filters();
           if (tabName === 'MarketReport') {
