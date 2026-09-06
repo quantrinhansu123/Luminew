@@ -1,4 +1,9 @@
 import { toast } from 'react-toastify';
+import {
+    buildOrderLogDiffEntries,
+    mergeOrderLogJsonb,
+    ORDER_LOG_TAC_NHAN_HE_THONG,
+} from '../utils/orderLogJsonb';
 
 /** yyyy-MM-dd — lịch Việt Nam (khớp “vòng trong ngày”). */
 export function yyyyMmDdVietNam(d = new Date()) {
@@ -1425,11 +1430,30 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             successCount = 0;
             errorCount = 0;
             errors.length = 0;
+            const performer =
+                String(localStorage.getItem('user_name') || localStorage.getItem('username') || '').trim() ||
+                'Hệ thống chia đơn';
 
             for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
                 const chunk = updates.slice(i, i + CHUNK_SIZE);
                 const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
                 const totalChunks = Math.ceil(updates.length / CHUNK_SIZE);
+
+                const codes = chunk.map((u) => String(u.order_code || '').trim()).filter(Boolean);
+                let existingByCode = new Map();
+                if (codes.length > 0) {
+                    const { data: existingRows, error: existErr } = await supabase
+                        .from(ordersTable)
+                        .select('order_code, delivery_staff, log')
+                        .in('order_code', codes);
+                    if (existErr) {
+                        console.warn('[Chia đơn] Không đọc được log cũ:', existErr.message);
+                    } else {
+                        existingByCode = new Map(
+                            (existingRows || []).map((r) => [String(r.order_code || '').trim(), r])
+                        );
+                    }
+                }
                 
                 // Chuẩn bị dữ liệu cập nhật cho cả chunk
                 const updatePromises = chunk.map(async (update) => {
@@ -1448,15 +1472,28 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                             reason: detail?.reason,
                         };
 
-                        // Tối ưu: KHÔNG dùng .select() để tăng tốc độ ghi
+                        const oc = String(update.order_code || '').trim();
+                        const prevRow = existingByCode.get(oc);
+                        const logEntries = buildOrderLogDiffEntries({
+                            baseline: { delivery_staff: prevRow?.delivery_staff ?? null },
+                            current: { delivery_staff: update.delivery_staff },
+                            actor: performer,
+                            tacNhan: ORDER_LOG_TAC_NHAN_HE_THONG,
+                        });
+                        const payload = {
+                            delivery_staff: update.delivery_staff,
+                            ngay_chia_van_don: todayStr,
+                            thu_tu_chia: nextOrderIndex,
+                            chi_tiet_chia,
+                            last_modified_by: performer,
+                        };
+                        if (logEntries.length) {
+                            payload.log = mergeOrderLogJsonb(prevRow?.log, logEntries);
+                        }
+
                         const { error } = await supabase
                             .from(ordersTable)
-                            .update({
-                                delivery_staff: update.delivery_staff,
-                                ngay_chia_van_don: todayStr,
-                                thu_tu_chia: nextOrderIndex,
-                                chi_tiet_chia,
-                            })
+                            .update(payload)
                             .eq('order_code', update.order_code);
 
                         if (error) {

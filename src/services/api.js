@@ -135,7 +135,14 @@ const resolveAppKeyToDbKey = (appKey) => {
     if (appKey === 'Trạng thái giao hàng NB') return 'delivery_status_nb';
     /** Alias UI (types COLUMN_MAPPING) — khớp ghi log batch. */
     if (nfc === 'Kết quả check'.normalize('NFC')) return 'check_result';
-    if (nfc === 'Nhân viên vận đơn'.normalize('NFC')) return 'delivery_staff';
+    if (
+      nfc === 'Nhân viên vận đơn'.normalize('NFC') ||
+      nfc === 'Nhân viên Vận đơn'.normalize('NFC') ||
+      nfc === 'NV Vận đơn'.normalize('NFC') ||
+      nfc === 'NV vận đơn'.normalize('NFC')
+    ) {
+      return 'delivery_staff';
+    }
     if (appKey === 'delivery_status') return 'delivery_status';
     if (appKey === 'Ghi chú vận đơn' || appKey === 'Ghi chú của VĐ') return 'vandon_note';
     if (appKey === 'Ngày đẩy đơn') return 'accounting_check_date';

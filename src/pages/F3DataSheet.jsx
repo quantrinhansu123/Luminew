@@ -16,7 +16,7 @@ import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '../utils/dateParsing';
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { totalAmountVndFromLenDonFormula } from '../utils/totalAmountVndFromLenDon';
-import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
+import { labelForOrderLogDbKey, parseOrderLogJsonb, buildOrderLogDiffEntries, mergeOrderLogJsonb, ORDER_LOG_TAC_NHAN_NGUOI_DUNG } from '../utils/orderLogJsonb';
 import {
   computeCanhBaoUpdatesForDuplicateCustomers,
   normalizeCustomerTextForDup,
@@ -2589,7 +2589,43 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
     setSavingNvVanDon(true);
     try {
-      const payload = { delivery_staff: newDb };
+      const actor =
+        String(localStorage.getItem('user_name') || localStorage.getItem('username') || '').trim() ||
+        'hệ thống';
+      const logEntries = buildOrderLogDiffEntries({
+        baseline: { delivery_staff: oldDb },
+        current: { delivery_staff: newDb },
+        actor,
+        tacNhan: ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
+      });
+
+      let prevLog = [];
+      if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
+        const { data: logRow, error: logErr } = await supabase
+          .from(ordersTableName)
+          .select('log')
+          .eq('order_code', orderCode)
+          .maybeSingle();
+        if (logErr) throw logErr;
+        prevLog = parseOrderLogJsonb(logRow?.log);
+      } else if (rowId) {
+        const { data: logRow, error: logErr } = await supabase
+          .from(ordersTableName)
+          .select('log')
+          .eq('id', rowId)
+          .maybeSingle();
+        if (logErr) throw logErr;
+        prevLog = parseOrderLogJsonb(logRow?.log);
+      }
+
+      const payload = {
+        delivery_staff: newDb,
+        last_modified_by: actor,
+      };
+      if (logEntries.length) {
+        payload.log = mergeOrderLogJsonb(prevLog, logEntries);
+      }
+
       let error = null;
       if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
         ({ error } = await supabase.from(ordersTableName).update(payload).eq('order_code', orderCode));
@@ -2601,7 +2637,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       if (error) throw error;
       await logDataChange({
         action: 'UPDATE',
-        table_name: 'orders',
+        table_name: ordersTableName,
         record_id: orderCode || String(rowId),
         field: 'delivery_staff',
         old_value: oldDb ?? '',

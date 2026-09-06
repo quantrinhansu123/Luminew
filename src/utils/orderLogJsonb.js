@@ -86,7 +86,7 @@ const ORDER_LOG_LABELS = {
     delivery_status_nb: "Trạng thái giao hàng NB",
     payment_status: "Trạng thái thu tiền",
     tracking_code: "Mã Tracking",
-    delivery_staff: "Nhân viên vận đơn",
+    delivery_staff: "NV Vận đơn",
     customer_name: "Tên khách hàng",
     customer_phone: "Số điện thoại",
     customer_address: "Địa chỉ",
