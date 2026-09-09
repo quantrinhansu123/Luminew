@@ -883,12 +883,15 @@
                                 check</th>
                             <th rowspan="2" class="sortable-header header-lenvanhanh" data-col-id="emptyStatus">Trống
                                 trạng thái</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh" data-col-id="tienVeAmount">Tiền về</th>
                             <th rowspan="2" class="sortable-header header-tyle" data-col-id="shipRate">Tỷ lệ đơn lên vận
                                 hành</th>
                             <th rowspan="2" class="sortable-header header-tyle" data-col-id="paymentRate">Tỷ lệ tiền có
                                 bill+giao TC</th>
                             <th rowspan="2" class="sortable-header header-tyle" data-col-id="ttThanhCongTrenDonTinhPhi">
                                 Tỷ lệ tiền bill/đơn có mã</th>
+                            <th rowspan="2" class="sortable-header header-tyle" data-col-id="tienVeTrenDonCoMa">
+                                Doanh số tiền về/Doanh số đơn đã có mã</th>
                         </tr>
                         <tr>
                             <th class="sortable-header header-tonghop" data-col-id="paidCount">Số đơn</th>
@@ -1621,7 +1624,7 @@ function handleData(response) {
                 },
                 showError: function (message) {
                     const tbody = document.getElementById('summaryTableBody');
-                    if (tbody) tbody.innerHTML = `<tr><td colspan="17" class="no-data">${message}</td></tr>`;
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="19" class="no-data">${message}</td></tr>`;
                     hideLoader();
                 },
                 createEmptyStats: () => ({
@@ -1640,7 +1643,8 @@ function handleData(response) {
                     "Trống trạng thái": { count: 0 },
                     "Tổng đơn OK": { count: 0 },
                     "Tổng đơn có dvvc": { count: 0 },
-                    "Tổng đơn có mã tracking": { count: 0, amount: 0 }
+                    "Tổng đơn có mã tracking": { count: 0, amount: 0 },
+                    "Tiền về": { amount: 0 }
                 }),
                 updateDetailedSummaryTable: function (filteredData) {
                     const tbody = document.getElementById('summaryTableBody');
@@ -1786,6 +1790,7 @@ function handleData(response) {
                         const s = staffStats[key];
                         const billRate = VandonNvRegion.calcBillAmountOnSuccessRate(s);
                         const trackingBillRate = VandonNvRegion.calcBillAmountOnTrackingCodeRate(s);
+                        const tienVeRate = VandonNvRegion.calcTienVeOnTrackingCodeRate(s);
                         return {
                             staff: s.staffName,
                             staffType: s.staffType,
@@ -1795,6 +1800,7 @@ function handleData(response) {
                             paidBillAmount: billRate.billAmount,
                             successAmount: billRate.successAmount,
                             trackingCodeAmount: trackingBillRate.trackingAmount,
+                            tienVeAmount: tienVeRate.tienVe,
                             totalInternal: s["Tổng đơn lên nội bộ"].count,
                             eligible: s["Tổng đơn đủ đkien đẩy vh"].count,
                             hoanVanHanh: s["Hoàn"].count,
@@ -1811,6 +1817,7 @@ function handleData(response) {
                             shipRate: s["Tổng đơn lên nội bộ"].count > 0 ? (s["Tổng đơn lên vận hành"].count / s["Tổng đơn lên nội bộ"].count * 100) : 0,
                             paymentRate: billRate.rate,
                             ttThanhCongTrenDonTinhPhi: trackingBillRate.rate,
+                            tienVeTrenDonCoMa: tienVeRate.rate,
                             billOkTrenGiaoThanhCong: s["Giao Thành Công"].count > 0 ? ((s["Đã Thanh Toán (có bill)"].count + s["Bill 1 phần"].count) / s["Giao Thành Công"].count * 100) : 0
                         };
                     });
@@ -1863,6 +1870,7 @@ function handleData(response) {
                         const tongTyLeDonLenVanHanh = g["Tổng đơn lên nội bộ"].count > 0 ? (g["Tổng đơn lên vận hành"].count / g["Tổng đơn lên nội bộ"].count * 100) : 0;
                         const grandBillRate = VandonNvRegion.calcBillAmountOnSuccessRate(g);
                         const grandTrackingBillRate = VandonNvRegion.calcBillAmountOnTrackingCodeRate(g);
+                        const grandTienVeRate = VandonNvRegion.calcTienVeOnTrackingCodeRate(g);
                         const tongTyLeTTThanhCong = grandTrackingBillRate.rate;
                         const tongTyLeThuTien = grandBillRate.rate;
 
@@ -1884,9 +1892,11 @@ function handleData(response) {
                                         <td data-col-id="notShipped">${g["Chưa Giao"].count}</td>
                                         <td data-col-id="pendingCheck">${g["chờ check"].count}</td>
                                         <td data-col-id="emptyStatus">${g["Trống trạng thái"].count}</td>
+                                        <td data-col-id="tienVeAmount">${new Intl.NumberFormat('vi-VN').format(grandTienVeRate.tienVe)} ₫</td>
                                         <td data-col-id="shipRate">${tongTyLeDonLenVanHanh.toFixed(1)}%</td>
                                         <td data-col-id="paymentRate">(${VandonNvRegion.formatVndAmount(grandBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandBillRate.successAmount)}) = ${tongTyLeThuTien.toFixed(1)}%</td>
-                                        <td data-col-id="ttThanhCongTrenDonTinhPhi">(${VandonNvRegion.formatVndAmount(grandTrackingBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandTrackingBillRate.trackingAmount)}) = ${tongTyLeTTThanhCong.toFixed(1)}%</td>`;
+                                        <td data-col-id="ttThanhCongTrenDonTinhPhi">(${VandonNvRegion.formatVndAmount(grandTrackingBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandTrackingBillRate.trackingAmount)}) = ${tongTyLeTTThanhCong.toFixed(1)}%</td>
+                                        <td data-col-id="tienVeTrenDonCoMa">(${VandonNvRegion.formatVndAmount(grandTienVeRate.tienVe)} / ${VandonNvRegion.formatVndAmount(grandTienVeRate.trackingAmount)}) = ${grandTienVeRate.rate.toFixed(1)}%</td>`;
                         tbody.appendChild(tr);
                     }
                     const st = this.sortState || {};
@@ -1925,9 +1935,11 @@ function handleData(response) {
                                         <td data-col-id="notShipped">${r.notShipped}</td>
                                         <td data-col-id="pendingCheck">${r.pendingCheck}</td>
                                         <td data-col-id="emptyStatus">${r.emptyStatus}</td>
+                                        <td data-col-id="tienVeAmount">${new Intl.NumberFormat('vi-VN').format(r.tienVeAmount || 0)} ₫</td>
                                         <td data-col-id="shipRate" class="${r.shipRate > 70 ? 'positive' : 'negative'}">${r.shipRate.toFixed(1)}%</td>
                                         <td data-col-id="paymentRate" class="${r.paymentRate > 80 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.paidBillAmount)} / ${VandonNvRegion.formatVndAmount(r.successAmount)}) = ${r.paymentRate.toFixed(1)}%</td>
-                                        <td data-col-id="ttThanhCongTrenDonTinhPhi" class="${r.ttThanhCongTrenDonTinhPhi > 70 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.paidBillAmount)} / ${VandonNvRegion.formatVndAmount(r.trackingCodeAmount)}) = ${r.ttThanhCongTrenDonTinhPhi.toFixed(1)}%</td>`;
+                                        <td data-col-id="ttThanhCongTrenDonTinhPhi" class="${r.ttThanhCongTrenDonTinhPhi > 70 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.paidBillAmount)} / ${VandonNvRegion.formatVndAmount(r.trackingCodeAmount)}) = ${r.ttThanhCongTrenDonTinhPhi.toFixed(1)}%</td>
+                                        <td data-col-id="tienVeTrenDonCoMa" class="${r.tienVeTrenDonCoMa > 70 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.tienVeAmount)} / ${VandonNvRegion.formatVndAmount(r.trackingCodeAmount)}) = ${r.tienVeTrenDonCoMa.toFixed(1)}%</td>`;
                         tbody.appendChild(tr);
                         renderedCount++;
                     });

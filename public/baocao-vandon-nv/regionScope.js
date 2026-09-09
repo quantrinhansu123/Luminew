@@ -261,6 +261,43 @@
     };
   }
 
+  /** Đọc «Tiền Việt đã đối soát» / reconciled_vnd từ 1 dòng đơn. */
+  function resolveReconciledVnd(row) {
+    if (!row || typeof row !== 'object') return 0;
+    var keys = [
+      'Tiền Việt đã đối soát',
+      'Tiền_Việt_đã_đối_soát',
+      'reconciled_vnd',
+      'Tiền đã thanh toán',
+    ];
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      var raw = row[keys[i]];
+      if (raw === undefined || raw === null || raw === '') continue;
+      var n = Number(String(raw).replace(/[^\d.-]/g, ''));
+      if (Number.isFinite(n)) return n;
+    }
+    return 0;
+  }
+
+  /**
+   * Tỷ lệ Doanh số tiền về / Doanh số đơn đã có mã.
+   * Numerator: Σ Tiền Việt đã đối soát (bucket «Tiền về»).
+   * Denominator: Σ Tổng tiền VNĐ của đơn có mã tracking.
+   */
+  function calcTienVeOnTrackingCodeRate(stats) {
+    if (!stats) return { tienVe: 0, trackingAmount: 0, rate: 0 };
+    var tienVe = stats['Tiền về'] ? stats['Tiền về'].amount || 0 : 0;
+    var tracking = stats['Tổng đơn có mã tracking']
+      ? stats['Tổng đơn có mã tracking'].amount || 0
+      : 0;
+    return {
+      tienVe: tienVe,
+      trackingAmount: tracking,
+      rate: tracking > 0 ? (tienVe / tracking * 100) : 0,
+    };
+  }
+
   function getRowField(row, keys) {
     if (!row || typeof row !== 'object') return '';
     var i;
@@ -355,6 +392,9 @@
 
     incrementDeliveryStatusCount(stats, deliveryNb);
     addDeliverySuccessAmount(stats, deliveryNb, amt);
+
+    if (!stats['Tiền về']) stats['Tiền về'] = { amount: 0 };
+    stats['Tiền về'].amount += resolveReconciledVnd(row);
   }
 
   /**
@@ -487,6 +527,8 @@
     calcBillAmountOnSuccessRate: calcBillAmountOnSuccessRate,
     addTrackingCodeOrderAmount: addTrackingCodeOrderAmount,
     calcBillAmountOnTrackingCodeRate: calcBillAmountOnTrackingCodeRate,
+    resolveReconciledVnd: resolveReconciledVnd,
+    calcTienVeOnTrackingCodeRate: calcTienVeOnTrackingCodeRate,
     accumulateVanDonSummaryStats: accumulateVanDonSummaryStats,
     formatVndAmount: formatVndAmount,
     applyProductAreaDeliveryBuckets: applyProductAreaDeliveryBuckets,

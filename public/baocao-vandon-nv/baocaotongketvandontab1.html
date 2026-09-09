@@ -722,9 +722,11 @@
                             <th rowspan="2" class="sortable-header header-lenvanhanh">Chưa Giao</th>
                             <th rowspan="2" class="sortable-header header-lenvanhanh">chờ check</th>
                             <th rowspan="2" class="sortable-header header-lenvanhanh">Trống trạng thái</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh">Tiền về</th>
                             <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ đơn lên vận hành</th>
                             <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ tiền có bill+giao TC</th>
                             <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ tiền bill/đơn có mã</th>
+                            <th rowspan="2" class="sortable-header header-tyle">Doanh số tiền về/Doanh số đơn đã có mã</th>
                         </tr>
                         <tr>
                             <th class="sortable-header header-tonghop">Số đơn</th>
@@ -936,6 +938,7 @@
                     "Trạng thái thanh toán": getRowValue(row, "Trạng thái thanh toán", "Trạng_thái_thanh_toán", "payment_status_detail"),
                     "Trạng thái giao hàng NB": getRowValue(row, "Trạng thái giao hàng NB", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"),
                     "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ", "total_amount_vnd"),
+                    "Tiền Việt đã đối soát": getRowValue(row, "Tiền Việt đã đối soát", "Tiền_Việt_đã_đối_soát", "reconciled_vnd"),
                 };
             }
 
@@ -1058,7 +1061,7 @@ function handleData(response) {
                 },
                 showError: function (message) {
                     const tbody = document.getElementById('summaryTableBody');
-                    if (tbody) tbody.innerHTML = `<tr><td colspan="17" class="no-data">${message}</td></tr>`;
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="19" class="no-data">${message}</td></tr>`;
                     hideLoader();
                 },
                 createEmptyStats: () => ({
@@ -1077,7 +1080,8 @@ function handleData(response) {
                     "Trống trạng thái": { count: 0 },
                     "Tổng đơn OK": { count: 0 },
                     "Tổng đơn có dvvc": { count: 0 },
-                    "Tổng đơn có mã tracking": { count: 0, amount: 0 }
+                    "Tổng đơn có mã tracking": { count: 0, amount: 0 },
+                    "Tiền về": { amount: 0 }
                 }),
                 updateDetailedSummaryTable: function (filteredData) {
                     const tbody = document.getElementById('summaryTableBody');
@@ -1240,6 +1244,7 @@ function handleData(response) {
                         const s = staffStats[staff];
                         const billRate = VandonNvRegion.calcBillAmountOnSuccessRate(s);
                         const trackingBillRate = VandonNvRegion.calcBillAmountOnTrackingCodeRate(s);
+                        const tienVeRate = VandonNvRegion.calcTienVeOnTrackingCodeRate(s);
                         return {
                             staff,
                             paidCount: s["Đã Thanh Toán (có bill)"].count,
@@ -1248,6 +1253,7 @@ function handleData(response) {
                             paidBillAmount: billRate.billAmount,
                             successAmount: billRate.successAmount,
                             trackingCodeAmount: trackingBillRate.trackingAmount,
+                            tienVeAmount: tienVeRate.tienVe,
                             totalInternal: s["Tổng đơn lên nội bộ"].count,
                             eligible: s["Tổng đơn đủ đkien đẩy vh"].count,
                             
@@ -1271,6 +1277,8 @@ function handleData(response) {
                             
                             ttThanhCongTrenDonTinhPhi: trackingBillRate.rate,
 
+                            tienVeTrenDonCoMa: tienVeRate.rate,
+
                             billOkTrenGiaoThanhCong: s["Giao Thành Công"].count > 0 ? ((s["Đã Thanh Toán (có bill)"].count + s["Bill 1 phần"].count) / s["Giao Thành Công"].count * 100) : 0
                         };
                     });
@@ -1291,6 +1299,7 @@ function handleData(response) {
                         const tongTyLeDonLenVanHanh = g["Tổng đơn lên nội bộ"].count > 0 ? (g["Tổng đơn lên vận hành"].count / g["Tổng đơn lên nội bộ"].count * 100) : 0;
                         const grandBillRate = VandonNvRegion.calcBillAmountOnSuccessRate(g);
                         const grandTrackingBillRate = VandonNvRegion.calcBillAmountOnTrackingCodeRate(g);
+                        const grandTienVeRate = VandonNvRegion.calcTienVeOnTrackingCodeRate(g);
                         const tongTyLeTTThanhCong = grandTrackingBillRate.rate;
                         const tongTyLeThuTien = grandBillRate.rate;
                         tr.innerHTML = `<td>TỔNG TOÀN BỘ</td>
@@ -1307,9 +1316,11 @@ function handleData(response) {
                                         <td>${g["Chưa Giao"].count}</td>
                                         <td>${g["chờ check"].count}</td>
                                         <td>${g["Trống trạng thái"].count}</td>
+                                        <td>${new Intl.NumberFormat('vi-VN').format(grandTienVeRate.tienVe)} ₫</td>
                                         <td>(${g["Tổng đơn lên vận hành"].count} / ${g["Tổng đơn lên nội bộ"].count}) = ${tongTyLeDonLenVanHanh.toFixed(1)}%</td>
                                         <td>(${VandonNvRegion.formatVndAmount(grandBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandBillRate.successAmount)}) = ${tongTyLeThuTien.toFixed(1)}%</td>
-                                        <td>(${VandonNvRegion.formatVndAmount(grandTrackingBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandTrackingBillRate.trackingAmount)}) = ${tongTyLeTTThanhCong.toFixed(1)}%</td>`;
+                                        <td>(${VandonNvRegion.formatVndAmount(grandTrackingBillRate.billAmount)} / ${VandonNvRegion.formatVndAmount(grandTrackingBillRate.trackingAmount)}) = ${tongTyLeTTThanhCong.toFixed(1)}%</td>
+                                        <td>(${VandonNvRegion.formatVndAmount(grandTienVeRate.tienVe)} / ${VandonNvRegion.formatVndAmount(grandTienVeRate.trackingAmount)}) = ${grandTienVeRate.rate.toFixed(1)}%</td>`;
                         tbody.appendChild(tr);
                     }
                     let rows = [...this.lastSummaryRows];
@@ -1340,9 +1351,11 @@ function handleData(response) {
                                         <td>${r.notShipped}</td>
                                         <td>${r.pendingCheck}</td>
                                         <td>${r.emptyStatus}</td>
+                                        <td>${new Intl.NumberFormat('vi-VN').format(r.tienVeAmount || 0)} ₫</td>
                                         <td class="${r.shipRate > 70 ? 'positive' : 'negative'}">(${r.shippedTotal} / ${r.totalInternal}) = ${r.shipRate.toFixed(1)}%</td>
                                         <td class="${r.paymentRate > 80 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.paidBillAmount)} / ${VandonNvRegion.formatVndAmount(r.successAmount)}) = ${r.paymentRate.toFixed(1)}%</td>
-                                        <td class="${r.ttThanhCongTrenDonTinhPhi > 70 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.paidBillAmount)} / ${VandonNvRegion.formatVndAmount(r.trackingCodeAmount)}) = ${r.ttThanhCongTrenDonTinhPhi.toFixed(1)}%</td>`;
+                                        <td class="${r.ttThanhCongTrenDonTinhPhi > 70 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.paidBillAmount)} / ${VandonNvRegion.formatVndAmount(r.trackingCodeAmount)}) = ${r.ttThanhCongTrenDonTinhPhi.toFixed(1)}%</td>
+                                        <td class="${r.tienVeTrenDonCoMa > 70 ? 'positive' : 'negative'}">(${VandonNvRegion.formatVndAmount(r.tienVeAmount)} / ${VandonNvRegion.formatVndAmount(r.trackingCodeAmount)}) = ${r.tienVeTrenDonCoMa.toFixed(1)}%</td>`;
                         tbody.appendChild(tr);
                     });
                 },
@@ -1350,7 +1363,7 @@ function handleData(response) {
 
                 // ===== START: JAVASCRIPT MODIFICATION (setupSummarySorting) =====
                 setupSummarySorting: function () {
-                    const colMap = { "Số đơn": "paidCount", "Thành Tiền": "paidAmount", "Bill 1 phần": "partialCount", "Tổng đơn lên nội bộ": "totalInternal", "Tổng đơn đủ đkien đẩy vh": "eligible", "Hoàn vận hành": "hoanVanHanh", "Tổng đơn lên vận hành chưa mã": "notYetShipped", "Đơn OK chưa đẩy đi": "okNotPushed", "Giao Thành Công": "success", "Đang Giao": "inTransit", "Chưa Giao": "notShipped", "chờ check": "pendingCheck", "Trống trạng thái": "emptyStatus", "Tỷ lệ đơn lên vận hành": "shipRate", "Tỷ lệ tiền có bill+giao TC": "paymentRate", "Tỷ lệ tiền bill/đơn có mã": "ttThanhCongTrenDonTinhPhi" };
+                    const colMap = { "Số đơn": "paidCount", "Thành Tiền": "paidAmount", "Bill 1 phần": "partialCount", "Tổng đơn lên nội bộ": "totalInternal", "Tổng đơn đủ đkien đẩy vh": "eligible", "Hoàn vận hành": "hoanVanHanh", "Tổng đơn lên vận hành chưa mã": "notYetShipped", "Đơn OK chưa đẩy đi": "okNotPushed", "Giao Thành Công": "success", "Đang Giao": "inTransit", "Chưa Giao": "notShipped", "chờ check": "pendingCheck", "Trống trạng thái": "emptyStatus", "Tỷ lệ đơn lên vận hành": "shipRate", "Tỷ lệ tiền có bill+giao TC": "paymentRate", "Tỷ lệ tiền bill/đơn có mã": "ttThanhCongTrenDonTinhPhi", "Tiền về": "tienVeAmount", "Doanh số tiền về/Doanh số đơn đã có mã": "tienVeTrenDonCoMa" };
                     document.querySelectorAll('.summary-table thead .sortable-header').forEach(th => {
                         const key = colMap[th.textContent.trim()];
                         if (key) th.addEventListener('click', () => {
