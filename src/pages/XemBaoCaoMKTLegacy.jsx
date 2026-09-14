@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
+import { syncBaoCaoMktDayFromManualReports } from '../services/baoCaoMktDaySync';
 import { upsertMktKpiAlerts } from '../services/mktKpiAlertsService';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
 
@@ -109,8 +110,44 @@ export default function XemBaoCaoMKTLegacy({
   const [iframeReloadKey, setIframeReloadKey] = useState(0);
   const recalcLoadingRef = useRef(false);
 
+  const [syncDayOpen, setSyncDayOpen] = useState(false);
+  const [syncDayDate, setSyncDayDate] = useState(() => yesterdayYmdLocal());
+  const [syncDayLoading, setSyncDayLoading] = useState(false);
+
   const pendingSyncRef = useRef([]);
   const syncTimerRef = useRef(null);
+
+  const runSyncBaoCaoMktDay = useCallback(async () => {
+    if (syncDayLoading) return;
+    if (!isAdminOnly) {
+      alert('Chỉ Admin mới được đồng bộ bao_cao_mkt_day.');
+      return;
+    }
+    const ymd = String(syncDayDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      alert('Vui lòng chọn đúng 1 ngày để đồng bộ.');
+      return;
+    }
+
+    try {
+      setSyncDayLoading(true);
+      toast.info(`Đang đồng bộ bao_cao_mkt_day ngày ${ymd}…`, { autoClose: false });
+      const result = await syncBaoCaoMktDayFromManualReports(ymd);
+      toast.dismiss();
+      toast.success(
+        `Ngày ${ymd}: hạch toán ${result.upserted} dòng từ ${result.sourceRows} báo cáo tay (ca = Hết ca).`
+      );
+      setSyncDayOpen(false);
+    } catch (error) {
+      console.error('[XemBaoCaoMKTLegacy] sync bao_cao_mkt_day:', error);
+      toast.dismiss();
+      toast.error('Lỗi đồng bộ bao_cao_mkt_day: ' + (error?.message || String(error)), {
+        autoClose: 12000,
+      });
+    } finally {
+      setSyncDayLoading(false);
+    }
+  }, [isAdminOnly, syncDayDate, syncDayLoading]);
 
   const runRecalcForOneDay = useCallback(
     async (ymdRaw) => {
@@ -392,14 +429,86 @@ export default function XemBaoCaoMKTLegacy({
           <span className="text-xs text-slate-500">
             Chỉ tính đúng 1 ngày đã chọn (tạo dòng thiếu nếu cần).
           </span>
+          <span className="mx-1 text-slate-300">|</span>
+          <button
+            type="button"
+            disabled={syncDayLoading}
+            onClick={() => {
+              setSyncDayDate(yesterdayYmdLocal());
+              setSyncDayOpen(true);
+            }}
+            className="px-3 py-1.5 rounded font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            title="Tổng hợp báo cáo tay → bao_cao_mkt_day (ca = Hết ca)"
+          >
+            Đồng bộ bao_cao_mkt_day
+          </button>
         </div>
       )}
+
       <iframe
         key={iframeReloadKey}
         src={iframeSrc}
         className="w-full flex-1 min-h-0 border-none"
         title={iframeTitle}
       />
+
+      {syncDayOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            if (!syncDayLoading) setSyncDayOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-lg bg-white shadow-xl border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-200">
+              <h3 className="text-base font-semibold text-slate-800">Đồng bộ bao_cao_mkt_day</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Tổng hợp số liệu từ Danh sách báo cáo tay (detail_reports) theo ngày đã chọn.
+                Ca ghi mặc định: <strong>Hết ca</strong>.
+              </p>
+            </div>
+            <div className="px-4 py-4 space-y-3">
+              <label className="block text-sm text-slate-700">
+                <span className="font-medium">Chọn ngày</span>
+                <input
+                  type="date"
+                  value={syncDayDate}
+                  onChange={(e) => setSyncDayDate(e.target.value)}
+                  disabled={syncDayLoading}
+                  required
+                  className="mt-1 w-full border border-slate-300 rounded px-3 py-2 bg-white"
+                />
+              </label>
+              <p className="text-xs text-slate-500">
+                Nhóm theo Ngày + MKT + SP + Thị trường; cộng dồn mọi ca trong ngày. Ghi đè dữ liệu cũ của đúng ngày đó.
+              </p>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={syncDayLoading}
+                onClick={() => setSyncDayOpen(false)}
+                className="px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={syncDayLoading || !syncDayDate}
+                onClick={() => void runSyncBaoCaoMktDay()}
+                className="px-3 py-1.5 rounded font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400"
+              >
+                {syncDayLoading ? 'Đang đồng bộ…' : 'Đồng bộ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

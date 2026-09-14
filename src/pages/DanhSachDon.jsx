@@ -677,10 +677,10 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [filterPaymentCollectionStatus, setFilterPaymentCollectionStatus] = useState([]);
   const [showPaymentCollectionFilter, setShowPaymentCollectionFilter] = useState(false);
   const [paymentCollectionFilterSearchText, setPaymentCollectionFilterSearchText] = useState('');
-  // Mặc định 30 ngày (trước chỉ 3 ngày — dễ không thấy đơn cũ hơn)
+  // HN: mặc định 30 ngày. HCM (/danh-sach-don-hcm): tải sẵn 3 ngày.
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 30);
+    d.setDate(d.getDate() - (dataSource === 'hcm' ? 3 : 30));
     return formatLocalYmd(d);
   });
   const [endDate, setEndDate] = useState(() => formatLocalYmd(new Date()));

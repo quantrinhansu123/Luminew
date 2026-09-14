@@ -275,6 +275,7 @@ export async function fetchMktOrdersInDateRange(startDate, endDate, tableName = 
 
 /**
  * Tính Số đơn TT / Doanh số TT cho một dòng báo cáo — cùng logic `recalcMktSoDonThucTeFromOrders`.
+ * `ordersList` nên đã qua `prepareMktOrdersForRowMetrics` (1 lần / batch) — tránh O(n²) mỗi dòng.
  * @returns {{ so_don_thuc_te: number, so_don_huy: number, so_don_ok: number, doanh_so_ok: number, doanh_so_thuc_te: number, so_don_gross: number }}
  */
 export function computeMktOrderMetricsForReportRow(report, ordersList, options = {}) {
@@ -300,7 +301,7 @@ export function computeMktOrderMetricsForReportRow(report, ordersList, options =
   let cancelRevenueVnd = 0;
 
   const seenOrderCodes = new Set();
-  for (const order of dropGiftColumnDuplicateOrders(ordersList || [])) {
+  for (const order of ordersList || []) {
     const oc = String(order?.order_code ?? '').trim();
     if (oc) {
       if (seenOrderCodes.has(oc)) continue;
@@ -348,6 +349,11 @@ export function computeMktOrderMetricsForReportRow(report, ordersList, options =
     doanh_so_thuc_te: netRevenue,
     so_don_gross: grossCount,
   };
+}
+
+/** Chuẩn bị danh sách đơn 1 lần trước khi tính metrics cho nhiều dòng báo cáo. */
+export function prepareMktOrdersForRowMetrics(ordersList) {
+  return dropGiftColumnDuplicateOrders(ordersList || []);
 }
 
 /** Fallback hiển thị khi chưa tính xong từ orders — đọc cột đã lưu trên báo cáo. */
@@ -644,11 +650,26 @@ export function overlayHcmMarketingReportRowsFromOrders(reportRows, orders) {
   });
 }
 
+function parseDonOkFromRow(row) {
+  if (!row) return 0;
+  return parseIntegerVi(row['Đơn Ok'] ?? row['Số đơn Ok'] ?? row.so_don_ok ?? 0);
+}
+
+function parseDoanhSoOkFromRow(row) {
+  if (!row) return 0;
+  return parseMoneyNumber(row['Doanh số Ok'] ?? row.doanh_so_ok ?? 0);
+}
+
+function parseDoanhSoHoanHuyTTFromRow(row) {
+  if (!row) return 0;
+  return parseMoneyNumber(row['Doanh số hoàn hủy thực tế'] ?? row.doanh_so_hoan_huy_thuc_te ?? 0);
+}
+
 /**
  * Trùng `id` (API lặp) hoặc trùng key logic → gộp một dòng:
  * CPQC, Số_Mess_Cmt, «Số đơn» (nhập tay), «Doanh số» (nhập tay): cộng dồn;
- * Số đơn TT / hoàn hủy / DS Chốt TT: max.
- * Khớp đúng logic dedupeMktDetailReportRows trong viewNsMoiNhanh-HCM.html.
+ * Số đơn TT / Đơn Ok / DS Ok / hoàn hủy / DS Chốt TT / DS hủy TT: max.
+ * Khớp đúng logic dedupeMktDetailReportRows trong viewNsMoiNhanh.html.
  */
 export function dedupeMktDetailReportRows(rows) {
   const merged = mergeUniqueRowsById(rows || []);
@@ -656,47 +677,77 @@ export function dedupeMktDetailReportRows(rows) {
   for (const row of merged) {
     const k = buildMktDetailReportRowKey(row);
     const sd = parseSoDonThucTeFromRow(row);
+    const sok = parseDonOkFromRow(row);
+    const dsok = parseDoanhSoOkFromRow(row);
     const sh = parseSoDonHoanHuyFromRow(row);
     const sm = parseSoDonBaoCaoTayFromRow(row);
     const ds = parseDoanhSoChotTTFromRow(row);
+    const dsh = parseDoanhSoHoanHuyTTFromRow(row);
     const cpqc = parseCpqcFromRow(row);
     const mess = parseSoMessCmtFromRow(row);
     const dso = parseDoanhSoManualFromRow(row);
+    const dss = parseMoneyNumber(
+      row?.['Doanh số sau hoàn hủy thực tế'] ??
+        row?.doanh_so_sau_hoan_huy_thuc_te ??
+        row?.['DS sau hoàn hủy'] ??
+        row?.ds_sau_hoan_huy ??
+        0
+    );
 
     const prev = byKey.get(k);
     if (!prev) {
-      byKey.set(k, { row, sd, sh, sm, ds, cpqc, mess, dso });
+      byKey.set(k, { row, sd, sok, dsok, sh, sm, ds, dsh, cpqc, mess, dso, dss });
       continue;
     }
 
     const mergedSd = Math.max(prev.sd, sd);
+    const mergedSok = Math.max(prev.sok, sok);
+    const mergedDsok = Math.max(prev.dsok, dsok);
     const mergedSh = Math.max(prev.sh, sh);
-    // «Số đơn» nhập tay: CỘNG DỒN (khớp viewNsMoiNhanh-HCM.html)
+    // «Số đơn» nhập tay: CỘNG DỒN (khớp viewNsMoiNhanh.html)
     const mergedSm = prev.sm + sm;
     const mergedDs = Math.max(prev.ds, ds);
+    const mergedDsh = Math.max(prev.dsh, dsh);
+    const mergedDss = Math.max(prev.dss, dss);
     const mergedCpqc = prev.cpqc + cpqc;
     const mergedMess = prev.mess + mess;
-    // «Doanh số» nhập tay: CỘNG DỒN (khớp viewNsMoiNhanh-HCM.html)
+    // «Doanh số» nhập tay: CỘNG DỒN (khớp viewNsMoiNhanh.html)
     const mergedDso = prev.dso + dso;
 
     prev.sd = mergedSd;
+    prev.sok = mergedSok;
+    prev.dsok = mergedDsok;
     prev.sh = mergedSh;
     prev.sm = mergedSm;
     prev.ds = mergedDs;
+    prev.dsh = mergedDsh;
+    prev.dss = mergedDss;
     prev.cpqc = mergedCpqc;
     prev.mess = mergedMess;
     prev.dso = mergedDso;
     prev.row['Số đơn thực tế'] = mergedSd;
+    prev.row['Đơn Ok'] = mergedSok;
+    prev.row['Doanh số Ok'] = mergedDsok;
     prev.row['Số đơn hoàn hủy'] = mergedSh;
     prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
     prev.row['Số đơn'] = mergedSm;
     prev.row['Doanh số TT'] = mergedDs;
+    prev.row['Doanh số hoàn hủy thực tế'] = mergedDsh;
+    prev.row['Doanh số sau hoàn hủy thực tế'] = mergedDss;
+    prev.row['DS sau hoàn hủy'] = mergedDss;
     prev.row['Doanh số'] = mergedDso;
     prev.row['CPQC'] = mergedCpqc;
     prev.row['Số_Mess_Cmt'] = mergedMess;
     if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
+    if (prev.row.so_don_ok != null) prev.row.so_don_ok = mergedSok;
+    if (prev.row.doanh_so_ok != null) prev.row.doanh_so_ok = mergedDsok;
+    if (prev.row.so_don_hoan_huy != null) prev.row.so_don_hoan_huy = mergedSh;
+    if (prev.row.so_don_hoan_huy_thuc_te != null) prev.row.so_don_hoan_huy_thuc_te = mergedSh;
     if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
+    if (prev.row.doanh_so_hoan_huy_thuc_te != null) prev.row.doanh_so_hoan_huy_thuc_te = mergedDsh;
+    if (prev.row.doanh_so_sau_hoan_huy_thuc_te != null) prev.row.doanh_so_sau_hoan_huy_thuc_te = mergedDss;
     if (prev.row.doanh_so != null) prev.row.doanh_so = mergedDso;
+    if (prev.row.so_don != null) prev.row.so_don = mergedSm;
     if (prev.row.cpqc != null) prev.row.cpqc = mergedCpqc;
     if (prev.row.so_mess_cmt != null) prev.row.so_mess_cmt = mergedMess;
   }
@@ -1603,46 +1654,22 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   const optionalColumnSupport = await getMktOptionalColumnSupport(reportsTable);
 
-  // Cập nhật từng dòng — đồng thời thấp; lỗi mạng thì fallback từng dòng
-  const UPDATE_CONCURRENCY = 4;
+  // Cập nhật tuần tự từng dòng — tránh lỗi mạng / rate-limit khi chạy khoảng ngày dài
   let touched = 0;
 
-  for (let i = 0; i < updateRows.length; i += UPDATE_CONCURRENCY) {
-    const chunk = updateRows.slice(i, i + UPDATE_CONCURRENCY);
-    try {
-      const results = await Promise.all(
-        chunk.map((row) => {
-          const { id, ...rest } = row;
-          const patch = stripUnsupportedMktPatchFields(rest, optionalColumnSupport);
-          return supabase.from(reportsTable).update(patch).eq('id', id);
-        })
-      );
-      const firstErr = results.find((r) => r.error)?.error;
-      if (firstErr) throw firstErr;
-    } catch (e) {
-      const raw = e?.message || String(e);
-      const isNetwork =
-        e?.name === 'TypeError' ||
-        (typeof raw === 'string' && raw.toLowerCase().includes('failed to fetch'));
-      if (!isNetwork) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, e);
-      for (const row of chunk) {
-        const { id, ...rest } = row;
-        const patch = stripUnsupportedMktPatchFields(rest, optionalColumnSupport);
-        const { error } = await supabase.from(reportsTable).update(patch).eq('id', id);
-        if (error) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, error);
-      }
-    }
-    touched += chunk.length;
+  for (const row of updateRows) {
+    const { id, ...rest } = row;
+    const patch = stripUnsupportedMktPatchFields(rest, optionalColumnSupport);
+    const { error } = await supabase.from(reportsTable).update(patch).eq('id', id);
+    if (error) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, error);
+    touched += 1;
   }
 
-  const INSERT_CHUNK = 200;
-  for (let i = 0; i < createRows.length; i += INSERT_CHUNK) {
-    const chunk = createRows
-      .slice(i, i + INSERT_CHUNK)
-      .map((row) => stripUnsupportedMktPatchFields(row, optionalColumnSupport));
-    const { error } = await supabase.from(reportsTable).insert(chunk);
-    if (error) throw error;
-    touched += chunk.length;
+  for (const row of createRows) {
+    const payload = stripUnsupportedMktPatchFields(row, optionalColumnSupport);
+    const { error } = await supabase.from(reportsTable).insert(payload);
+    if (error) throw wrapRecalcReadError(`${reportsTable} (tạo mới)`, error);
+    touched += 1;
   }
 
   return {

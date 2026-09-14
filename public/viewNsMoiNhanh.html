@@ -2922,6 +2922,79 @@
         .filter(Boolean);
     }
 
+    /** Khớp src/utils/vanDonStaffNameList.js — nhận diện nghỉ việc trên users. */
+    function isUserNghiViecStatus(...fields) {
+      for (const raw of fields) {
+        const plain = String(raw ?? '').trim().toLowerCase();
+        const a = normalizeNameForKey(raw);
+        if (!plain && !a) continue;
+        if (plain === 'nghỉ việc' || plain.includes('nghỉ việc')) return true;
+        if (a === 'nghi viec' || a.includes('nghi viec')) return true;
+        if (a === 'nghi' || a === 'da nghi' || a.startsWith('da nghi')) return true;
+        if (a === 'inactive' || a === 'terminated') return true;
+      }
+      return false;
+    }
+
+    function isTeamDaNghiLabel(team) {
+      return isUserNghiViecStatus(team);
+    }
+
+    /**
+     * Tên NV nghỉ việc theo bảng users (employment_status / department / team / position).
+     * Không select cột không tồn tại (`status`/`trang_thai`) — lỗi 400 làm mất employment_status.
+     * Đồng thời trả knownNameKeys để loại tên orphan (có báo cáo nhưng không còn users) — vd. Bùi Đức Tài.
+     */
+    async function fetchMktNghiViecNameKeys() {
+      const supabase = await getSupabaseClient();
+      const keys = new Set();
+      const knownNameKeys = new Set();
+      let res = await supabase
+        .from('users')
+        .select('name, team, position, department, employment_status')
+        .not('name', 'is', null);
+      if (res.error) {
+        const msg = String(res.error.message || '').toLowerCase();
+        const missing =
+          (msg.includes('does not exist') || msg.includes('could not find')) &&
+          (msg.includes('employment_status') || msg.includes('position') || msg.includes('department'));
+        if (missing) {
+          res = await supabase.from('users').select('name, team, department').not('name', 'is', null);
+        }
+      }
+      if (res.error) {
+        console.warn('[MKT] Không tải được trạng thái nghỉ việc từ users:', res.error.message || res.error);
+        return { nghiKeys: keys, knownNameKeys };
+      }
+      for (const u of res.data || []) {
+        const n = String(u.name || '').trim();
+        if (!n) continue;
+        const nk = normalizeNameForKey(n);
+        if (nk) knownNameKeys.add(nk);
+        if (
+          isUserNghiViecStatus(
+            u.employment_status,
+            u.department,
+            u.position,
+            u.team
+          )
+        ) {
+          keys.add(nk);
+        }
+      }
+      return { nghiKeys: keys, knownNameKeys };
+    }
+
+    function isMktRowExcludedAsNghi(row, nghiNameKeys, knownNameKeys) {
+      if (isTeamDaNghiLabel(row?.team || row?.['Team'])) return true;
+      const nameKey = normalizeNameForKey(row?.ten || row?.['Tên'] || '');
+      if (!nameKey) return false;
+      if (nghiNameKeys && nghiNameKeys.has(nameKey)) return true;
+      // Không còn trong users → coi như đã nghỉ / xóa hồ sơ (vd. Bùi Đức Tài)
+      if (knownNameKeys && knownNameKeys.size > 0 && !knownNameKeys.has(nameKey)) return true;
+      return false;
+    }
+
     /** detail_reports không có employeeData — suy ra từ các dòng báo cáo */
     function buildEmployeesFromDetailRows(rowsNorm) {
       const map = new Map();
@@ -3830,7 +3903,25 @@
           ? await fetchEmployeeData(resultMKT.employeeData)
           : buildEmployeesFromDetailRows(rowsDeduped);
 
-        employeeData = employeeDataMKT;
+        let nghiViecNameKeys = new Set();
+        let knownUserNameKeys = new Set();
+        try {
+          if (lo) lo.textContent = 'Đang lọc nhân sự đã nghỉ…';
+          const nghiPack = await fetchMktNghiViecNameKeys();
+          nghiViecNameKeys = nghiPack.nghiKeys || new Set();
+          knownUserNameKeys = nghiPack.knownNameKeys || new Set();
+          if (nghiViecNameKeys.size) {
+            console.log(`🚫 Loại ${nghiViecNameKeys.size} tên nghỉ việc khỏi báo cáo MKT / TỔNG.`);
+          }
+        } catch (nghiErr) {
+          console.warn('[MKT] Bỏ qua lọc nghỉ việc:', nghiErr?.message || nghiErr);
+        }
+        window.__MKT_NGHI_VIEC_NAME_KEYS__ = nghiViecNameKeys;
+        window.__MKT_KNOWN_USER_NAME_KEYS__ = knownUserNameKeys;
+
+        employeeData = (employeeDataMKT || []).filter(
+          (e) => !isMktRowExcludedAsNghi({ ten: e.ten, team: e.team }, nghiViecNameKeys, knownUserNameKeys)
+        );
 
         const allowedSet =
           MKT_ALLOWED_TEAMS && MKT_ALLOWED_TEAMS.length
@@ -3842,6 +3933,7 @@
           const slice = rowsDeduped.slice(i, i + mapChunkSize);
           for (const r of slice) {
             if (!r['Tên'] || String(r['Tên']).trim() === '') continue;
+            if (isMktRowExcludedAsNghi(r, nghiViecNameKeys, knownUserNameKeys)) continue;
             if (allowedSet) {
               const t = String(r['Team'] || '').trim();
               if (!allowedSet.has(t)) continue;
@@ -4202,6 +4294,7 @@
         return true;
       };
       const filteredDataResult = baseDataForReport.filter(r => {
+        if (isMktRowExcludedAsNghi(r, window.__MKT_NGHI_VIEC_NAME_KEYS__, window.__MKT_KNOWN_USER_NAME_KEYS__)) return false;
         if (!rowPassesNonCaFilters(r)) return false;
         if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
         return true;

@@ -119,3 +119,29 @@ export async function upsertKpisMktRows(rows, range) {
   rangeCache.set(rangeKey(startDate, endDate), { rows: rows.slice(), fetchedAt: Date.now() });
   return { count };
 }
+
+/**
+ * Đọc detail_reports theo khoảng Ngày — dùng khi Chốt KPI MKT khớp Báo cáo sau hủy.
+ * @param {string} startDate
+ * @param {string} endDate
+ */
+export async function fetchDetailReportsForMktChot(startDate, endDate) {
+  const sb = await getClient();
+  const page = 1000;
+  let from = 0;
+  const all = [];
+  for (;;) {
+    const { data, error } = await sb
+      .from('detail_reports')
+      .select('*')
+      .gte('Ngày', startDate)
+      .lte('Ngày', endDate)
+      .order('id', { ascending: true })
+      .range(from, from + page - 1);
+    if (error) throw error;
+    all.push(...(data || []));
+    if (!data || data.length < page) break;
+    from += page;
+  }
+  return all;
+}

@@ -378,7 +378,7 @@ function BangDoiSoatDayFFMInner({
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [search, setSearch] = useState("");
+  const [orderCodeSearch, setOrderCodeSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selProduct, setSelProduct] = useState([]);
@@ -430,16 +430,20 @@ function BangDoiSoatDayFFMInner({
 
   const filteredRows = useMemo(() => {
     let data = rows;
-    const q = search.trim().toLowerCase();
-    if (q) {
+    const orderQ = orderCodeSearch.trim().toLowerCase();
+    if (orderQ) {
       data = data.filter((r) => {
-        const blob = Object.entries(r || {})
-          .filter(([k]) => !HIDDEN_COLUMNS.has(k))
-          .map(([, v]) => (v == null ? "" : String(v)))
-          .join(" ")
+        const code = String(r?.order_code ?? r?.["Mã đơn hàng"] ?? "")
+          .trim()
           .toLowerCase();
-        return blob.includes(q);
+        return code.includes(orderQ);
       });
+      // Tra mã đơn: bỏ lọc ngày để không bị ẩn ngoài khoảng Từ/Đến.
+      data = data.filter((r) => rowMatchesMultiSelect(selProduct, () => getProduct(r)));
+      data = data.filter((r) => rowMatchesMultiSelect(selMarket, () => getMarket(r)));
+      data = data.filter((r) => rowMatchesMultiSelect(selShipping, () => getShipping(r)));
+      data = data.filter((r) => rowMatchesMultiSelect(selBranch, () => getBranch(r)));
+      return data;
     }
     data = data.filter((r) => {
       const day = getRowDayKey(r);
@@ -452,7 +456,7 @@ function BangDoiSoatDayFFMInner({
     data = data.filter((r) => rowMatchesMultiSelect(selShipping, () => getShipping(r)));
     data = data.filter((r) => rowMatchesMultiSelect(selBranch, () => getBranch(r)));
     return data;
-  }, [rows, search, dateFrom, dateTo, selProduct, selMarket, selShipping, selBranch]);
+  }, [rows, orderCodeSearch, dateFrom, dateTo, selProduct, selMarket, selShipping, selBranch]);
 
   const checkboxFilterActive =
     selProduct.length > 0 || selMarket.length > 0 || selShipping.length > 0 || selBranch.length > 0;
@@ -576,14 +580,15 @@ function BangDoiSoatDayFFMInner({
           <div className="flex flex-wrap items-center justify-between gap-3 py-4">
             <h1 className="text-xl font-bold text-gray-900">{pageTitle}</h1>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[200px]">
+              <div className="relative min-w-[240px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="search"
-                  placeholder="Tìm trong bảng..."
+                  placeholder="Tra theo Mã đơn hàng..."
                   className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  value={orderCodeSearch}
+                  onChange={(e) => setOrderCodeSearch(e.target.value)}
+                  title="Lọc theo cột Mã đơn hàng (order_code). Khi đang tra mã, bỏ lọc Từ/Đến ngày."
                 />
               </div>
               <button
@@ -621,6 +626,12 @@ function BangDoiSoatDayFFMInner({
               <p className="text-[11px] text-gray-500 max-w-[220px] leading-snug m-0 self-end pb-1">
                 Lọc và nhóm theo ngày dựa trên cột <code className="bg-gray-100 px-0.5 rounded">pushed_at</code>
                 {` `}(nếu trống mới dùng các cột thời gian khác).
+                {orderCodeSearch.trim() ? (
+                  <>
+                    {" "}
+                    <span className="text-blue-700 font-medium">Đang tra mã đơn — bỏ lọc ngày.</span>
+                  </>
+                ) : null}
               </p>
             </div>
             <FilterCheckboxDropdown

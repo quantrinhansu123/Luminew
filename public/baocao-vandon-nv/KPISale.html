@@ -342,9 +342,142 @@
     #rawF3Table tbody tr:hover {
       background-color: #eff5fb;
     }
+
+    /* Click ô metric → danh sách mã đơn (KPIs MKT) */
+    #kpi-summary-table td.kpi-metric-link {
+      cursor: pointer;
+      color: #1565c0;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    #kpi-summary-table td.kpi-metric-link:hover {
+      background: rgba(21, 101, 192, 0.08);
+    }
+    #kpi-orders-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10050;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    #kpi-orders-modal.open {
+      display: flex;
+    }
+    #kpi-orders-modal .kpi-orders-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+    }
+    #kpi-orders-modal .kpi-orders-panel {
+      position: relative;
+      z-index: 1;
+      width: min(960px, 96vw);
+      max-height: min(88vh, 900px);
+      overflow: auto;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+      padding: 16px 18px 18px;
+    }
+    #kpi-orders-modal .kpi-orders-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 2;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e8e8e8;
+    }
+    #kpi-orders-modal .kpi-orders-head h3 {
+      margin: 0;
+      font-size: 1.15rem;
+      color: #1b4b1b;
+    }
+    #kpi-orders-modal .kpi-orders-sub {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: #555;
+    }
+    #kpi-orders-modal .kpi-orders-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    #kpi-orders-modal .kpi-orders-close {
+      border: none;
+      background: #eee;
+      color: #333;
+      width: 34px;
+      height: 34px;
+      border-radius: 6px;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    #kpi-orders-modal .kpi-orders-close:hover {
+      background: #ddd;
+    }
+    #kpi-orders-modal .kpi-orders-copy {
+      border: 1px solid #c5c5c5;
+      background: #f7f7f7;
+      color: #333;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #kpi-orders-modal .kpi-orders-copy:hover {
+      background: #eee;
+    }
+    #kpi-orders-modal table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    #kpi-orders-modal th,
+    #kpi-orders-modal td {
+      border: 1px solid #ddd;
+      padding: 6px 8px;
+    }
+    #kpi-orders-modal thead th {
+      background: #2d7c2d;
+      color: #fff;
+      position: sticky;
+      top: 52px;
+      z-index: 1;
+    }
+    #kpi-orders-modal td.kpi-order-code {
+      font-family: ui-monospace, Consolas, monospace;
+      font-weight: 600;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
+  <div id="kpi-orders-modal" role="dialog" aria-modal="true" aria-labelledby="kpi-orders-title" hidden>
+    <div class="kpi-orders-backdrop" data-kpi-orders-close="1"></div>
+    <div class="kpi-orders-panel">
+      <div class="kpi-orders-head">
+        <div>
+          <h3 id="kpi-orders-title">Danh sách mã đơn</h3>
+          <p id="kpi-orders-sub" class="kpi-orders-sub"></p>
+        </div>
+        <div class="kpi-orders-actions">
+          <button type="button" class="kpi-orders-copy" id="kpi-orders-copy-btn">Copy mã</button>
+          <button type="button" class="kpi-orders-close" data-kpi-orders-close="1" aria-label="Đóng">×</button>
+        </div>
+      </div>
+      <div id="kpi-orders-body"></div>
+    </div>
+  </div>
   <div class="container">
     <div class="header">
       <h1 id="page-title">KPI Sale</h1>
@@ -962,6 +1095,12 @@
         if (!reuseHr && dataHr) hrRowsCachePayload = dataHr;
 
         rawOrders = normalizeF3(dataF3);
+        try {
+          const dr = dateRange || {};
+          if (dr.startDate && dr.endDate) {
+            lastKpiOrdersFetchKey = `${dr.startDate}|${dr.endDate}`;
+          }
+        } catch (_) {}
         if (dataMkt) {
           if (Array.isArray(dataMkt)) {
             mktRows = normalizeF3(dataMkt);
@@ -1684,6 +1823,32 @@
       const kpiHead = document.getElementById('kpi-summary-table')?.querySelector('thead');
       if (kpiHead) kpiHead.addEventListener('click', (e) => sortKpiTable(e));
 
+      const kpiBody = document.getElementById('kpi-summary-body');
+      if (kpiBody) {
+        kpiBody.addEventListener('click', (e) => {
+          const cell = e.target.closest('td.kpi-metric-link[data-metric]');
+          if (!cell) return;
+          const metric = cell.getAttribute('data-metric') || '';
+          const staffName = cell.getAttribute('data-staff') || '';
+          const isTotal = cell.getAttribute('data-total') === '1';
+          openKpiMetricOrdersModal({ metric, staffName, isTotal });
+        });
+      }
+
+      const kpiOrdersModal = document.getElementById('kpi-orders-modal');
+      if (kpiOrdersModal) {
+        kpiOrdersModal.addEventListener('click', (e) => {
+          if (e.target.closest('[data-kpi-orders-close]')) closeKpiOrdersModal();
+        });
+      }
+      const kpiOrdersCopyBtn = document.getElementById('kpi-orders-copy-btn');
+      if (kpiOrdersCopyBtn) {
+        kpiOrdersCopyBtn.addEventListener('click', () => copyKpiOrdersModalCodes());
+      }
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeKpiOrdersModal();
+      });
+
       document.querySelectorAll('.toggle-column').forEach(cb => cb.addEventListener('change', toggleKpiColumn));
 
       // RAW view listeners
@@ -1841,25 +2006,328 @@
       };
     }
 
-    /** Cộng 1 đơn vào bucket agg (cùng công thức applyFiltersAndRender). */
+    /**
+     * Chuẩn Báo cáo sau hủy (viewNsMoiNhanh overlay TT):
+     * - loại team HCM, chỉ đếm đơn VND > 0
+     * - hủy: check_result || payment_status → ascii «huy»
+     * - bỏ trùng order_code + trùng cột gift
+     */
+    function normalizeAsciiLoose(s) {
+      return String(s ?? '')
+        .replace(/\u00a0/g, ' ')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    /** Khớp vanDonStaffNameList / viewNsMoiNhanh — loại NV nghỉ khỏi KPI + TỔNG. */
+    function isUserNghiViecStatus(...fields) {
+      for (const raw of fields) {
+        const plain = String(raw ?? '').trim().toLowerCase();
+        const a = normalizeAsciiLoose(raw).replace(/[.\-_/]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!plain && !a) continue;
+        if (plain === 'nghỉ việc' || plain.includes('nghỉ việc')) return true;
+        if (a === 'nghi viec' || a.includes('nghi viec')) return true;
+        if (a === 'nghi' || a === 'da nghi' || a.startsWith('da nghi')) return true;
+        if (a === 'inactive' || a === 'terminated') return true;
+      }
+      return false;
+    }
+
+    function isTeamDaNghiLabel(team) {
+      return isUserNghiViecStatus(team);
+    }
+
+    function normalizePersonNameKeyNghi(v) {
+      return normalizeAsciiLoose(String(v || '').replace(/[đĐ]/g, 'd'))
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    let nghiViecNameKeysCache = null;
+    let knownUserNameKeysCache = null;
+
+    async function ensureNghiViecNameKeys() {
+      if (nghiViecNameKeysCache instanceof Set && knownUserNameKeysCache instanceof Set) {
+        return { nghiKeys: nghiViecNameKeysCache, knownNameKeys: knownUserNameKeysCache };
+      }
+      const keys = new Set();
+      const knownNameKeys = new Set();
+      try {
+        const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+        const url =
+          String(window.__SUPABASE_URL__ || '').trim() ||
+          'https://gsjhsmxyxjyiqovauyrp.supabase.co';
+        const key =
+          String(window.__SUPABASE_ANON_KEY__ || '').trim() ||
+          'sb_publishable_vXBSa3eP8cvjIK2qLWI6Ug_FoYm4CNy';
+        const sb = createClient(url, key);
+        let res = await sb
+          .from('users')
+          .select('name, team, position, department, employment_status')
+          .not('name', 'is', null);
+        if (res.error) {
+          const msg = String(res.error.message || '').toLowerCase();
+          const missing =
+            (msg.includes('does not exist') || msg.includes('could not find')) &&
+            (msg.includes('employment_status') || msg.includes('position') || msg.includes('department'));
+          if (missing) {
+            res = await sb.from('users').select('name, team, department').not('name', 'is', null);
+          }
+        }
+        if (!res.error) {
+          for (const u of res.data || []) {
+            const n = String(u.name || '').trim();
+            if (!n) continue;
+            const nk = normalizePersonNameKeyNghi(n);
+            if (nk) knownNameKeys.add(nk);
+            if (
+              isUserNghiViecStatus(
+                u.employment_status,
+                u.department,
+                u.position,
+                u.team
+              )
+            ) {
+              keys.add(nk);
+            }
+          }
+        } else {
+          console.warn('[KPISale] Không tải trạng thái nghỉ việc:', res.error.message || res.error);
+        }
+      } catch (e) {
+        console.warn('[KPISale] Lỗi tải NV nghỉ việc:', e?.message || e);
+      }
+      nghiViecNameKeysCache = keys;
+      knownUserNameKeysCache = knownNameKeys;
+      if (keys.size) {
+        console.log(`🚫 [KPISale] Loại ${keys.size} tên nghỉ việc khỏi KPI / TỔNG.`);
+      }
+      return { nghiKeys: keys, knownNameKeys };
+    }
+
+    function isKpiStaffExcludedAsNghi(row, nghiKeys, selectedTeam, knownNameKeys) {
+      const team = String(row?.team || '').trim();
+      if (isTeamDaNghiLabel(team)) {
+        const isSelected =
+          selectedTeam &&
+          !selectedTeam.all &&
+          Array.isArray(selectedTeam.values) &&
+          selectedTeam.values.length > 0 &&
+          selectedTeam.values.includes(team);
+        return !isSelected;
+      }
+      const nk = normalizePersonNameKeyNghi(row?.name || row?.employee_name || '');
+      if (!nk) return false;
+      if (nghiKeys && nghiKeys.has(nk)) return true;
+      if (knownNameKeys && knownNameKeys.size > 0 && !knownNameKeys.has(nk)) return true;
+      return false;
+    }
+
+    function orderAmountVndForMktTt(r) {
+      const candidates = [
+        getRowValue(r, 'Tổng tiền VNĐ', 'Tổng_tiền_VNĐ', 'total_amount_vnd'),
+        getRowValue(r, 'total_vnd', 'tong_tien_vnd'),
+        getRowValue(r, 'van_don_line_total_vnd'),
+        getRowValue(r, 'Tiền Việt đã đối soát', 'Tiền_Việt_đã_đối_soát', 'reconciled_vnd'),
+        getRowValue(r, 'goods_amount'),
+      ];
+      for (const raw of candidates) {
+        if (raw == null || raw === '') continue;
+        const n = parseNumber(raw);
+        if (n > 0) return n;
+      }
+      return parseNumber(getRowValue(r, 'Giá bán', 'sale_price'));
+    }
+
+    function isOrderHuyForMktTt(r) {
+      const check = String(
+        getRowValue(r, 'Kết quả Check', 'Kết_quả_Check', 'check_result') || ''
+      ).trim();
+      const pay = String(
+        getRowValue(r, 'Trạng thái thu tiền', 'Trạng_thái_thu_tiền', 'payment_status') || ''
+      ).trim();
+      const s = check || pay;
+      if (!s) return false;
+      return normalizeAsciiLoose(s) === 'huy';
+    }
+
+    function isMktTtCountableOrder(r) {
+      const team = String(getRowValue(r, 'Team', 'team') || '');
+      if (team && /hcm/i.test(team)) return false;
+      return orderAmountVndForMktTt(r) > 0;
+    }
+
+    function orderHasHetCaForMktTt(r) {
+      const raw = String(getRowValue(r, 'Ca', 'ca', 'CA', 'shift') || '').trim();
+      // Overlay ADS: ca trống → mặc định nhóm Hết ca
+      if (!raw) return true;
+      return normalizeAsciiLoose(raw).includes('het ca');
+    }
+
+    function normalizeFieldKeyMkt(v) {
+      let s = String(v ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFC');
+      s = s.replace(/(\d)\s+([a-z])/gi, '$1$2').replace(/([a-z])\s+(\d)/gi, '$1$2');
+      return s.replace(/\s+/g, ' ').trim();
+    }
+
+    function normalizeNameKeyMkt(v) {
+      const s = String(v ?? '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[đĐ]/g, 'd')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      return s.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function normalizeNgayKeyMkt(dateVal) {
+      const d = toDate(dateVal);
+      return d ? formatYmdLocal(d) : '';
+    }
+
+    function mktOrderCustomerKey(r) {
+      const phone = String(getRowValue(r, 'Phone*', 'Phone', 'customer_phone') || '').replace(
+        /\D/g,
+        ''
+      );
+      if (phone.length >= 8) return `p:${phone}`;
+      const name = normalizeNameKeyMkt(
+        getRowValue(r, 'Name*', 'Name', 'customer_name', 'Tên khách hàng')
+      );
+      return name ? `n:${name}` : '';
+    }
+
+    function orderGiftColumnRaw(r) {
+      return String(getRowValue(r, 'gift', 'gift_item', 'Quà tặng') || '').trim();
+    }
+
+    function productMatchesGiftColumn(product, giftRaw) {
+      const p = normalizeFieldKeyMkt(product);
+      const g = normalizeFieldKeyMkt(giftRaw);
+      if (!p || !g) return false;
+      if (p === g) return true;
+      return g.includes(p) || p.includes(g);
+    }
+
+    function uniqueOrdersByOrderCodeMkt(ordersList) {
+      const seen = new Set();
+      const out = [];
+      for (const order of ordersList || []) {
+        const oc = String(
+          getRowValue(order, 'Mã đơn hàng', 'Mã_đơn_hàng', 'order_code') || ''
+        ).trim();
+        if (oc) {
+          if (seen.has(oc)) continue;
+          seen.add(oc);
+        }
+        out.push(order);
+      }
+      return out;
+    }
+
+    /** Cùng rule danh-sach / Báo cáo sau hủy: bỏ trùng cột gift. */
+    function dropGiftColumnDuplicateOrdersMkt(ordersList) {
+      const unique = uniqueOrdersByOrderCodeMkt(ordersList);
+      const drop = new Set();
+      for (let i = 0; i < unique.length; i++) {
+        const orderA = unique[i];
+        const productA = String(getRowValue(orderA, 'Mặt hàng', 'Mặt_hàng', 'product') || '').trim();
+        if (!productA) continue;
+        const cust = mktOrderCustomerKey(orderA);
+        const day = normalizeNgayKeyMkt(
+          getRowValue(orderA, 'Ngày lên đơn', 'Ngày_lên_đơn', 'order_date')
+        );
+        const staff = normalizeNameKeyMkt(
+          getRowValue(
+            orderA,
+            'Nhân viên Marketing',
+            'Nhân_viên_Marketing',
+            'Nhân viên MKT',
+            'Nhân_viên_MKT',
+            'marketing_staff'
+          )
+        );
+        if (!cust || !day || !staff) continue;
+        for (let j = 0; j < unique.length; j++) {
+          if (i === j) continue;
+          const orderB = unique[j];
+          if (mktOrderCustomerKey(orderB) !== cust) continue;
+          if (
+            normalizeNgayKeyMkt(
+              getRowValue(orderB, 'Ngày lên đơn', 'Ngày_lên_đơn', 'order_date')
+            ) !== day
+          ) {
+            continue;
+          }
+          if (
+            normalizeNameKeyMkt(
+              getRowValue(
+                orderB,
+                'Nhân viên Marketing',
+                'Nhân_viên_Marketing',
+                'Nhân viên MKT',
+                'Nhân_viên_MKT',
+                'marketing_staff'
+              )
+            ) !== staff
+          ) {
+            continue;
+          }
+          const giftOnB = orderGiftColumnRaw(orderB);
+          if (!giftOnB) continue;
+          if (!productMatchesGiftColumn(productA, giftOnB)) continue;
+          const oc = String(
+            getRowValue(orderA, 'Mã đơn hàng', 'Mã_đơn_hàng', 'order_code') || ''
+          ).trim();
+          if (oc) drop.add(oc);
+          else drop.add(orderA);
+          break;
+        }
+      }
+      if (!drop.size) return unique;
+      return unique.filter((o) => {
+        const oc = String(
+          getRowValue(o, 'Mã đơn hàng', 'Mã_đơn_hàng', 'order_code') || ''
+        ).trim();
+        if (oc) return !drop.has(oc);
+        return !drop.has(o);
+      });
+    }
+
+    /** Cộng 1 đơn — chốt/hủy/sau hủy khớp Số Đơn (TT) / DS Chốt (TT) Báo cáo sau hủy. */
     function accumulateOrderIntoStaffAgg(agg, r) {
       const ship = parseNumber(
         getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
       );
-      const tongTien = parseNumber(getRowValue(r, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ'));
-      const ketQuaCheck = (getRowValue(r, 'Kết_quả_Check', 'Kết quả Check') || '').toString().trim();
-      const maTracking = (getRowValue(r, 'Mã_Tracking', 'Mã Tracking') || '').toString().trim();
+      const tongTien = orderAmountVndForMktTt(r);
+      const maTracking = (getRowValue(r, 'Mã_Tracking', 'Mã Tracking', 'tracking_code') || '')
+        .toString()
+        .trim();
       const tienVietDoiSoat = parseNumber(
-        getRowValue(r, 'Tiền_Việt_đã_đối_soát', 'Tiền Việt đã đối soát')
+        getRowValue(r, 'Tiền_Việt_đã_đối_soát', 'Tiền Việt đã đối soát', 'reconciled_vnd')
       );
-      const isHuy = ketQuaCheck === 'Huỷ';
+      const isHuy = isOrderHuyForMktTt(r);
       const isDi = maTracking !== '';
+      const countableTt = isMktTtCountableOrder(r);
 
-      agg.soDonChot += 1;
-      agg.dsChot += tongTien;
-      if (isHuy) {
-        agg.soDonHuy += 1;
-        agg.dsHuy += tongTien;
+      // Số Đơn / DS chốt & hủy: cùng luật overlay TT (VND>0, không HCM)
+      if (countableTt) {
+        agg.soDonChot += 1;
+        agg.dsChot += tongTien;
+        if (isHuy) {
+          agg.soDonHuy += 1;
+          agg.dsHuy += tongTien;
+        }
       }
       if (isDi && !isHuy) {
         agg.soDonDi += 1;
@@ -1870,6 +2338,253 @@
         agg.soDonThuTien += 1;
         agg.dThuThanhCong += tienVietDoiSoat;
       }
+    }
+
+    const KPI_MKT_METRIC_LABELS = {
+      chot: 'Chốt',
+      huy: 'Hủy',
+      sau_huy: 'Sau hủy',
+      di: 'Đi',
+      thu_tien: 'Thu tiền',
+      ship: 'Ship (đơn đi)',
+    };
+
+    let lastKpiOrdersFetchKey = '';
+    let lastKpiOrdersModalCodes = [];
+
+    function escapeHtmlKpi(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function orderStaffNameKeyMkt(r) {
+      const mktNameRaw = getRowValue(
+        r,
+        'Nhân_viên_Marketing',
+        'Nhân viên Marketing',
+        'Nhân viên MKT',
+        'Nhân_viên_MKT',
+        'marketing_staff'
+      );
+      return (mktNameRaw || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    /** Đơn có thuộc metric KPI MKT không (cùng rule accumulateOrderIntoStaffAgg). */
+    function orderMatchesKpiMktMetric(r, metric) {
+      const isHuy = isOrderHuyForMktTt(r);
+      const countable = isMktTtCountableOrder(r);
+      const maTracking = String(
+        getRowValue(r, 'Mã_Tracking', 'Mã Tracking', 'tracking_code') || ''
+      ).trim();
+      const isDi = maTracking !== '';
+      const tienViet = parseNumber(
+        getRowValue(r, 'Tiền_Việt_đã_đối_soát', 'Tiền Việt đã đối soát', 'reconciled_vnd')
+      );
+
+      switch (metric) {
+        case 'chot':
+          return countable;
+        case 'huy':
+          return countable && isHuy;
+        case 'sau_huy':
+          return countable && !isHuy;
+        case 'di':
+        case 'ship':
+          return isDi && !isHuy;
+        case 'thu_tien':
+          return tienViet > 0;
+        default:
+          return false;
+      }
+    }
+
+    function amountForKpiMetricDisplay(r, metric) {
+      if (metric === 'thu_tien') {
+        return parseNumber(
+          getRowValue(r, 'Tiền_Việt_đã_đối_soát', 'Tiền Việt đã đối soát', 'reconciled_vnd')
+        );
+      }
+      if (metric === 'ship') {
+        return parseNumber(
+          getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
+        );
+      }
+      return orderAmountVndForMktTt(r);
+    }
+
+    async function ensureRawOrdersForKpiDrillDown() {
+      await requestLatestParentFilters();
+      const ctx = getActiveKpiFilterContext();
+      const fetchKey = `${ctx.startVal}|${ctx.endVal}`;
+      if ((rawOrders || []).length && lastKpiOrdersFetchKey === fetchKey) {
+        return ctx;
+      }
+      await loadData({ forceOrders: true });
+      lastKpiOrdersFetchKey = fetchKey;
+      return getActiveKpiFilterContext();
+    }
+
+    /**
+     * Lọc mã đơn theo ô metric + NV (hoặc tổng).
+     * Pipeline: filter sidebar → gift dedup → rule metric (khớp Chốt / Báo cáo sau hủy).
+     */
+    function collectOrdersForKpiMktMetric({ metric, staffName, isTotal }) {
+      const ctx = getActiveKpiFilterContext();
+      const ctxFilter = {
+        ...ctx,
+        includeZero: true,
+      };
+
+      const staffKey = (staffName || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+      const staffByName = buildMktStaffByNameForChot(ctx.selectedTeam, ctx.selectedName);
+
+      const candidates = [];
+      (rawOrders || []).forEach((r) => {
+        if (!orderPassesKpiFilters(r, ctxFilter)) return;
+        const nameKey = orderStaffNameKeyMkt(r);
+        if (!nameKey) return;
+        if (!staffByName.has(nameKey)) return;
+        if (!isTotal && staffKey && nameKey !== staffKey) return;
+
+        const product = String(getRowValue(r, 'Mặt_hàng', 'Mặt hàng', 'product') || '').trim();
+        const market = String(getRowValue(r, 'Khu_vực', 'Khu vực', 'country') || '').trim();
+        if (!product || !market) return;
+
+        candidates.push(r);
+      });
+
+      const deduped = dropGiftColumnDuplicateOrdersMkt(candidates);
+      return deduped.filter((r) => orderMatchesKpiMktMetric(r, metric));
+    }
+
+    function closeKpiOrdersModal() {
+      const modal = document.getElementById('kpi-orders-modal');
+      if (!modal) return;
+      modal.classList.remove('open');
+      modal.hidden = true;
+      lastKpiOrdersModalCodes = [];
+    }
+
+    function copyKpiOrdersModalCodes() {
+      const text = (lastKpiOrdersModalCodes || []).join('\n');
+      if (!text) return;
+      const done = () => {
+        const btn = document.getElementById('kpi-orders-copy-btn');
+        if (!btn) return;
+        const prev = btn.textContent;
+        btn.textContent = 'Đã copy';
+        setTimeout(() => {
+          btn.textContent = prev;
+        }, 1200);
+      };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => {
+          window.prompt('Copy các mã:', text);
+        });
+      } else {
+        window.prompt('Copy các mã:', text);
+      }
+    }
+
+    function renderKpiOrdersModalList(orders, metric) {
+      const body = document.getElementById('kpi-orders-body');
+      if (!body) return;
+      if (!orders.length) {
+        body.innerHTML = '<p style="margin:12px 0;color:#666;">Không có mã đơn khớp rule này.</p>';
+        lastKpiOrdersModalCodes = [];
+        return;
+      }
+
+      const rows = orders.map((r, idx) => {
+        const code = String(
+          getRowValue(r, 'Mã đơn hàng', 'Mã_đơn_hàng', 'order_code') || ''
+        ).trim();
+        const day = normalizeNgayKeyMkt(
+          getRowValue(r, 'Ngày lên đơn', 'Ngày_lên_đơn', 'order_date')
+        );
+        const product = String(getRowValue(r, 'Mặt hàng', 'Mặt_hàng', 'product') || '').trim();
+        const market = String(getRowValue(r, 'Khu vực', 'Khu_vực', 'country') || '').trim();
+        const check = String(
+          getRowValue(r, 'Kết quả Check', 'Kết_quả_Check', 'check_result') || ''
+        ).trim();
+        const amount = amountForKpiMetricDisplay(r, metric);
+        return `<tr>
+          <td class="text-center">${idx + 1}</td>
+          <td class="kpi-order-code">${escapeHtmlKpi(code || '(không mã)')}</td>
+          <td>${escapeHtmlKpi(day)}</td>
+          <td>${escapeHtmlKpi(product)}</td>
+          <td>${escapeHtmlKpi(market)}</td>
+          <td>${escapeHtmlKpi(check)}</td>
+          <td class="cell-money">${formatCurrency(amount)}</td>
+        </tr>`;
+      });
+
+      lastKpiOrdersModalCodes = orders
+        .map((r) =>
+          String(getRowValue(r, 'Mã đơn hàng', 'Mã_đơn_hàng', 'order_code') || '').trim()
+        )
+        .filter(Boolean);
+
+      body.innerHTML = `<table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Mã đơn</th>
+            <th>Ngày</th>
+            <th>SP</th>
+            <th>TT</th>
+            <th>Check</th>
+            <th>Số tiền</th>
+          </tr>
+        </thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>`;
+    }
+
+    async function openKpiMetricOrdersModal({ metric, staffName, isTotal }) {
+      if (!isKpisMktMode()) return;
+      if (!KPI_MKT_METRIC_LABELS[metric]) return;
+
+      const modal = document.getElementById('kpi-orders-modal');
+      const titleEl = document.getElementById('kpi-orders-title');
+      const subEl = document.getElementById('kpi-orders-sub');
+      const body = document.getElementById('kpi-orders-body');
+      if (!modal || !titleEl || !subEl || !body) return;
+
+      const metricLabel = KPI_MKT_METRIC_LABELS[metric];
+      const who = isTotal ? 'TỔNG CỘNG' : staffName || 'N/A';
+      titleEl.textContent = `${metricLabel} · ${who}`;
+      subEl.textContent = 'Đang tải đơn theo rule…';
+      body.innerHTML = '<p style="margin:12px 0;color:#666;">Đang tải…</p>';
+      modal.hidden = false;
+      modal.classList.add('open');
+      lastKpiOrdersModalCodes = [];
+
+      try {
+        const ctx = await ensureRawOrdersForKpiDrillDown();
+        const orders = collectOrdersForKpiMktMetric({ metric, staffName, isTotal });
+        const range =
+          ctx.startVal && ctx.endVal ? `${ctx.startVal} → ${ctx.endVal}` : '(chưa chọn ngày)';
+        subEl.textContent = `${range} · ${orders.length.toLocaleString('vi-VN')} mã đơn · rule ${metricLabel}`;
+        renderKpiOrdersModalList(orders, metric);
+      } catch (err) {
+        console.error('[KPIs MKT] drill-down đơn lỗi:', err);
+        subEl.textContent = 'Không tải được đơn.';
+        body.innerHTML = `<p style="margin:12px 0;color:#b00020;">${escapeHtmlKpi(err?.message || err)}</p>`;
+      }
+    }
+
+    function kpiMetricCellHtml({ metric, staffName, isTotal, className, colIndex, content }) {
+      const colAttr = colIndex != null && colIndex !== '' ? ` data-col-index="${colIndex}"` : '';
+      if (!isKpisMktMode() || !KPI_MKT_METRIC_LABELS[metric]) {
+        return `<td class="${className}"${colAttr}>${content}</td>`;
+      }
+      const totalAttr = isTotal ? ' data-total="1"' : '';
+      const staffAttr = ` data-staff="${escapeHtmlKpi(staffName || '')}"`;
+      return `<td class="${className} kpi-metric-link"${colAttr} data-metric="${metric}"${staffAttr}${totalAttr} title="Xem mã đơn theo rule ${KPI_MKT_METRIC_LABELS[metric]}">${content}</td>`;
     }
 
     function staffAggToDbRow(reportDate, agg) {
@@ -1903,14 +2618,17 @@
       };
     }
 
-    function dbRowsToSummaryRows(dbRows, selectedTeam, selectedName, selectedProduct, selectedMarket) {
+    function dbRowsToSummaryRows(dbRows, selectedTeam, selectedName, selectedProduct, selectedMarket, nghiKeys, knownNameKeys) {
       const byName = new Map();
+      const nghi = nghiKeys instanceof Set ? nghiKeys : new Set();
+      const known = knownNameKeys instanceof Set ? knownNameKeys : new Set();
       (dbRows || []).forEach((r) => {
         const name = String(r.employee_name || '').trim();
         if (!name) return;
         if (!filterSelMatches(selectedName, name)) return;
         const team = String(r.team || '').trim();
         if (!filterSelMatches(selectedTeam, team)) return;
+        if (isKpiStaffExcludedAsNghi({ name, team }, nghi, selectedTeam, known)) return;
         const product = String(r.product || '').trim();
         if (!filterSelMatches(selectedProduct, product)) return;
         const market = String(r.market || '').trim();
@@ -2004,7 +2722,16 @@
         const marketSel = selectedMarket || { all: true, values: [], empty: false };
         const nameSel = selectedName || { all: true, values: [], empty: false };
         const teamSel = selectedTeam || { all: true, values: [], empty: false };
-        const rows = dbRowsToSummaryRows(dbRows, teamSel, nameSel, productSel, marketSel);
+        const nghiPack = await ensureNghiViecNameKeys();
+        const rows = dbRowsToSummaryRows(
+          dbRows,
+          teamSel,
+          nameSel,
+          productSel,
+          marketSel,
+          nghiPack.nghiKeys,
+          nghiPack.knownNameKeys
+        );
         currentData = rows;
         renderKpiSummary(rows, null);
         const st = document.getElementById('chotDataStatus');
@@ -2094,23 +2821,8 @@
       );
       if (!ctx.includeZero && ship === 0) return false;
 
-      const caFields = ['Ca', 'ca', 'CA'];
-      let hasHetCa = false;
-      let hasCaField = false;
-      for (const field of caFields) {
-        if (r[field] !== undefined && r[field] !== null && r[field] !== '') {
-          hasCaField = true;
-          const cas = String(r[field] || '')
-            .split(',')
-            .map((x) => x.trim())
-            .filter(Boolean);
-          if (cas.includes('Hết ca')) {
-            hasHetCa = true;
-            break;
-          }
-        }
-      }
-      if (hasCaField && !hasHetCa) return false;
+      // Ca: khớp overlay Báo cáo sau hủy (trống = Hết ca; nhận mọi biến thể «Hết ca»)
+      if (!orderHasHetCaForMktTt(r)) return false;
 
       if (!filterSelMatches(ctx.selectedProduct, getRowValue(r, 'Mặt_hàng', 'Mặt hàng'))) {
         return false;
@@ -2182,10 +2894,9 @@
       return parts.join('\n');
     }
 
-    /** Chốt: theo bộ lọc thanh trái → tính từng ngày → upsert kpis_mkt. */
+    /** Chốt: Sau hủy = Số Đơn (TT)/DS Chốt (TT) Báo cáo sau hủy — tính từ orders (VND>0, không HCM, Hết ca, hủy chuẩn hoá, bỏ trùng gift). */
     async function chotKpisMktData() {
       if (!isKpisMktMode()) return;
-      // Luôn lấy lại ngày / SP / TT từ thanh trái (tránh stale ngày mặc định trong iframe)
       await requestLatestParentFilters();
       clearTimeout(loadOrdersDebounce);
       const ctx = getActiveKpiFilterContext();
@@ -2195,7 +2906,10 @@
       }
       if (
         !confirm(
-          `Chốt KPI MKT theo khoảng ngày thanh trái?\n${ctx.startVal} → ${ctx.endVal}\n\nLưu đủ theo ngày × NV × SP × thị trường (để lọc SP/TT sau chỉ đọc DB).\nGhi đè các dòng trùng trong phạm vi ngày.`
+          `Chốt KPI MKT theo khoảng ngày thanh trái?\n${ctx.startVal} → ${ctx.endVal}\n\n` +
+            `Sau hủy khớp Báo cáo sau hủy: Số Đơn (TT) / DS Chốt (TT)\n` +
+            `(đơn VND > 0, không team HCM, Ca Hết ca, trừ hủy, bỏ trùng gift).\n` +
+            `Không đếm đơn 0đ. Ghi đè phạm vi ngày.`
         )
       ) {
         return;
@@ -2210,7 +2924,6 @@
       if (st) st.textContent = '';
 
       try {
-        // Tải lại orders đúng khoảng ngày thanh trái (bắt buộc tính lại để chốt)
         await loadData({ forceOrders: true });
 
         const staffByName = buildMktStaffByNameForChot(ctx.selectedTeam, ctx.selectedName);
@@ -2219,15 +2932,14 @@
           return;
         }
 
-        // Chốt full SP×TT trong khoảng ngày (bỏ lọc SP/TT khi ghi DB)
         const ctxChot = {
           ...ctx,
           selectedProduct: { all: true, values: [], empty: false },
           selectedMarket: { all: true, values: [], empty: false },
+          includeZero: true, // ship=0 vẫn tính; lọc TT theo VND>0 trong accumulate
         };
 
-        const byKey = new Map(); // `${ymd}|${name}|${product}|${market}` -> agg
-
+        const candidates = [];
         (rawOrders || []).forEach((r) => {
           if (!orderPassesKpiFilters(r, ctxChot)) return;
           const d = toDate(getRowValue(r, 'Ngày_lên_đơn', 'Ngày lên đơn', 'Thời gian lên đơn'));
@@ -2239,7 +2951,8 @@
             'Nhân_viên_Marketing',
             'Nhân viên Marketing',
             'Nhân viên MKT',
-            'Nhân_viên_MKT'
+            'Nhân_viên_MKT',
+            'marketing_staff'
           );
           const mktName = (mktNameRaw || '').toString().trim();
           if (!mktName) return;
@@ -2247,8 +2960,18 @@
           const staff = staffByName.get(nameKey);
           if (!staff) return;
 
-          const product = (getRowValue(r, 'Mặt_hàng', 'Mặt hàng') || '').toString().trim();
-          const market = (getRowValue(r, 'Khu_vực', 'Khu vực') || '').toString().trim();
+          const product = (getRowValue(r, 'Mặt_hàng', 'Mặt hàng', 'product') || '').toString().trim();
+          const market = (getRowValue(r, 'Khu_vực', 'Khu vực', 'country') || '').toString().trim();
+          if (!product || !market) return;
+          candidates.push({ r, ymd, nameKey, staff, product, market });
+        });
+
+        const dedupedOrders = dropGiftColumnDuplicateOrdersMkt(candidates.map((c) => c.r));
+        const keepSet = new Set(dedupedOrders);
+
+        const byKey = new Map();
+        candidates.forEach(({ r, ymd, nameKey, staff, product, market }) => {
+          if (!keepSet.has(r)) return;
           const mapKey = `${ymd}|${nameKey}|${product}|${market}`;
           if (!byKey.has(mapKey)) {
             byKey.set(mapKey, {
@@ -2262,11 +2985,17 @@
         });
 
         const upsertRows = [...byKey.values()]
-          .filter((agg) => agg.soDonChot > 0 || agg.dThuThanhCong > 0 || agg.soDonDi > 0)
+          .filter(
+            (agg) =>
+              agg.soDonChot > 0 ||
+              agg.soDonHuy > 0 ||
+              agg.dThuThanhCong > 0 ||
+              agg.soDonDi > 0
+          )
           .map((agg) => staffAggToDbRow(agg.reportDate, agg));
 
         if (!upsertRows.length) {
-          alert('Không có đơn MKT trong khoảng ngày để chốt.');
+          alert('Không có đơn MKT (VND > 0) trong khoảng ngày để chốt.');
           return;
         }
 
@@ -2275,8 +3004,20 @@
           startDate: ctx.startVal,
           endDate: ctx.endVal,
         });
-        if (st) st.textContent = `Đã chốt ${count} dòng (ngày×NV×SP×TT)`;
-        alert(`Đã chốt ${count} dòng KPI MKT (${ctx.startVal} → ${ctx.endVal}).`);
+
+        let tongSau = 0;
+        let tongDsSau = 0;
+        upsertRows.forEach((r) => {
+          tongSau += Number(r.don_sau_huy) || 0;
+          tongDsSau += Number(r.ds_sau_huy) || 0;
+        });
+        if (st) {
+          st.textContent = `Đã chốt ${count} dòng · Sau hủy ${tongSau.toLocaleString('vi-VN')} đơn`;
+        }
+        alert(
+          `Đã chốt ${count} dòng KPI MKT (${ctx.startVal} → ${ctx.endVal}).\n` +
+            `Sau hủy: ${tongSau.toLocaleString('vi-VN')} đơn · ${tongDsSau.toLocaleString('vi-VN')} ₫`
+        );
         await applyFiltersAndRender();
       } catch (err) {
         console.error('[KPIs MKT] chốt data lỗi:', err);
@@ -2349,25 +3090,8 @@
         );
         if (!includeZero && ship === 0) return false;
         
-        // Filter by CA - Default to "Hết ca" only (giống baocaomkt)
-        // Lưu ý: Format mới có thể không có cột Ca, nên bỏ qua filter này nếu không có
-        const caFields = ['Ca', 'ca', 'CA'];
-        let hasHetCa = false;
-        let hasCaField = false;
-        for (const field of caFields) {
-          if (r[field] !== undefined && r[field] !== null && r[field] !== '') {
-            hasCaField = true;
-            const cas = String(r[field] || '').split(',').map(x => x.trim()).filter(Boolean);
-            if (cas.length === 0 || !cas.includes('Hết ca')) {
-              // Không có ca hoặc không có "Hết ca"
-            } else {
-              hasHetCa = true;
-              break;
-            }
-          }
-        }
-        // Nếu có cột Ca thì phải có "Hết ca", nếu không có cột Ca thì bỏ qua filter này
-        if (hasCaField && !hasHetCa) return false; // Chỉ lấy đơn có "Hết ca" nếu có cột Ca
+        // Filter by CA — khớp Báo cáo sau hủy (trống = Hết ca)
+        if (!orderHasHetCaForMktTt(r)) return false;
         
         // Filter by Product
         if (!selectedProduct.all && (selectedProduct.values.length > 0 || selectedProduct.empty)) {
@@ -2674,18 +3398,24 @@
       // TỐI ƯU: Tính toán số liệu - O(n) thay vì O(n*m)
       // Với mỗi đơn hàng, chỉ lookup tên từ các cột F3 trong Map (O(1))
       const f3Columns = ['Nhân viên Marketing', 'Nhân viên Sale', 'NV Vận đơn'];
+      const isMktDept = staffScope.dept === 'MKT';
+      const ordersForAgg = isMktDept
+        ? dropGiftColumnDuplicateOrdersMkt(filtered)
+        : filtered;
       
-      filtered.forEach(r => {
+      ordersForAgg.forEach(r => {
         // Phí ship VNĐ = shipping_cost / Phí cước (không dùng shipping_fee text/ngày)
         const ship = parseNumber(
           getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
         );
-        const tongTien = parseNumber(getRowValue(r, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ'));
+        const tongTien = isMktDept
+          ? orderAmountVndForMktTt(r)
+          : parseNumber(getRowValue(r, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ'));
         const ketQuaCheck = (getRowValue(r, 'Kết_quả_Check', 'Kết quả Check') || '').toString().trim();
         const maTracking = (getRowValue(r, 'Mã_Tracking', 'Mã Tracking') || '').toString().trim();
         const tienVietDoiSoat = parseNumber(getRowValue(r, 'Tiền_Việt_đã_đối_soát', 'Tiền Việt đã đối soát'));
         const keToanXacNhan = (getRowValue(r, 'Kế_toán_xác_nhận_thu_tiền_về', 'Kế toán xác nhận thu tiền về', 'Ke toan xac nhan thu tien ve') || '').toString().trim();
-        const isHuy = ketQuaCheck === 'Huỷ';
+        const isHuy = isMktDept ? isOrderHuyForMktTt(r) : ketQuaCheck === 'Huỷ';
         const isDi = maTracking !== '';
         // Theo công thức mới: Số đơn đi chỉ cần có Mã Tracking (không cần Kết quả Check = "OK")
         // Theo công thức mới: Số đơn thu tiền chỉ cần Tiền Việt đã đối soát > 0 (không cần Kế toán xác nhận)
@@ -2724,7 +3454,13 @@
           const agg = byName.get(staffInfo.key);
           if (!agg) continue;
 
-          // Tính toán số liệu
+          // MKT: cộng theo chuẩn Báo cáo sau hủy (TT)
+          if (isMktDept && staffInfo.type === 'Marketing') {
+            accumulateOrderIntoStaffAgg(agg, r);
+            continue;
+          }
+
+          // Tính toán số liệu (Sale / Vận đơn — giữ công thức cũ)
           agg.soDonChot += 1;
           agg.dsChot += tongTien;
           if (isHuy) {
@@ -2839,21 +3575,13 @@
           };
         });
       
-      // Lọc bỏ nhân viên không có team
+      // Lọc bỏ nhân viên không có team + NV nghỉ việc (users) / team Đã nghỉ
+      const nghiPackFe = await ensureNghiViecNameKeys();
       rows = rows.filter(row => {
         const team = (row.team || '').toString().trim();
         if (team === '') return false; // Chỉ giữ lại nhân viên có team
-        
-        // Ẩn team "Đã nghỉ" mặc định, chỉ hiển thị khi được chọn trong bộ lọc
-        const teamLower = team.toLowerCase();
-        const isDaNghi = teamLower === 'đã nghỉ' || teamLower === 'da nghi' || teamLower === 'đã nghỉ việc' || teamLower === 'da nghi viec';
-        if (isDaNghi) {
-          // Chỉ hiển thị nếu team "Đã nghỉ" được chọn trong bộ lọc
-          const isSelected = !selectedTeam.all && selectedTeam.values.length > 0 && selectedTeam.values.includes(team);
-          return isSelected;
-        }
-        
-        return true; // Giữ lại các team khác
+        if (isKpiStaffExcludedAsNghi(row, nghiPackFe.nghiKeys, selectedTeam, nghiPackFe.knownNameKeys)) return false;
+        return true;
       });
       
       // Sắp xếp: Luôn theo Team trước, sau đó mới đến tên
@@ -2912,21 +3640,30 @@
         const tyLeThuTien = s.dsDi > 0 ? (s.dThuThanhCong / s.dsDi) : 0;
         const staffName = (s.name || '').toString().trim() || 'N/A';
         const staffTeam = (s.team || '').toString().trim() || '';
+        const cell = (metric, className, colIndex, content) =>
+          kpiMetricCellHtml({
+            metric,
+            staffName,
+            isTotal: false,
+            className,
+            colIndex,
+            content,
+          });
         return `<tr>
                 <td class="text-center">${i + 1}</td>
                 <td class="text-left">${staffTeam}</td>
                 <td class="text-left">${staffName}</td>
-                <td data-col-index="4" class="cell-count text-center">${formatNumber(s.soDonChot)}</td>
-                <td data-col-index="4" class="cell-money">${formatCurrency(s.dsChot)}</td>
-                <td data-col-index="5" class="cell-count text-center">${formatNumber(s.soDonHuy)}</td>
-                <td data-col-index="5" class="cell-money">${formatCurrency(s.dsHuy)}</td>
-                <td data-col-index="6" class="cell-count text-center">${formatNumber(s.soDonSauHuy)}</td>
-                <td data-col-index="6" class="cell-money">${formatCurrency(s.dsSauHuy)}</td>
-                <td data-col-index="7" class="cell-count text-center">${formatNumber(s.soDonDi)}</td>
-                <td data-col-index="7" class="cell-money">${formatCurrency(s.dsDi)}</td>
-                <td data-col-index="12" class="cell-count text-center">${formatNumber(s.soDonThuTien)}</td>
-                <td data-col-index="13" class="cell-money">${formatCurrency(s.dThuThanhCong)}</td>
-                <td data-col-index="14" class="cell-money">${formatCurrency(s.ship)}</td>
+                ${cell('chot', 'cell-count text-center', 4, formatNumber(s.soDonChot))}
+                ${cell('chot', 'cell-money', 4, formatCurrency(s.dsChot))}
+                ${cell('huy', 'cell-count text-center', 5, formatNumber(s.soDonHuy))}
+                ${cell('huy', 'cell-money', 5, formatCurrency(s.dsHuy))}
+                ${cell('sau_huy', 'cell-count text-center', 6, formatNumber(s.soDonSauHuy))}
+                ${cell('sau_huy', 'cell-money', 6, formatCurrency(s.dsSauHuy))}
+                ${cell('di', 'cell-count text-center', 7, formatNumber(s.soDonDi))}
+                ${cell('di', 'cell-money', 7, formatCurrency(s.dsDi))}
+                ${cell('thu_tien', 'cell-count text-center', 12, formatNumber(s.soDonThuTien))}
+                ${cell('thu_tien', 'cell-money', 13, formatCurrency(s.dThuThanhCong))}
+                ${cell('ship', 'cell-money', 14, formatCurrency(s.ship))}
                 <td data-col-index="15" class="cell-money">${formatCurrency(s.dThuTinhKpi)}</td>
                 <td data-col-index="16">${formatPercent(tyLeThuTien)}</td>
             </tr>`;
@@ -2943,20 +3680,29 @@
       }
 
       const totalTyLeThuTien = total.dsDi > 0 ? (total.dThuThanhCong / total.dsDi) : 0;
+      const tcell = (metric, className, colIndex, content) =>
+        kpiMetricCellHtml({
+          metric,
+          staffName: '',
+          isTotal: true,
+          className: `total-value ${className}`,
+          colIndex,
+          content,
+        });
 
       const totalRowHtml = `<tr class="total-row">
             <td class="total-label" colspan="3">TỔNG CỘNG</td>
-            <td class="total-value cell-count text-center" data-col-index="4">${formatNumber(total.soDonChot)}</td>
-            <td class="total-value cell-money" data-col-index="4">${formatCurrency(total.dsChot)}</td>
-            <td class="total-value cell-count text-center" data-col-index="5">${formatNumber(total.soDonHuy)}</td>
-            <td class="total-value cell-money" data-col-index="5">${formatCurrency(total.dsHuy)}</td>
-            <td class="total-value cell-count text-center" data-col-index="6">${formatNumber(total.soDonSauHuy)}</td>
-            <td class="total-value cell-money" data-col-index="6">${formatCurrency(total.dsSauHuy)}</td>
-            <td class="total-value cell-count text-center" data-col-index="7">${formatNumber(total.soDonDi)}</td>
-            <td class="total-value cell-money" data-col-index="7">${formatCurrency(total.dsDi)}</td>
-            <td class="total-value cell-count text-center" data-col-index="12">${formatNumber(total.soDonThuTien)}</td>
-            <td class="total-value cell-money" data-col-index="13">${formatCurrency(total.dThuThanhCong)}</td>
-            <td class="total-value cell-money" data-col-index="14">${formatCurrency(total.ship)}</td>
+            ${tcell('chot', 'cell-count text-center', 4, formatNumber(total.soDonChot))}
+            ${tcell('chot', 'cell-money', 4, formatCurrency(total.dsChot))}
+            ${tcell('huy', 'cell-count text-center', 5, formatNumber(total.soDonHuy))}
+            ${tcell('huy', 'cell-money', 5, formatCurrency(total.dsHuy))}
+            ${tcell('sau_huy', 'cell-count text-center', 6, formatNumber(total.soDonSauHuy))}
+            ${tcell('sau_huy', 'cell-money', 6, formatCurrency(total.dsSauHuy))}
+            ${tcell('di', 'cell-count text-center', 7, formatNumber(total.soDonDi))}
+            ${tcell('di', 'cell-money', 7, formatCurrency(total.dsDi))}
+            ${tcell('thu_tien', 'cell-count text-center', 12, formatNumber(total.soDonThuTien))}
+            ${tcell('thu_tien', 'cell-money', 13, formatCurrency(total.dThuThanhCong))}
+            ${tcell('ship', 'cell-money', 14, formatCurrency(total.ship))}
             <td class="total-value cell-money" data-col-index="15">${formatCurrency(total.dThuTinhKpi)}</td>
             <td class="total-value" data-col-index="16">${formatPercent(totalTyLeThuTien)}</td>
         </tr>`;

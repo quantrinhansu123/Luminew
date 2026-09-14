@@ -6,8 +6,10 @@ import usePermissions from '../hooks/usePermissions';
 import {
     buildMktDetailReportRowKey,
     computeMktOrderMetricsForReportRow,
+    dedupeMktDetailReportRows,
     fetchMktOrdersInDateRange,
     mktRealValuesFallbackFromReportRow,
+    prepareMktOrdersForRowMetrics,
     recalcMktSoDonThucTeFromOrders,
 } from '../services/mktRecalcSoDonThucTeFromOrders';
 import {
@@ -18,6 +20,8 @@ import {
 } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
+import { calendarMonthDateBounds } from '../utils/dateParsing';
+import { parseIntegerVi, parseMoneyNumber } from '../utils/mktNormalizeDetailReportRows';
 import { XEM_BAO_CAO_MKT_HCM_TEAM } from './XemBaoCaoMKTLegacy';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
@@ -57,8 +61,8 @@ const formatDateYmdLocal = (d) => {
     return `${y}-${m}-${day}`;
 };
 
-/** Tối đa số ngày lịch (cả Từ và Đến) trong bộ lọc ngày trang danh sách báo cáo tay MKT. */
-const MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS = 3;
+/** Khoảng ngày mặc định khi mở trang (không còn giới hạn cứng khi lọc / cập nhật TT). */
+const MKT_MANUAL_FILTER_DEFAULT_INCLUSIVE_DAYS = 3;
 
 function addDaysYmdLocal(ymd, deltaDays) {
     const parts = String(ymd || '').split('-').map(Number);
@@ -237,6 +241,9 @@ export default function DanhSachBaoCaoTayMKT({
         products: [],
         markets: []
     });
+    /** '' = không dùng lọc tháng; '1'..'12' = cả tháng theo calendarMonthDateBounds */
+    const [filterMonth, setFilterMonth] = useState('');
+    const [filterYear, setFilterYear] = useState(() => new Date().getFullYear());
     const [personnelSearch, setPersonnelSearch] = useState('');
     const [syncing, setSyncing] = useState(false);
     const [syncingTeamFromUsers, setSyncingTeamFromUsers] = useState(false);
@@ -265,32 +272,39 @@ export default function DanhSachBaoCaoTayMKT({
         setCurrentPage(1);
     };
 
-    const maxSpan = MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS - 1;
+    const applyMonthFilter = (year, monthVal) => {
+        const bounds = calendarMonthDateBounds(year, monthVal);
+        if (!bounds) return;
+        setFilterMonth(String(monthVal));
+        setFilterYear(Number(year));
+        setFilters((prev) => ({
+            ...prev,
+            startDate: bounds.start,
+            endDate: bounds.end,
+        }));
+        setCurrentPage(1);
+    };
 
     const handleFilterStartDateChange = (value) => {
+        setFilterMonth('');
         setFilters((prev) => {
             const s = value;
             let e = prev.endDate;
             if (!s) return { ...prev, startDate: s };
             if (!e) return { ...prev, startDate: s };
             if (s > e) e = s;
-            if (daysInclusiveYmd(s, e) > MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS) {
-                e = addDaysYmdLocal(s, maxSpan);
-            }
             return { ...prev, startDate: s, endDate: e };
         });
     };
 
     const handleFilterEndDateChange = (value) => {
+        setFilterMonth('');
         setFilters((prev) => {
             let s = prev.startDate;
             const e = value;
             if (!e) return { ...prev, endDate: e };
             if (!s) return { ...prev, endDate: e };
             if (e < s) s = e;
-            if (daysInclusiveYmd(s, e) > MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS) {
-                s = addDaysYmdLocal(e, -maxSpan);
-            }
             return { ...prev, startDate: s, endDate: e };
         });
     };
@@ -417,11 +431,11 @@ export default function DanhSachBaoCaoTayMKT({
         };
     }, []);
 
-    // Initialize Dates — tối đa 3 ngày lịch (HN + HCM), khớp giới hạn bộ lọc
+    // Initialize Dates — mặc định vài ngày gần nhất (có thể kéo dài tùy ý)
     useEffect(() => {
         const today = new Date();
         const start = new Date();
-        start.setDate(today.getDate() - (MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS - 1));
+        start.setDate(today.getDate() - (MKT_MANUAL_FILTER_DEFAULT_INCLUSIVE_DAYS - 1));
 
         setFilters((prev) => ({
             ...prev,
@@ -441,41 +455,43 @@ export default function DanhSachBaoCaoTayMKT({
         setCalculatingRealValues(true);
 
         try {
-            const orders = await fetchMktOrdersInDateRange(
+            const ordersRaw = await fetchMktOrdersInDateRange(
                 normStart,
                 normEnd,
                 ordersTableForMktTotals
             );
+            // Dedupe gift O(n²) chỉ 1 lần / batch — trước đây gọi lại mỗi dòng báo cáo → đơ khi lọc tháng.
+            const orders = prepareMktOrdersForRowMetrics(ordersRaw);
 
             const BATCH_SIZE = 40;
+            const valuesMapAll = {};
 
             for (let i = 0; i < reports.length; i += BATCH_SIZE) {
                 const batch = reports.slice(i, i + BATCH_SIZE);
-                const valuesMap = {};
 
                 for (const report of batch) {
                     if (!report?.id) continue;
-                    valuesMap[report.id] = computeMktOrderMetricsForReportRow(report, orders);
+                    valuesMapAll[report.id] = computeMktOrderMetricsForReportRow(report, orders);
                 }
 
-                const allowedIds = new Set(
-                    (reportsAfterFiltersRef.current || [])
-                        .map((r) => r?.id)
-                        .filter(Boolean)
-                );
-                const filtered = {};
-                for (const [rowId, v] of Object.entries(valuesMap)) {
-                    if (allowedIds.has(rowId)) filtered[rowId] = v;
+                // Yield UI giữa các batch lớn
+                if (i + BATCH_SIZE < reports.length) {
+                    await new Promise((r) => setTimeout(r, 0));
                 }
-
-                setRealValuesMap((prev) => ({ ...prev, ...filtered }));
-
-                console.log(
-                    `⚡ Calculated batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(reports.length / BATCH_SIZE)}: ${batch.length} reports`
-                );
             }
 
-            console.log(`✅ Calculated real values for ${reports.length} reports`);
+            const allowedIds = new Set(
+                (reportsAfterFiltersRef.current || [])
+                    .map((r) => r?.id)
+                    .filter(Boolean)
+            );
+            const filtered = {};
+            for (const [rowId, v] of Object.entries(valuesMapAll)) {
+                if (allowedIds.has(rowId)) filtered[rowId] = v;
+            }
+
+            setRealValuesMap((prev) => ({ ...prev, ...filtered }));
+            console.log(`✅ Calculated real values for ${Object.keys(filtered).length} reports`);
         } catch (error) {
             console.error('Error calculating real values for reports:', error);
         } finally {
@@ -1253,57 +1269,79 @@ export default function DanhSachBaoCaoTayMKT({
         return rows;
     }, [reportsAfterFilters, sortColumn, sortDirection, realValuesMap, isHcmMarketingReport]);
 
-    // Tổng kết theo toàn bộ dữ liệu đã lọc (không phụ thuộc phân trang)
+    // Bộ đếm CHỈ từ dòng đang lọc trên trang (cột lưu detail_reports / marketing_report_hcm).
+    // Không overlay / không tính lại từ orders.
     const totalsByFiltered = useMemo(() => {
         const rows = reportsAfterFilters || [];
-        const cpqc = rows.reduce((s, r) => s + Number(r?.['CPQC'] || 0), 0);
-        const mess = rows.reduce((s, r) => s + Number(r?.['Số_Mess_Cmt'] || 0), 0);
+        const deduped = dedupeMktDetailReportRows(rows.map((r) => ({ ...r })));
 
-        // Cùng key (Ngày+Tên+SP+TT+ca) có thể có 2 dòng trùng trong DB — mỗi dòng đều query orders → cùng Số đơn.
-        // Tổng cộng chỉ cộng Số đơn / Doanh số thực tế MỘT LẦN / key (lấy max nếu một dòng chưa kịp tính realValues).
-        const byDetailKey = new Map();
-        for (const r of rows) {
-            const k = buildMktDetailReportRowKey(r);
-            const id = r?.id;
-            const fromMap = id != null && realValuesMap[id] !== undefined ? realValuesMap[id] : null;
-            const rv = fromMap || mktRealValuesFallbackFromReportRow(r, { grossSoDon: false });
-            const sd = mktSoDonDisplayFromRealValues(rv);
-            const sh = Number(rv.so_don_huy ?? 0);
-            const ok = Number(rv.so_don_ok ?? 0);
-            const st = Number(r?.['Số đơn'] ?? 0);
-            const ds = Number(rv.doanh_so_thuc_te ?? 0);
-            const dst = Number(r?.['Doanh số'] ?? 0);
-            const prev = byDetailKey.get(k);
-            if (!prev) {
-                byDetailKey.set(k, { sd, ds, sh, ok, st, dst });
-            } else {
-                byDetailKey.set(k, {
-                    sd: Math.max(prev.sd, sd),
-                    ds: Math.max(prev.ds, ds),
-                    sh: Math.max(prev.sh, sh),
-                    ok: Math.max(prev.ok, ok),
-                    st: Math.max(prev.st, st),
-                    dst: Math.max(prev.dst, dst),
-                });
-            }
-        }
+        let cpqc = 0;
+        let mess = 0;
         let soDon = 0;
-        let doanhSo = 0;
         let soDonHuy = 0;
         let soDonOk = 0;
         let soDonTay = 0;
+        let doanhSo = 0;
         let doanhSoTay = 0;
-        for (const { sd, ds, sh, ok, st, dst } of byDetailKey.values()) {
-            soDon += sd;
-            doanhSo += ds;
+        let doanhSoHuy = 0;
+        let doanhSoOk = 0;
+        let doanhSoSauHuy = 0;
+
+        for (const r of deduped) {
+            const sdNet = parseIntegerVi(r?.['Số đơn thực tế'] ?? r?.so_don_thuc_te ?? 0);
+            const sh = parseIntegerVi(
+                r?.['Số đơn hoàn hủy'] ??
+                    r?.['Số đơn hoàn hủy thực tế'] ??
+                    r?.so_don_hoan_huy ??
+                    0
+            );
+            const ok = parseIntegerVi(r?.['Đơn Ok'] ?? r?.['Số đơn Ok'] ?? r?.so_don_ok ?? 0);
+            const dsTT = parseMoneyNumber(r?.['Doanh số TT'] ?? r?.doanh_so_tt ?? 0);
+            const dsOk = parseMoneyNumber(r?.['Doanh số Ok'] ?? r?.doanh_so_ok ?? 0);
+            const st = parseIntegerVi(r?.['Số đơn'] ?? 0);
+            const dst = parseMoneyNumber(r?.['Doanh số'] ?? 0);
+            const dsHuy = parseMoneyNumber(
+                r?.['Doanh số hoàn hủy thực tế'] ?? r?.doanh_so_hoan_huy_thuc_te ?? 0
+            );
+            // Ưu tiên cột «Doanh số sau hoàn hủy» nếu có; không thì Doanh số TT đã lưu.
+            const dsSauCol = parseMoneyNumber(
+                r?.['Doanh số sau hoàn hủy thực tế'] ??
+                    r?.doanh_so_sau_hoan_huy_thuc_te ??
+                    r?.['DS sau hoàn hủy'] ??
+                    r?.ds_sau_hoan_huy ??
+                    0
+            );
+            const dsSau = dsSauCol > 0 ? dsSauCol : dsTT;
+
+            cpqc += parseMoneyNumber(r?.['CPQC'] ?? r?.cpqc ?? 0);
+            mess += parseIntegerVi(r?.['Số_Mess_Cmt'] ?? r?.so_mess_cmt ?? 0);
+            soDon += sdNet + sh;
             soDonHuy += sh;
             soDonOk += ok;
             soDonTay += st;
+            doanhSo += dsTT;
             doanhSoTay += dst;
+            doanhSoHuy += dsHuy;
+            doanhSoOk += dsOk;
+            doanhSoSauHuy += dsSau;
         }
 
-        return { cpqc, mess, soDon, doanhSo, soDonHuy, soDonOk, soDonTay, doanhSoTay };
-    }, [reportsAfterFilters, realValuesMap, isHcmMarketingReport]);
+        return {
+            cpqc,
+            mess,
+            soDon,
+            doanhSo,
+            soDonHuy,
+            soDonOk,
+            soDonTay,
+            doanhSoTay,
+            doanhSoHuy,
+            doanhSoOk,
+            doanhSoSauHuy,
+            uniqueKeys: deduped.length,
+            filteredRows: rows.length,
+        };
+    }, [reportsAfterFilters]);
 
     // Tính Số đơn TT / Doanh số TT cho toàn bộ dòng đã lọc (phục vụ TỔNG CỘNG đúng dù bảng phân trang).
     useEffect(() => {
@@ -1393,9 +1431,10 @@ export default function DanhSachBaoCaoTayMKT({
                 'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
                 'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
                 'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu dòng theo từng ca (Hết ca / Giữa ca) so với đơn sẽ INSERT thêm dòng tương ứng — đã có đúng key+ca thì chỉ cập nhật.\n\n' +
-                `Khoảng ngày: ${filters.startDate} → ${filters.endDate} (theo bộ lọc trái).\n\n` +
+                `Khoảng ngày: ${filters.startDate} → ${filters.endDate} (theo bộ lọc trái).\n` +
+                'Chạy lần lượt từng ngày; trong mỗi ngày cập nhật/tạo từng dòng để giảm lỗi mạng.\n\n' +
                 'Bạn có chắc muốn chạy không?'
-        );
+            );
         if (!ok) return;
 
         const normStart = String(filters.startDate || '').trim();
@@ -1408,29 +1447,46 @@ export default function DanhSachBaoCaoTayMKT({
             alert('Từ ngày phải ≤ Đến ngày.');
             return;
         }
-        if (daysInclusiveYmd(normStart, normEnd) > MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS) {
-            alert(`Bộ lọc chỉ cho phép tối đa ${MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS} ngày lịch (Từ ngày → Đến ngày).`);
+
+        const dayCount = daysInclusiveYmd(normStart, normEnd);
+        if (dayCount < 1) {
+            alert('Khoảng ngày không hợp lệ.');
             return;
         }
 
         try {
             setMktRecalcLoading(true);
-            toast.info('Đang cập nhật Số đơn TT (Báo cáo MKT)...', { autoClose: false });
 
-            const result = await recalcMktSoDonThucTeFromOrders({
-                startDate: normStart,
-                endDate: normEnd,
-                createMissingRows: true,
-                reportsTableName: reportTableName,
-                ordersSupabaseTable: isHcmMarketingReport ? 'order_code_hcm' : null,
-                ordersApiPath: null,
-            });
+            // Chạy từng ngày để giảm tải mạng/RAM; trong mỗi ngày update/insert tuần tự từng dòng.
+            let nUpd = 0;
+            let nNew = 0;
+            let nTouched = 0;
+            let dayCursor = normStart;
+            let dayIndex = 0;
+            while (dayCursor && dayCursor <= normEnd) {
+                dayIndex += 1;
+                toast.dismiss();
+                toast.info(
+                    `Đang cập nhật Số đơn TT — ngày ${dayCursor} (${dayIndex}/${dayCount})…`,
+                    { autoClose: false }
+                );
+                const result = await recalcMktSoDonThucTeFromOrders({
+                    startDate: dayCursor,
+                    endDate: dayCursor,
+                    createMissingRows: true,
+                    reportsTableName: reportTableName,
+                    ordersSupabaseTable: isHcmMarketingReport ? 'order_code_hcm' : null,
+                    ordersApiPath: null,
+                });
+                nUpd += result.updatedExisting ?? 0;
+                nNew += result.createdMissing ?? 0;
+                nTouched += result.upserted ?? 0;
+                dayCursor = addDaysYmdLocal(dayCursor, 1);
+            }
 
             toast.dismiss();
-            const nUpd = result.updatedExisting ?? 0;
-            const nNew = result.createdMissing ?? 0;
             toast.success(
-                `Hoàn tất: cập nhật ${nUpd} dòng, tạo mới ${nNew} dòng (tổng ${result.upserted || 0}).`
+                `Hoàn tất ${dayCount} ngày: cập nhật ${nUpd} dòng, tạo mới ${nNew} dòng (tổng ${nTouched}).`
             );
             setRealValuesMap({});
             await fetchData();
@@ -1771,6 +1827,44 @@ export default function DanhSachBaoCaoTayMKT({
                 <div className="sidebar" style={{ width: '250px', minWidth: '250px' }}>
                     <h3>Bộ lọc</h3>
                     <label>
+                        Lọc theo tháng:
+                        <select
+                            value={filterMonth}
+                            onChange={(e) => {
+                                const monthVal = e.target.value;
+                                if (!monthVal) {
+                                    setFilterMonth('');
+                                    return;
+                                }
+                                applyMonthFilter(filterYear, monthVal);
+                            }}
+                            title="Từ ngày = mùng 1, Đến ngày = ngày cuối tháng"
+                        >
+                            <option value="">— Chọn tháng —</option>
+                            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                                <option key={m} value={String(m)}>
+                                    Tháng {m}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
+                        Năm:
+                        <input
+                            type="number"
+                            min={2020}
+                            max={2100}
+                            value={filterYear}
+                            onChange={(e) => {
+                                const y = Number(e.target.value);
+                                setFilterYear(y);
+                                if (!filterMonth || !y) return;
+                                applyMonthFilter(y, filterMonth);
+                            }}
+                            title="Năm dùng khi chọn Lọc theo tháng"
+                        />
+                    </label>
+                    <label>
                         Từ ngày:
                         <input
                             type="date"
@@ -1787,7 +1881,9 @@ export default function DanhSachBaoCaoTayMKT({
                         />
                     </label>
                     <div style={{ fontSize: '11px', color: '#666', marginBottom: '10px', lineHeight: 1.35 }}>
-                        Khoảng lọc tối đa <strong>{MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS} ngày</strong> lịch; nếu kéo dài hơn, ngày còn lại tự co lại.
+                        {filterMonth
+                            ? <>Đang lọc <strong>cả tháng {filterMonth}/{filterYear}</strong>.</>
+                            : <>Chọn khoảng ngày tùy ý (không giới hạn số ngày). Có thể chọn tháng để xem cả tháng.</>}
                     </div>
                     <label>
                         Nhân sự:
@@ -2205,6 +2301,76 @@ export default function DanhSachBaoCaoTayMKT({
                                 </button>
                             )}
                         </div>
+                    </div>
+
+                    <div
+                        className="mkt-filter-metric-counters"
+                        style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '10px',
+                            margin: '0 0 12px',
+                            padding: '10px 12px',
+                            background: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                        }}
+                        title="Chỉ tổng hợp cột đã lưu trên danh sách báo cáo tay (sau dedupe). Không lấy từ orders."
+                    >
+                        <div style={{ fontSize: '12px', color: '#64748b', width: '100%' }}>
+                            Bộ đếm theo bộ lọc — chỉ từ báo cáo tay
+                            {' · '}
+                            {formatNumber(totalsByFiltered.uniqueKeys || 0)} dòng sau dedupe
+                            {totalsByFiltered.filteredRows !== totalsByFiltered.uniqueKeys
+                                ? ` / ${formatNumber(totalsByFiltered.filteredRows || 0)} dòng`
+                                : ''}
+                        </div>
+                        {[
+                            { label: 'Số đơn', value: formatNumber(totalsByFiltered.soDon) },
+                            { label: 'Số đơn hủy', value: formatNumber(totalsByFiltered.soDonHuy) },
+                            { label: 'Đơn Ok', value: formatNumber(totalsByFiltered.soDonOk) },
+                            { label: 'Doanh số hủy', value: formatCurrency(totalsByFiltered.doanhSoHuy) },
+                            {
+                                label: 'Doanh số sau Huỷ',
+                                value: formatCurrency(totalsByFiltered.doanhSoSauHuy),
+                                highlight: true,
+                                title: 'Từ cột Doanh số sau hoàn hủy / Doanh số TT đã lưu trên báo cáo tay (sau dedupe)',
+                            },
+                            { label: 'Doanh số Ok', value: formatCurrency(totalsByFiltered.doanhSoOk) },
+                            { label: 'Doanh số tay', value: formatCurrency(totalsByFiltered.doanhSoTay) },
+                        ].map((item) => (
+                            <div
+                                key={item.label}
+                                title={item.title || undefined}
+                                style={{
+                                    minWidth: '140px',
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    background: item.highlight ? '#ecfdf5' : '#fff',
+                                    border: item.highlight ? '1px solid #6ee7b7' : '1px solid #e2e8f0',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        color: item.highlight ? '#047857' : '#64748b',
+                                        marginBottom: '4px',
+                                    }}
+                                >
+                                    {item.label}
+                                </div>
+                                <div
+                                    style={{
+                                        fontSize: '15px',
+                                        fontWeight: 700,
+                                        color: item.highlight ? '#065f46' : '#0f172a',
+                                    }}
+                                >
+                                    {item.value}
+                                </div>
+                            </div>
+                        ))}
                     </div>
 
                     <div className="table-responsive-container">
