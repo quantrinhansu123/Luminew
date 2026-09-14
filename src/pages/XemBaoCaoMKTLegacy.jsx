@@ -25,7 +25,7 @@ export const MKT_ALERTS_SOURCE = 'luminew-mkt-iframe';
 export const MKT_HN_PAGE_ID = 'xem-bao-cao-mkt';
 
 /** Bump khi sửa `public/viewNsMoiNhanh*.html` — tránh iframe giữ bản HTML/JS cũ. */
-export const MKT_LEGACY_IFRAME_HTML_VER = '20260914-1630-detail-only-v2';
+export const MKT_LEGACY_IFRAME_HTML_VER = '20260914-1654-tt-1441-v3';
 
 /** postMessage iframe → host: yêu cầu tính Số đơn TT đúng 1 ngày. */
 export const MKT_RECALC_TT_MSG_TYPE = 'LUMINEW_MKT_RECALC_TT';

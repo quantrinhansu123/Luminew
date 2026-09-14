@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Báo cáo chi phí tổng hợp</title>
+  <title>Báo cáo chi phí tổng hợp · TT detail_reports v3</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
@@ -2561,7 +2561,7 @@
       const personnelKey = MKT_PERSONNEL_SCOPE.skipPersonnelFilter
         ? 'ALL'
         : (MKT_PERSONNEL_SCOPE.allowedNames || []).slice().sort().join('|');
-      return `MKT_SUPABASE:v11:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
+      return `MKT_SUPABASE:v12-detail-only:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -3992,50 +3992,9 @@
     }
 
     async function overlayHnActualsFromOrders(rowsNorm, dateRange) {
-      // Đồng bộ Số Đơn (TT) net (đã trừ hủy) từ orders.
-      const { orders, complete } = await fetchAllHnOrdersForActualOverlay(dateRange);
-      if (!complete) {
-        console.warn(
-          `[MKT HN] Bỏ qua phủ số TT từ ${MKT_HN_ORDERS_TABLE} vì tải đơn chưa đủ — giữ số trên detail_reports để tránh hiển thị 0 sai.`
-        );
-        return rowsNorm;
-      }
-      mktHnOrdersCacheForDrilldown = {
-        startYmd: dateRange?.startYmd || '',
-        endYmd: dateRange?.endYmd || '',
-        orders: dropGiftColumnDuplicateOrdersOverlay(orders),
-      };
-      const actualsByKey = buildHnActualsByReportKey(orders);
-      let changedRows = 0;
-
-      const rows = (rowsNorm || []).map((row) => {
-        const baseKey = buildMktActualBaseKey(
-          row['Ngày'],
-          row['Tên'],
-          row['Sản_phẩm'],
-          row['Thị_trường']
-        );
-        if (!baseKey || baseKey.split('|').some((part) => !part)) return row;
-
-        const caKey = normalizeCaForRowKey(row.ca ?? row['Ca'] ?? row.shift);
-        const actual = actualsByKey.get(`${baseKey}|${caKey}`);
-        const beforeCount = parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
-        const beforeCancel = parseIntegerVi(row['Số đơn hoàn hủy'] ?? row.so_don_hoan_huy ?? 0);
-        const cancelCount = actual?.cancelCount || 0;
-        const cancelPositive = actual?.cancelPositiveCount ?? cancelCount;
-        const netCount =
-          actual?.nonHuyCount != null
-            ? actual.nonHuyCount
-            : Math.max(0, (actual?.count || 0) - cancelPositive);
-        if (beforeCount !== netCount || beforeCancel !== cancelCount) changedRows += 1;
-
-        return applyMktActualsToReportRow(row, actual);
-      });
-
-      console.log(
-        `🔁 Phủ Số đơn TT (net, trừ hủy) HN từ ${MKT_HN_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
-      );
-      return rows;
+      // Không phủ live từ orders — Số Đơn (TT) chỉ lấy cột đã lưu trên detail_reports (= 1441 khi cùng bộ lọc Local).
+      void dateRange;
+      return rowsNorm || [];
     }
 
     async function fetchAndProcessData() {
