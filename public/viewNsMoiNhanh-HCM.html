@@ -708,6 +708,133 @@
       color: #0d47a1;
     }
 
+    button.mkt-ds-tt-link {
+      appearance: none;
+      background: none;
+      border: 0;
+      padding: 0 2px;
+      margin: 0;
+      font: inherit;
+      font-weight: 600;
+      color: #1565c0 !important;
+      text-decoration: underline;
+      text-decoration-thickness: 2px;
+      text-underline-offset: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button.mkt-ds-tt-link .mkt-ds-tt-link-icon {
+      font-size: 0.85em;
+      margin-left: 2px;
+      opacity: 0.85;
+    }
+
+    button.mkt-ds-tt-link:hover {
+      color: #0d47a1 !important;
+      background: rgba(21, 101, 192, 0.08);
+      border-radius: 4px;
+    }
+
+    #mkt-staff-detail-modal th.mkt-ds-tt-col-hint {
+      white-space: nowrap;
+    }
+
+    #mkt-ds-tt-orders-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10100;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    #mkt-ds-tt-orders-modal.open {
+      display: flex;
+    }
+
+    #mkt-ds-tt-orders-modal .mkt-ds-tt-orders-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.4);
+    }
+
+    #mkt-ds-tt-orders-modal .mkt-ds-tt-orders-panel {
+      position: relative;
+      z-index: 1;
+      width: min(960px, 96vw);
+      max-height: min(88vh, 900px);
+      overflow: auto;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+      padding: 16px 18px 18px;
+    }
+
+    #mkt-ds-tt-orders-modal .mkt-ds-tt-orders-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    #mkt-ds-tt-orders-modal .mkt-ds-tt-orders-head h3 {
+      margin: 0;
+      font-size: 1.15rem;
+      color: #1b4b1b;
+    }
+
+    #mkt-ds-tt-orders-modal .mkt-ds-tt-orders-sub {
+      margin: 4px 0 0;
+      font-size: 0.88rem;
+      color: #555;
+    }
+
+    #mkt-ds-tt-orders-modal .mkt-ds-tt-orders-close {
+      border: 0;
+      background: #eee;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      font-size: 1.35rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    #mkt-ds-tt-orders-modal table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    #mkt-ds-tt-orders-modal th,
+    #mkt-ds-tt-orders-modal td {
+      border: 1px solid #ddd;
+      padding: 6px 8px;
+      text-align: left;
+    }
+
+    #mkt-ds-tt-orders-modal thead th {
+      background: #1b5e20;
+      color: #fff;
+      position: sticky;
+      top: 0;
+    }
+
+    #mkt-ds-tt-orders-modal tr.is-huy td {
+      background: #fff5f5;
+      color: #8b1a1a;
+    }
+
+    #mkt-ds-tt-orders-modal .mkt-ds-tt-orders-hint {
+      margin: 0 0 10px;
+      font-size: 0.86rem;
+      color: #555;
+    }
+
     #mkt-staff-detail-modal {
       display: none;
       position: fixed;
@@ -821,6 +948,19 @@
         <button type="button" class="mkt-staff-detail-close" data-mkt-staff-detail-close="1" aria-label="Đóng">×</button>
       </div>
       <div id="mkt-staff-detail-body"></div>
+    </div>
+  </div>
+  <div id="mkt-ds-tt-orders-modal" role="dialog" aria-modal="true" aria-labelledby="mkt-ds-tt-orders-title" hidden>
+    <div class="mkt-ds-tt-orders-backdrop" data-mkt-ds-tt-orders-close="1"></div>
+    <div class="mkt-ds-tt-orders-panel">
+      <div class="mkt-ds-tt-orders-head">
+        <div>
+          <h3 id="mkt-ds-tt-orders-title">Mã đơn — DS Chốt (TT)</h3>
+          <p id="mkt-ds-tt-orders-sub" class="mkt-ds-tt-orders-sub"></p>
+        </div>
+        <button type="button" class="mkt-ds-tt-orders-close" data-mkt-ds-tt-orders-close="1" aria-label="Đóng">×</button>
+      </div>
+      <div id="mkt-ds-tt-orders-body"></div>
     </div>
   </div>
   <div class="tab-container">
@@ -1898,6 +2038,8 @@
     /** PostgREST thường giới hạn ~1000 dòng/response — page >1000 dễ tưởng đã hết và dừng sớm. */
     const MKT_HCM_ORDERS_PAGE_SIZE = 500;
     const MKT_HCM_ORDERS_MAX_PAGES = 2000;
+    /** Cache đơn HCM để drill-down mã đơn từ DS Chốt (TT). */
+    let mktHcmOrdersCacheForDrilldown = null;
 
     async function fetchAllHcmOrdersForActualOverlay(dateRange) {
       const supabase = await getSupabaseClient();
@@ -2062,7 +2204,10 @@
     function buildHcmActualsByReportKey(orders) {
       const counts = new Map();
       for (const order of dropGiftColumnDuplicateOrdersOverlay(orders)) {
-        if (!isMktActualOrderCountable(order)) continue;
+        const amount = orderAmountVndForActualOverlay(order);
+        const isHuy = isOrderHuyForActualOverlay(order);
+        const countableTt = isMktActualOrderCountable(order);
+        // Không skip đơn 0đ không hủy — tính vào Số Đơn (TT).
         const baseKey = buildMktActualBaseKey(
           order.order_date,
           order.marketing_staff,
@@ -2071,19 +2216,28 @@
         );
         if (!baseKey || baseKey.split('|').some((part) => !part)) continue;
 
-        const amount = orderAmountVndForActualOverlay(order);
-        const isHuy = isOrderHuyForActualOverlay(order);
         for (const group of orderShiftGroupsForActualOverlay(order.shift)) {
           const key = `${baseKey}|${caSegmentFromGroupLabel(group)}`;
           const prev =
             counts.get(key) ||
-            { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0 };
-          prev.count += 1;
-          prev.totalRevenueVnd += amount;
-          if (isHuy) {
-            prev.cancelCount += 1;
-            prev.cancelRevenueVnd += amount;
+            {
+              count: 0,
+              nonHuyCount: 0,
+              totalRevenueVnd: 0,
+              cancelCount: 0,
+              cancelPositiveCount: 0,
+              cancelRevenueVnd: 0,
+            };
+          if (!isHuy) prev.nonHuyCount += 1;
+          if (countableTt) {
+            prev.count += 1;
+            prev.totalRevenueVnd += amount;
+            if (isHuy) {
+              prev.cancelPositiveCount += 1;
+              prev.cancelRevenueVnd += amount;
+            }
           }
+          if (isHuy) prev.cancelCount += 1;
           counts.set(key, prev);
         }
       }
@@ -2099,6 +2253,11 @@
         );
         return rowsNorm;
       }
+      mktHcmOrdersCacheForDrilldown = {
+        startYmd: dateRange?.startYmd || '',
+        endYmd: dateRange?.endYmd || '',
+        orders: dropGiftColumnDuplicateOrdersOverlay(orders),
+      };
       const actualsByKey = buildHcmActualsByReportKey(orders);
       let changedRows = 0;
 
@@ -2115,7 +2274,11 @@
         const actual = actualsByKey.get(`${baseKey}|${caKey}`);
         const grossCount = actual?.count || 0;
         const cancelCount = actual?.cancelCount || 0;
-        const netCount = Math.max(0, grossCount - cancelCount);
+        const cancelPositive = actual?.cancelPositiveCount ?? cancelCount;
+        const netCount =
+          actual?.nonHuyCount != null
+            ? actual.nonHuyCount
+            : Math.max(0, grossCount - cancelPositive);
         const totalRevenueVnd = actual?.totalRevenueVnd || 0;
         const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
         const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
@@ -2574,11 +2737,37 @@
         staffModal.addEventListener('click', (e) => {
           if (e.target.closest('[data-mkt-staff-detail-close]')) {
             closeStaffProductMarketModal();
+            return;
+          }
+          const dsBtn = e.target.closest('[data-mkt-ds-tt-orders]');
+          if (dsBtn) {
+            e.preventDefault();
+            openDsChotTtOrdersModal({
+              staffName: dsBtn.getAttribute('data-mkt-ds-tt-staff') || '',
+              product: dsBtn.getAttribute('data-mkt-ds-tt-product') || '',
+              market: dsBtn.getAttribute('data-mkt-ds-tt-market') || '',
+              expectedNet: Number(dsBtn.getAttribute('data-mkt-ds-tt-amount') || 0) || 0,
+              allProducts: dsBtn.getAttribute('data-mkt-ds-tt-all') === '1',
+            });
+          }
+        });
+      }
+      const dsOrdersModal = document.getElementById('mkt-ds-tt-orders-modal');
+      if (dsOrdersModal) {
+        dsOrdersModal.addEventListener('click', (e) => {
+          if (e.target.closest('[data-mkt-ds-tt-orders-close]')) {
+            closeDsChotTtOrdersModal();
           }
         });
       }
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeStaffProductMarketModal();
+        if (e.key !== 'Escape') return;
+        const dsModal = document.getElementById('mkt-ds-tt-orders-modal');
+        if (dsModal && dsModal.classList.contains('open')) {
+          closeDsChotTtOrdersModal();
+          return;
+        }
+        closeStaffProductMarketModal();
       });
     }
 
@@ -3094,7 +3283,213 @@
       return { rows: list, sourceRowCount: rows.length };
     }
 
+    function closeDsChotTtOrdersModal() {
+      const modal = document.getElementById('mkt-ds-tt-orders-modal');
+      if (!modal) return;
+      modal.classList.remove('open');
+      modal.hidden = true;
+    }
+
+    function getSelectedCasForStaffDetailDrilldown() {
+      const allCheckbox = document.getElementById('ca-all-tab1');
+      if (!allCheckbox || allCheckbox.checked) return [];
+      return Array.from(document.querySelectorAll('.filter-ca-tab1:checked')).map((cb) => cb.value);
+    }
+
+    function orderMatchesSelectedCasForDrilldown(order, selectedCas) {
+      if (!selectedCas || selectedCas.length === 0) return true;
+      const normalizeCaForFilter = (v) =>
+        String(v || '')
+          .trim()
+          .replace(/\u00a0/g, ' ')
+          .replace(/\s+/g, ' ')
+          .replace(/[，;；]/g, ',')
+          .replace(/\s*,\s*/g, ',')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      const groups = orderShiftGroupsForActualOverlay(order?.shift);
+      return groups.some((g) => {
+        const norm = normalizeCaForFilter(g);
+        const rowHet = norm.includes('het ca');
+        const rowGua = norm.includes('giua ca');
+        const isRowCombined = rowHet && rowGua;
+        return selectedCas.some((sel) => {
+          const s = normalizeCaForFilter(sel);
+          if (norm === s) return true;
+          const selHet = s.includes('het ca');
+          const selGua = s.includes('giua ca');
+          const selOnlyHet = selHet && !selGua;
+          const selOnlyGua = selGua && !selHet;
+          if (selOnlyHet) return rowHet && !rowGua;
+          if (selOnlyGua) return rowGua || isRowCombined;
+          if (selHet && selGua) return isRowCombined;
+          return false;
+        });
+      });
+    }
+
+    async function ensureHcmOrdersCacheForDrilldown() {
+      const { startYmd, endYmd } = getMktDateRangeForQuery();
+      if (
+        mktHcmOrdersCacheForDrilldown &&
+        mktHcmOrdersCacheForDrilldown.startYmd === (startYmd || '') &&
+        mktHcmOrdersCacheForDrilldown.endYmd === (endYmd || '') &&
+        Array.isArray(mktHcmOrdersCacheForDrilldown.orders)
+      ) {
+        return mktHcmOrdersCacheForDrilldown.orders;
+      }
+      const { orders } = await fetchAllHcmOrdersForActualOverlay({ startYmd, endYmd });
+      const prepared = dropGiftColumnDuplicateOrdersOverlay(orders || []);
+      mktHcmOrdersCacheForDrilldown = {
+        startYmd: startYmd || '',
+        endYmd: endYmd || '',
+        orders: prepared,
+      };
+      return prepared;
+    }
+
+    function collectOrdersForDsChotTt({ staffName, product, market, allProducts, orders }) {
+      const nameKey = normalizeNameForKey(staffName);
+      const productKey = allProducts ? '' : normalizeNameForKey(product);
+      const marketKey = allProducts ? '' : normalizeNameForKey(market);
+      const selectedCas = getSelectedCasForStaffDetailDrilldown();
+      const list = [];
+      const seen = new Set();
+
+      for (const order of orders || []) {
+        if (normalizeNameForKey(order?.marketing_staff) !== nameKey) continue;
+        if (!allProducts) {
+          if (normalizeNameForKey(order?.product) !== productKey) continue;
+          if (normalizeNameForKey(order?.country) !== marketKey) continue;
+        }
+        if (!orderMatchesSelectedCasForDrilldown(order, selectedCas)) continue;
+
+        const oc = String(order?.order_code ?? '').trim();
+        if (oc) {
+          if (seen.has(oc)) continue;
+          seen.add(oc);
+        }
+
+        const vnd = orderAmountVndForActualOverlay(order);
+        const huy = isOrderHuyForActualOverlay(order);
+        if (vnd <= 0) continue;
+
+        list.push({
+          order_code: oc || '(không mã)',
+          order_date: order?.order_date,
+          product: order?.product,
+          country: order?.country,
+          shift: order?.shift,
+          check_result: order?.check_result || order?.payment_status || '',
+          vnd,
+          huy,
+          inNet: !huy,
+        });
+      }
+
+      list.sort((a, b) => {
+        const da = String(a.order_date || '');
+        const db = String(b.order_date || '');
+        if (da !== db) return da.localeCompare(db);
+        return String(a.order_code).localeCompare(String(b.order_code));
+      });
+      return list;
+    }
+
+    async function openDsChotTtOrdersModal({ staffName, product, market, expectedNet, allProducts }) {
+      const modal = document.getElementById('mkt-ds-tt-orders-modal');
+      const bodyEl = document.getElementById('mkt-ds-tt-orders-body');
+      const titleEl = document.getElementById('mkt-ds-tt-orders-title');
+      const subEl = document.getElementById('mkt-ds-tt-orders-sub');
+      if (!modal || !bodyEl) return;
+
+      const name = String(staffName || '').trim();
+      const scopeLabel = allProducts
+        ? 'Tất cả SP × thị trường (TỔNG CỘNG)'
+        : `${product || '—'} · ${market || '—'}`;
+      if (titleEl) titleEl.textContent = `Mã đơn — DS Chốt (TT)`;
+      if (subEl) subEl.textContent = `${name} · ${scopeLabel}`;
+      bodyEl.innerHTML = '<p class="mkt-ds-tt-orders-hint">Đang tải danh sách đơn…</p>';
+      modal.hidden = false;
+      modal.classList.add('open');
+
+      try {
+        const orders = await ensureHcmOrdersCacheForDrilldown();
+        const rows = collectOrdersForDsChotTt({
+          staffName: name,
+          product,
+          market,
+          allProducts: !!allProducts,
+          orders,
+        });
+        const netRows = rows.filter((r) => r.inNet);
+        const huyRows = rows.filter((r) => r.huy);
+        const netSum = netRows.reduce((s, r) => s + r.vnd, 0);
+        const huySum = huyRows.reduce((s, r) => s + r.vnd, 0);
+
+        const renderRows = (items) =>
+          items
+            .map(
+              (r, i) => `<tr class="${r.huy ? 'is-huy' : ''}">
+                <td class="text-center">${i + 1}</td>
+                <td><code>${escapeHtml(r.order_code)}</code></td>
+                <td>${escapeHtml(formatDate(parseNgayToDate(r.order_date) || r.order_date) || String(r.order_date || ''))}</td>
+                <td>${escapeHtml(r.product || '')}</td>
+                <td>${escapeHtml(r.country || '')}</td>
+                <td>${escapeHtml(r.shift || '')}</td>
+                <td>${escapeHtml(r.check_result || '')}</td>
+                <td style="text-align:right">${formatCurrency(r.vnd)}</td>
+                <td>${r.huy ? 'Hủy (đã trừ)' : 'Cộng vào DS TT'}</td>
+              </tr>`
+            )
+            .join('');
+
+        bodyEl.innerHTML = `
+          <p class="mkt-ds-tt-orders-hint">
+            DS Chốt (TT) trên bảng: <strong>${formatCurrency(expectedNet || 0)}</strong>
+            · Từ đơn: <strong>${formatCurrency(netSum)}</strong>
+            (${formatNumber(netRows.length)} đơn cộng)
+            ${huyRows.length ? ` · Hủy đã trừ: ${formatCurrency(huySum)} (${formatNumber(huyRows.length)} đơn)` : ''}
+          </p>
+          ${
+            !rows.length
+              ? '<p style="text-align:center;padding:16px;color:#666;">Không tìm thấy đơn VND &gt; 0 khớp NV / SP / thị trường / ca đang lọc.</p>'
+              : `<div class="table-responsive-container"><table>
+                  <thead>
+                    <tr>
+                      <th>STT</th>
+                      <th>Mã đơn</th>
+                      <th>Ngày</th>
+                      <th>Sản phẩm</th>
+                      <th>Thị trường</th>
+                      <th>Ca</th>
+                      <th>Check</th>
+                      <th>VND</th>
+                      <th>Vai trò</th>
+                    </tr>
+                  </thead>
+                  <tbody>${renderRows(rows)}</tbody>
+                </table></div>`
+          }`;
+      } catch (err) {
+        console.error('openDsChotTtOrdersModal', err);
+        bodyEl.innerHTML = `<p style="color:#b91c1c;padding:12px;">Không tải được đơn: ${escapeHtml(err?.message || String(err))}</p>`;
+      }
+    }
+
+    function renderDsChotTtClickableCell({ amount, staffName, product, market, allProducts }) {
+      return `<td><button type="button" class="mkt-ds-tt-link" data-mkt-ds-tt-orders="1"
+        data-mkt-ds-tt-staff="${escapeHtml(staffName || '')}"
+        data-mkt-ds-tt-product="${escapeHtml(product || '')}"
+        data-mkt-ds-tt-market="${escapeHtml(market || '')}"
+        data-mkt-ds-tt-amount="${Number(amount) || 0}"
+        data-mkt-ds-tt-all="${allProducts ? '1' : '0'}"
+        title="Click để xem danh sách mã đơn">${formatCurrency(amount)}<span class="mkt-ds-tt-link-icon" aria-hidden="true">↗</span></button></td>`;
+    }
+
     function closeStaffProductMarketModal() {
+      closeDsChotTtOrdersModal();
       const modal = document.getElementById('mkt-staff-detail-modal');
       if (!modal) return;
       modal.classList.remove('open');
@@ -3130,6 +3525,7 @@
         subEl.textContent = [
           dateLabel ? `Khoảng ngày: ${dateLabel}` : '',
           `Theo bộ lọc hiện tại · ${formatNumber(sourceRowCount)} dòng gốc · ${formatNumber(uniqueProducts)} SP · ${formatNumber(rows.length)} dòng thị trường`,
+          'Click số xanh gạch chân ở cột DS Chốt (TT) để xem mã đơn',
         ]
           .filter(Boolean)
           .join(' · ');
@@ -3161,7 +3557,7 @@
           i = j;
         }
 
-        const renderMetricCells = (s) => {
+        const renderMetricCells = (s, meta = {}) => {
           const rate = s.mess ? s.don / s.mess : 0;
           const rateThucTe = s.mess ? s.donThucTe / s.mess : 0;
           const pm = s.mess ? s.cpqc / s.mess : 0;
@@ -3178,7 +3574,13 @@
             <td>${formatNumber(s.don)}</td>
             <td>${formatNumber(s.donThucTe)}</td>
             <td>${formatCurrency(s.chot)}</td>
-            <td>${formatCurrency(s.chotThucTe)}</td>
+            ${renderDsChotTtClickableCell({
+              amount: s.chotThucTe,
+              staffName: name,
+              product: meta.product || '',
+              market: meta.market || '',
+              allProducts: !!meta.allProducts,
+            })}
             <td class="${rateClass}">${formatPercent(rate)}</td>
             <td class="${rateThucTeClass}">${formatPercent(rateThucTe)}</td>
             <td>${formatCurrency(pm)}</td>
@@ -3198,13 +3600,13 @@
               <td class="text-center">${i + 1}</td>
               ${productCell}
               <td class="text-left">${escapeHtml(r.market)}</td>
-              ${renderMetricCells(r)}
+              ${renderMetricCells(r, { product: r.product, market: r.market })}
             </tr>`;
           })
           .join('');
         const totalRow = `<tr class="total-row">
             <td class="total-label" colspan="3">TỔNG CỘNG</td>
-            ${renderMetricCells(totals)}
+            ${renderMetricCells(totals, { allProducts: true })}
           </tr>`;
         bodyEl.innerHTML = `
           <div class="table-responsive-container">
@@ -3219,7 +3621,7 @@
                   <th>Số Đơn</th>
                   <th>Số Đơn (TT)</th>
                   <th>DS Chốt</th>
-                  <th>DS Chốt (TT)</th>
+                  <th class="mkt-ds-tt-col-hint" title="Click số xanh để xem mã đơn">DS Chốt (TT) ↗</th>
                   <th>Tỉ lệ chốt</th>
                   <th>Tỉ lệ chốt (TT)</th>
                   <th>Giá Mess</th>
@@ -3710,12 +4112,10 @@
       return `${base}|${normalizeCaForRowKey(caRaw)}`;
     }
 
-    /** Key dedupe TT trên bảng tổng — fallback id khi thiếu detailRowKey. */
+    /** Key dedupe TT trên bảng tổng — luôn theo ngày×NV×SP×TT×ca, không theo id dòng DB. */
     function mktDetailRowKeyForTotals(r) {
-      const k = String(r?.detailRowKey ?? '').trim();
-      if (k) return k;
-      const id = r?.reportId ?? r?.id;
-      if (id != null && String(id).trim() !== '') return `id:${id}`;
+      const stored = String(r?.detailRowKey ?? '').trim();
+      if (stored) return stored;
       return [
         normalizeNgayForKey(r.ngay || r.ngayKey),
         normalizeNameForKey(r.ten),
@@ -3969,7 +4369,6 @@
     function generateSummaryTableData(data) {
       const summary = {};
       data.forEach((r) => {
-        // Gom theo tên (đã normalize) để tránh bị tách do lệch dấu/khoảng trắng nhỏ.
         const teamDisp = String(r.team || '').trim() || 'Khác';
         const nameDisp = String(r.ten || '').trim() || 'N/A';
         const key = `${normalizeNameForKey(nameDisp)}`;
@@ -3990,16 +4389,15 @@
 
         const S = summary[key];
         if (!S.team && teamDisp) S.team = teamDisp;
+        const detailKey = mktDetailRowKeyForTotals(r);
+        if (S.seenDetailKeysSoDonTT.has(detailKey)) return;
+        S.seenDetailKeysSoDonTT.add(detailKey);
         S.mess += Number(r.soMessCmt) || 0;
         S.cpqc += Number(r.cpqc) || 0;
         S.don += Number(r.soDon) || 0;
         S.chot += Number(r.dsChot) || 0;
-        const detailKey = mktDetailRowKeyForTotals(r);
-        if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
-          S.seenDetailKeysSoDonTT.add(detailKey);
-          S.donThucTe += Number(r.soDonThucTe) || 0;
-          S.chotThucTe += Number(r.dsChotThucTe) || 0;
-        }
+        S.donThucTe += Number(r.soDonThucTe) || 0;
+        S.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
 
       return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
@@ -4028,6 +4426,7 @@
             dsHoanHuyThucTe: 0,
             dsSauHoanHuyThucTe: 0,
             dsThanhCongThucTe: 0,
+            seenDetailKeysSoDonTT: new Set(),
           };
         }
 
@@ -4039,13 +4438,17 @@
         S.kpiValue += r.kpiValue;
         S.soDonHuy += r.soDonHuy;
         S.doanhSoHuy += r.doanhSoHuy;
-        S.dsChotThucTe += r.dsChotThucTe;
-        S.soDonHuyThucTe += r.soDonHuyThucTe;
-        S.dsHoanHuyThucTe += r.dsHoanHuyThucTe;
-        S.dsSauHoanHuyThucTe += r.dsSauHoanHuyThucTe;
-        S.dsThanhCongThucTe += r.dsThanhCongThucTe;
+        const detailKey = mktDetailRowKeyForTotals(r);
+        if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
+          S.seenDetailKeysSoDonTT.add(detailKey);
+          S.dsChotThucTe += r.dsChotThucTe;
+          S.soDonHuyThucTe += r.soDonHuyThucTe;
+          S.dsHoanHuyThucTe += r.dsHoanHuyThucTe;
+          S.dsSauHoanHuyThucTe += r.dsSauHoanHuyThucTe;
+          S.dsThanhCongThucTe += r.dsThanhCongThucTe;
+        }
       });
-      return Object.values(summary);
+      return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
     }
 
     // =================================================================================

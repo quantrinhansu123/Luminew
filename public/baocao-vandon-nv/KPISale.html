@@ -2320,14 +2320,16 @@
       const isDi = maTracking !== '';
       const countableTt = isMktTtCountableOrder(r);
 
-      // Số Đơn / DS chốt & hủy: cùng luật overlay TT (VND>0, không HCM)
+      // Số Đơn / DS chốt & hủy: chốt/TT chỉ VND>0; hủy đếm cả đơn 0đ (Check = Hủy)
       if (countableTt) {
         agg.soDonChot += 1;
         agg.dsChot += tongTien;
         if (isHuy) {
-          agg.soDonHuy += 1;
           agg.dsHuy += tongTien;
         }
+      }
+      if (isHuy) {
+        agg.soDonHuy += 1;
       }
       if (isDi && !isHuy) {
         agg.soDonDi += 1;
@@ -2388,7 +2390,7 @@
         case 'chot':
           return countable;
         case 'huy':
-          return countable && isHuy;
+          return isHuy;
         case 'sau_huy':
           return countable && !isHuy;
         case 'di':

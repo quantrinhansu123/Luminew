@@ -162,6 +162,28 @@ function mktRealValuesForReportRow(item, realValuesMap, allRows) {
     );
 }
 
+/** Ghi đè cột TT từ orders (realValuesMap) trước khi dedupe/tổng — khớp DS Chốt (TT) trên xem-bao-cao-mkt. */
+function applyMktRealValuesToReportRowForTotals(row, realValuesMap, allRows) {
+    const rv = mktRealValuesForReportRow(row, realValuesMap, allRows);
+    if (!rv || row?.id == null || realValuesMap?.[row.id] == null) {
+        return row;
+    }
+    return {
+        ...row,
+        'Số đơn thực tế': rv.so_don_thuc_te,
+        so_don_thuc_te: rv.so_don_thuc_te,
+        'Số đơn hoàn hủy': rv.so_don_huy,
+        'Số đơn hoàn hủy thực tế': rv.so_don_huy,
+        so_don_hoan_huy: rv.so_don_huy,
+        'Doanh số TT': rv.doanh_so_thuc_te,
+        doanh_so_tt: rv.doanh_so_thuc_te,
+        'Đơn Ok': rv.so_don_ok,
+        so_don_ok: rv.so_don_ok,
+        'Doanh số Ok': rv.doanh_so_ok,
+        doanh_so_ok: rv.doanh_so_ok,
+    };
+}
+
 /** Phạm vi `detail_reports` (HN): MKT/null/non-RD + team Test. Không dùng cho `marketing_report_hcm` — bảng HCM không cùng schema department / trang xem legacy chỉ lọc Team. */
 const MKT_DETAIL_REPORTS_SCOPE_OR =
     'department.is.null,department.eq.MKT,department.neq.RD,Team.ilike.test';
@@ -1269,11 +1291,13 @@ export default function DanhSachBaoCaoTayMKT({
         return rows;
     }, [reportsAfterFilters, sortColumn, sortDirection, realValuesMap, isHcmMarketingReport]);
 
-    // Bộ đếm CHỈ từ dòng đang lọc trên trang (cột lưu detail_reports / marketing_report_hcm).
-    // Không overlay / không tính lại từ orders.
+    // Bộ đếm theo bộ lọc: dedupe; TT/hủy/Ok overlay từ đơn khi đã tính — khớp DS Chốt (TT) trên xem-bao-cao-mkt.
     const totalsByFiltered = useMemo(() => {
         const rows = reportsAfterFilters || [];
-        const deduped = dedupeMktDetailReportRows(rows.map((r) => ({ ...r })));
+        const rowsForTotals = rows.map((r) =>
+            applyMktRealValuesToReportRowForTotals(r, realValuesMap, rows)
+        );
+        const deduped = dedupeMktDetailReportRows(rowsForTotals.map((r) => ({ ...r })));
 
         let cpqc = 0;
         let mess = 0;
@@ -1288,6 +1312,7 @@ export default function DanhSachBaoCaoTayMKT({
         let doanhSoSauHuy = 0;
 
         for (const r of deduped) {
+            const rv = mktRealValuesForReportRow(r, realValuesMap, rows);
             const sdNet = parseIntegerVi(r?.['Số đơn thực tế'] ?? r?.so_don_thuc_te ?? 0);
             const sh = parseIntegerVi(
                 r?.['Số đơn hoàn hủy'] ??
@@ -1303,20 +1328,13 @@ export default function DanhSachBaoCaoTayMKT({
             const dsHuy = parseMoneyNumber(
                 r?.['Doanh số hoàn hủy thực tế'] ?? r?.doanh_so_hoan_huy_thuc_te ?? 0
             );
-            // Ưu tiên cột «Doanh số sau hoàn hủy» nếu có; không thì Doanh số TT đã lưu.
-            const dsSauCol = parseMoneyNumber(
-                r?.['Doanh số sau hoàn hủy thực tế'] ??
-                    r?.doanh_so_sau_hoan_huy_thuc_te ??
-                    r?.['DS sau hoàn hủy'] ??
-                    r?.ds_sau_hoan_huy ??
-                    0
-            );
-            const dsSau = dsSauCol > 0 ? dsSauCol : dsTT;
+            // Doanh số sau Huỷ = Doanh số TT (net) — không dùng cột «sau hoàn hủy» cũ trên DB.
+            const dsSau = dsTT;
 
             cpqc += parseMoneyNumber(r?.['CPQC'] ?? r?.cpqc ?? 0);
             mess += parseIntegerVi(r?.['Số_Mess_Cmt'] ?? r?.so_mess_cmt ?? 0);
-            soDon += sdNet + sh;
-            soDonHuy += sh;
+            soDon += mktSoDonDisplayFromRealValues(rv);
+            soDonHuy += parseIntegerVi(rv.so_don_huy ?? sh);
             soDonOk += ok;
             soDonTay += st;
             doanhSo += dsTT;
@@ -1341,7 +1359,7 @@ export default function DanhSachBaoCaoTayMKT({
             uniqueKeys: deduped.length,
             filteredRows: rows.length,
         };
-    }, [reportsAfterFilters]);
+    }, [reportsAfterFilters, realValuesMap]);
 
     // Tính Số đơn TT / Doanh số TT cho toàn bộ dòng đã lọc (phục vụ TỔNG CỘNG đúng dù bảng phân trang).
     useEffect(() => {
@@ -2315,10 +2333,10 @@ export default function DanhSachBaoCaoTayMKT({
                             border: '1px solid #e2e8f0',
                             borderRadius: '8px',
                         }}
-                        title="Chỉ tổng hợp cột đã lưu trên danh sách báo cáo tay (sau dedupe). Không lấy từ orders."
+                        title="Tổng sau dedupe: Số đơn TT / hủy / Ok / Doanh số TT lấy từ đơn khi đã tính (khớp xem-bao-cao-mkt); còn lại từ cột lưu."
                     >
                         <div style={{ fontSize: '12px', color: '#64748b', width: '100%' }}>
-                            Bộ đếm theo bộ lọc — chỉ từ báo cáo tay
+                            Bộ đếm theo bộ lọc — TT/hủy/Ok từ đơn (khi đã load), dedupe
                             {' · '}
                             {formatNumber(totalsByFiltered.uniqueKeys || 0)} dòng sau dedupe
                             {totalsByFiltered.filteredRows !== totalsByFiltered.uniqueKeys
@@ -2334,7 +2352,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 label: 'Doanh số sau Huỷ',
                                 value: formatCurrency(totalsByFiltered.doanhSoSauHuy),
                                 highlight: true,
-                                title: 'Từ cột Doanh số sau hoàn hủy / Doanh số TT đã lưu trên báo cáo tay (sau dedupe)',
+                                title: 'Doanh số TT (net) sau dedupe — cùng cách tính DS Chốt (TT) trên xem-bao-cao-mkt',
                             },
                             { label: 'Doanh số Ok', value: formatCurrency(totalsByFiltered.doanhSoOk) },
                             { label: 'Doanh số tay', value: formatCurrency(totalsByFiltered.doanhSoTay) },

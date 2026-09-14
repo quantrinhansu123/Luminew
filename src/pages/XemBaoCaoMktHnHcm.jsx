@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import usePermissions from '../hooks/usePermissions';
-import { MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY } from './XemBaoCaoMKTLegacy';
+import { MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY, MKT_LEGACY_IFRAME_HTML_VER } from './XemBaoCaoMKTLegacy';
 import {
   MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY,
   MKT_HCM_PERSONNEL_MSG_TYPE,
@@ -45,6 +45,7 @@ export default function XemBaoCaoMktHnHcm() {
     const q = new URLSearchParams();
     q.set('dual', '1');
     q.set('topBar', '1');
+    q.set('_html', MKT_LEGACY_IFRAME_HTML_VER);
     return `/viewNsMoiNhanh.html?${q.toString()}`;
   }, []);
 

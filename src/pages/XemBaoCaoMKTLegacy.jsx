@@ -24,6 +24,9 @@ export const MKT_ALERTS_STORAGE_KEY = 'luminew.mktAlerts.v1';
 export const MKT_ALERTS_SOURCE = 'luminew-mkt-iframe';
 export const MKT_HN_PAGE_ID = 'xem-bao-cao-mkt';
 
+/** Bump khi sửa `public/viewNsMoiNhanh*.html` — tránh iframe giữ bản HTML/JS cũ. */
+export const MKT_LEGACY_IFRAME_HTML_VER = '20260914-so-don-tt-nonhuy-v1';
+
 /** postMessage iframe → host: yêu cầu tính Số đơn TT đúng 1 ngày. */
 export const MKT_RECALC_TT_MSG_TYPE = 'LUMINEW_MKT_RECALC_TT';
 
@@ -387,6 +390,7 @@ export default function XemBaoCaoMKTLegacy({
   const iframeSrc = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.set('ui', 'bao-cao-ok-mess-cpqc');
+    params.set('_html', MKT_LEGACY_IFRAME_HTML_VER);
     return `/viewNsMoiNhanh.html?${params.toString()}`;
   }, [location.search]);
 

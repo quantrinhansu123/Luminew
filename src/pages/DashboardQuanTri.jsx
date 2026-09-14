@@ -9,7 +9,7 @@ import {
   writeDashboardGlobalDateRange,
 } from '../utils/dashboardGlobalDateRange';
 
-import { MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY } from './XemBaoCaoMKTLegacy';
+import { MKT_HN_LEGACY_PERSONNEL_SCOPE_KEY, MKT_LEGACY_IFRAME_HTML_VER } from './XemBaoCaoMKTLegacy';
 import { isExecutiveDashboardAudience } from '../utils/executiveAccess';
 import { getLastNDaysRangeLocal } from '../utils/nhanSuSaleLumiMoiLogic';
 import DashboardQuanTriBaoCaoTongPanel from '../components/dashboard/DashboardQuanTriBaoCaoTongPanel';
@@ -167,6 +167,7 @@ export default function DashboardQuanTri() {
   }, [globalFrom, globalTo]);
   const mktIframeSrc = useMemo(() => {
     const q = new URLSearchParams({ dashboard_from: globalFrom, dashboard_to: globalTo });
+    q.set('_html', MKT_LEGACY_IFRAME_HTML_VER);
     return `/viewNsMoiNhanh.html?${q}`;
   }, [globalFrom, globalTo]);
 

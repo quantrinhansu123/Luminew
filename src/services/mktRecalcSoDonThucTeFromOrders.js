@@ -294,7 +294,9 @@ export function computeMktOrderMetricsForReportRow(report, ordersList, options =
   }
 
   let grossCount = 0;
+  let nonHuyCount = 0;
   let cancelCount = 0;
+  let cancelPositiveCount = 0;
   let okCount = 0;
   let okRevenueVnd = 0;
   let totalRevenueVnd = 0;
@@ -326,28 +328,34 @@ export function computeMktOrderMetricsForReportRow(report, ordersList, options =
       okCount += 1;
       okRevenueVnd += vnd;
     }
-    // Số đơn TT / DS TT vẫn chỉ lấy đơn VND > 0.
-    if (vnd <= 0) continue;
-
+    // Số đơn hủy: mọi Check = Hủy (kể cả 0đ).
     const huy = isCheckResultHuy(getCheckResult(order));
-    grossCount += 1;
-    totalRevenueVnd += vnd;
     if (huy) {
       cancelCount += 1;
-      cancelRevenueVnd += vnd;
+      if (vnd > 0) {
+        cancelPositiveCount += 1;
+        cancelRevenueVnd += vnd;
+      }
+    } else {
+      // Số Đơn (TT): mọi đơn không Hủy — gồm 0đ (Treo / Khách hẹn / Đợi hàng…).
+      nonHuyCount += 1;
     }
+    if (vnd <= 0) continue;
+
+    grossCount += 1;
+    totalRevenueVnd += vnd;
   }
 
-  const netCount = Math.max(0, grossCount - cancelCount);
   const netRevenue = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
 
   return {
-    so_don_thuc_te: netCount,
+    so_don_thuc_te: nonHuyCount,
     so_don_huy: cancelCount,
     so_don_ok: okCount,
     doanh_so_ok: okRevenueVnd,
     doanh_so_thuc_te: netRevenue,
-    so_don_gross: grossCount,
+    // Tổng đơn (không hủy + mọi hủy, gồm 0đ).
+    so_don_gross: nonHuyCount + cancelCount,
   };
 }
 
@@ -580,7 +588,10 @@ function isOrderHuyHcmOverlay(order) {
 function buildHcmActualsByReportKeyFromOrders(orders) {
   const counts = new Map();
   for (const order of orders || []) {
-    if (!isMktActualOrderCountable(order)) continue;
+    const amount = orderAmountVndHcmOverlay(order);
+    const isHuy = isOrderHuyHcmOverlay(order);
+    const countableTt = isMktActualOrderCountable(order);
+
     const baseKey = buildKey(
       order.order_date,
       order.marketing_staff,
@@ -589,18 +600,27 @@ function buildHcmActualsByReportKeyFromOrders(orders) {
     );
     if (!baseKey || baseKey.split('|').some((part) => !part)) continue;
 
-    const amount = orderAmountVndHcmOverlay(order);
-    const isHuy = isOrderHuyHcmOverlay(order);
     for (const group of orderShiftGroupsForHcmOverlay(order.shift)) {
       const key = `${baseKey}|${caSegmentFromOrderGroupLabel(group)}`;
       const prev =
-        counts.get(key) || { count: 0, totalRevenueVnd: 0, cancelCount: 0, cancelRevenueVnd: 0 };
-      prev.count += 1;
-      prev.totalRevenueVnd += amount;
-      if (isHuy) {
-        prev.cancelCount += 1;
-        prev.cancelRevenueVnd += amount;
+        counts.get(key) || {
+          count: 0,
+          nonHuyCount: 0,
+          totalRevenueVnd: 0,
+          cancelCount: 0,
+          cancelPositiveCount: 0,
+          cancelRevenueVnd: 0,
+        };
+      if (!isHuy) prev.nonHuyCount += 1;
+      if (countableTt) {
+        prev.count += 1;
+        prev.totalRevenueVnd += amount;
+        if (isHuy) {
+          prev.cancelPositiveCount += 1;
+          prev.cancelRevenueVnd += amount;
+        }
       }
+      if (isHuy) prev.cancelCount += 1;
       counts.set(key, prev);
     }
   }
@@ -626,9 +646,14 @@ export function overlayHcmMarketingReportRowsFromOrders(reportRows, orders) {
     if (!actual) return r;
     const count = actual?.count || 0;
     const cancelCount = actual?.cancelCount || 0;
+    const cancelPositive = actual?.cancelPositiveCount ?? cancelCount;
     const totalRevenueVnd = actual?.totalRevenueVnd || 0;
     const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
-    const netCount = Math.max(0, count - cancelCount);
+    // Số Đơn (TT) = đơn không Hủy (gồm 0đ); fallback gross−hủy VND>0 nếu thiếu nonHuyCount.
+    const netCount =
+      actual?.nonHuyCount != null
+        ? actual.nonHuyCount
+        : Math.max(0, count - cancelPositive);
     const netRevenueVnd = Math.max(0, totalRevenueVnd - cancelRevenueVnd);
 
     return {
@@ -1279,19 +1304,19 @@ export async function recalcMktSoDonThucTeFromOrders({
    * Ca (shift) và số liệu:
    * - Đơn: Hết ca / Giữa ca; ca gộp «Giữa ca,Hết ca» chỉ gán Hết ca (tránh đếm trùng khi cộng theo người).
    * - Báo cáo: mỗi dòng một ca — «Hết ca» hoặc «Giữa ca» (không còn một ô «Giữa ca,Hết ca»).
-   * - Đơn Ok: check_result = Ok (kể cả 0đ); Số đơn TT vẫn chỉ đơn VND > 0.
+   * - Đơn Ok: check_result = Ok (kể cả 0đ); Số đơn TT = mọi đơn không Hủy (gồm 0đ Treo/Khách hẹn…).
    * - Dòng gộp legacy: tách — ưu tiên gán id hiện có cho ca còn thiếu; tạo thêm một dòng nếu thiếu phía kia và có số liệu.
    * - Thiếu dòng (createMissingRows): tối đa 2 dòng / key (Hết + Giữa), chỉ khi có đơn trong nhóm tương ứng và chưa có dòng đó.
    * - Ca trống khi recalc: coi là Hết ca để gom đơn; auto-điền cột ca = «Hết ca».
    */
-  // countsByGroup: Map value { count, totalRevenueVnd, cancelCount, cancelRevenueVnd, okCount, sample }
+  // countsByGroup: Map value { count, nonHuyCount, totalRevenueVnd, cancelCount, cancelRevenueVnd, okCount, sample }
   const countsByGroup = {
     'Hết ca': new Map(),
     'Giữa ca': new Map(),
   };
 
   // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy).
-  // MKT actual chỉ tính đơn có doanh số VND dương; đơn 0đ không được làm lệch Số đơn TT.
+  // Số đơn TT: mọi đơn không Hủy (gồm 0đ). DS TT: chỉ VND > 0. Số đơn hủy: mọi Check = Hủy (kể cả 0đ).
   // Trùng order_code: chỉ đếm 1 lần. Chỉ bỏ đơn trùng khi product trùng cột `gift` đơn khác (cùng KH/ngày/NV) — Kem Body vẫn tính nếu là đơn bán.
   for (const order of dropGiftColumnDuplicateOrders(orders || [])) {
     const groups = orderShiftGroupsForRecalc(order.shift);
@@ -1315,19 +1340,26 @@ export async function recalcMktSoDonThucTeFromOrders({
           existing.okCount += 1;
           existing.okRevenueVnd += vnd;
         }
+        if (huy) {
+          existing.cancelCount += 1;
+          if (vnd > 0) {
+            existing.cancelPositiveCount = (existing.cancelPositiveCount || 0) + 1;
+            existing.cancelRevenueVnd += vnd;
+          }
+        } else {
+          existing.nonHuyCount = (existing.nonHuyCount || 0) + 1;
+        }
         if (vnd > 0) {
           existing.count += 1;
           existing.totalRevenueVnd += vnd;
-          if (huy) {
-            existing.cancelCount += 1;
-            existing.cancelRevenueVnd += vnd;
-          }
         }
       } else {
         mapForGroup.set(key, {
           count: vnd > 0 ? 1 : 0,
+          nonHuyCount: huy ? 0 : 1,
           totalRevenueVnd: vnd > 0 ? vnd : 0,
-          cancelCount: vnd > 0 && huy ? 1 : 0,
+          cancelCount: huy ? 1 : 0,
+          cancelPositiveCount: vnd > 0 && huy ? 1 : 0,
           cancelRevenueVnd: vnd > 0 && huy ? vnd : 0,
           okCount: ok ? 1 : 0,
           okRevenueVnd: ok ? vnd : 0,
@@ -1380,10 +1412,15 @@ export async function recalcMktSoDonThucTeFromOrders({
   function aggToMetrics(agg) {
     const grossCount = agg?.count || 0;
     const soDonHoanHuyTT = agg?.cancelCount ?? 0;
+    const cancelPositive = agg?.cancelPositiveCount ?? soDonHoanHuyTT;
     const dsHoanHuyTT = agg?.cancelRevenueVnd ?? 0;
     const grossDoanhSoTT = agg?.totalRevenueVnd ?? 0;
+    const soDonTt =
+      agg?.nonHuyCount != null
+        ? agg.nonHuyCount
+        : Math.max(0, grossCount - cancelPositive);
     return {
-      count: Math.max(0, grossCount - soDonHoanHuyTT),
+      count: soDonTt,
       doanhSoTT: Math.max(0, grossDoanhSoTT - dsHoanHuyTT),
       soDonHoanHuyTT,
       dsHoanHuyTT,

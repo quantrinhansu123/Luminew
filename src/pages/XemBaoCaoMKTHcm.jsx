@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import usePermissions from '../hooks/usePermissions';
+import { MKT_LEGACY_IFRAME_HTML_VER } from './XemBaoCaoMKTLegacy';
 import * as rbacService from '../services/rbacService';
 import { upsertMktKpiAlerts } from '../services/mktKpiAlertsService';
 
@@ -237,6 +238,7 @@ export default function XemBaoCaoMKTHcm({ embedded = false } = {}) {
   const iframeSrc = useMemo(() => {
     const qs = new URLSearchParams();
     qs.append('allowedTeams', XEM_BAO_CAO_MKT_HCM_TEAM);
+    qs.set('_html', MKT_LEGACY_IFRAME_HTML_VER);
     return `${HCM_LEGACY_HTML}?${qs.toString()}`;
   }, []);
 
