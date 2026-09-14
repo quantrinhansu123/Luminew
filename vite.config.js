@@ -20,6 +20,10 @@ export default defineConfig(({ mode }) => {
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Bundle chính ~3.7MB (nhiều page/vendor); chỉ tắt cảnh báo Vite, không đổi output.
+    chunkSizeWarningLimit: 4000,
+  },
   server: {
     port: Number(env.VITE_DEV_PORT) || 3002,
     host: '0.0.0.0', // Listen on all interfaces (IPv4 and IPv6)
