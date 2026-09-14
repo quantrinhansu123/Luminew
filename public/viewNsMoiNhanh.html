@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Báo cáo chi phí tổng hợp · TT detail_reports v3</title>
+  <title>Báo cáo chi phí tổng hợp · TT non-hủy v4</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
@@ -2561,7 +2561,7 @@
       const personnelKey = MKT_PERSONNEL_SCOPE.skipPersonnelFilter
         ? 'ALL'
         : (MKT_PERSONNEL_SCOPE.allowedNames || []).slice().sort().join('|');
-      return `MKT_SUPABASE:v12-detail-only:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
+      return `MKT_SUPABASE:v13-tt-nonhuy:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -3992,9 +3992,48 @@
     }
 
     async function overlayHnActualsFromOrders(rowsNorm, dateRange) {
-      // Không phủ live từ orders — Số Đơn (TT) chỉ lấy cột đã lưu trên detail_reports (= 1441 khi cùng bộ lọc Local).
-      void dateRange;
-      return rowsNorm || [];
+      // Số Đơn (TT) live từ orders: mọi đơn không Hủy (gồm 0đ) → khớp Local 1441 tháng 8.
+      const { orders, complete } = await fetchAllHnOrdersForActualOverlay(dateRange);
+      if (!complete) {
+        console.warn(
+          `[MKT HN] Bỏ qua phủ số TT từ ${MKT_HN_ORDERS_TABLE} vì tải đơn chưa đủ — giữ số trên detail_reports.`
+        );
+        return rowsNorm;
+      }
+      mktHnOrdersCacheForDrilldown = {
+        startYmd: dateRange?.startYmd || '',
+        endYmd: dateRange?.endYmd || '',
+        orders: dropGiftColumnDuplicateOrdersOverlay(orders),
+      };
+      const actualsByKey = buildHnActualsByReportKey(orders);
+      let changedRows = 0;
+
+      const rows = (rowsNorm || []).map((row) => {
+        const baseKey = buildMktActualBaseKey(
+          row['Ngày'],
+          row['Tên'],
+          row['Sản_phẩm'],
+          row['Thị_trường']
+        );
+        if (!baseKey || baseKey.split('|').some((part) => !part)) return row;
+
+        const caKey = normalizeCaForRowKey(row.ca ?? row['Ca'] ?? row.shift);
+        const actual = actualsByKey.get(`${baseKey}|${caKey}`);
+        const beforeCount = parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
+        const cancelCount = actual?.cancelCount || 0;
+        const netCount =
+          actual?.nonHuyCount != null
+            ? actual.nonHuyCount
+            : Math.max(0, (actual?.count || 0) - (actual?.cancelPositiveCount ?? cancelCount));
+        if (beforeCount !== netCount) changedRows += 1;
+
+        return applyMktActualsToReportRow(row, actual);
+      });
+
+      console.log(
+        `🔁 Phủ Số đơn TT (non-hủy, gồm 0đ) HN từ ${MKT_HN_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng thay đổi.`
+      );
+      return rows;
     }
 
     async function fetchAndProcessData() {
@@ -4028,10 +4067,18 @@
         const rawRows = extractDetailReportsRows(resultMKT);
         const rowsNorm = rawRows.map(normalizeDetailReportRow);
         const lo = document.getElementById('loading-overlay');
-        // Một nguồn: chỉ số đã lưu trên detail_reports (không phủ live từ orders).
-        // Cập nhật TT vào DB qua nút «Kích hoạt tính toán» trên host khi cần.
-        if (lo) lo.textContent = 'Đang xử lý detail_reports…';
-        const rowsDeduped = dedupeMktDetailReportRows(rowsNorm);
+        // Số Đơn (TT) = đơn không Hủy (gồm 0đ) từ orders — khớp Local 1441 tháng 8.
+        if (lo) lo.textContent = 'Đang đồng bộ Số đơn TT từ đơn hàng…';
+        let rowsActualized = rowsNorm;
+        try {
+          rowsActualized = await overlayHnActualsFromOrders(rowsNorm, dateRange);
+        } catch (actualsErr) {
+          console.warn(
+            `[MKT HN] Không đồng bộ được Số đơn từ ${MKT_HN_ORDERS_TABLE}; dùng số đã lưu trên detail_reports:`,
+            actualsErr?.message || actualsErr
+          );
+        }
+        const rowsDeduped = dedupeMktDetailReportRows(rowsActualized);
         if (lo) lo.textContent = 'Đang xử lý dữ liệu…';
         await new Promise((r) => requestAnimationFrame(r));
         let rdProductsSet = null;
