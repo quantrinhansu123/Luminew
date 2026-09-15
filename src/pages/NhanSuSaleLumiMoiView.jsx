@@ -8,6 +8,7 @@ import { toast } from 'react-toastify';
 import { supabase } from '../supabase/config';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
+import QuanLyCSKH from './QuanLyCSKH';
 import '../styles/NhanSuSaleLumiMoiView.css';
 import {
   isValidDashboardYmd,
@@ -42,6 +43,9 @@ import {
   canonicalTeamKeyForFilter,
   uniqueTeamLabelsForFilter,
   employeeRowInSalesReportScope,
+  fetchBanCheoOrderCountsBySale,
+  banCheoCountForSale,
+  banCheoCountForSaleDate,
 } from '../utils/nhanSuSaleLumiMoiLogic';
 
 const LOGO_URL =
@@ -78,10 +82,6 @@ function saleOkMetrics(item) {
 
   return { soDonOk, doanhSoOk };
 }
-
-/** Chuẩn hóa tên nhập nhầm trên stack HCM (xem-bao-cao-sale-hcm). */
-const HCM_RENAME_ANH_NGUYET_FROM = 'Nguyễn Thị Ánh Nguyệt 1';
-const HCM_RENAME_ANH_NGUYET_TO = 'Nguyễn Thị Ánh Nguyệt';
 
 function useResolvedIdsheet() {
   const [searchParams] = useSearchParams();
@@ -457,6 +457,8 @@ export default function NhanSuSaleLumiMoiView({
   showPersonnelNameFilter = false,
   /** true: không hiện sổ «Bộ phận» và không lọc theo bộ phận (trang xem báo cáo Sale HCM). */
   hideBoPhanFilter = false,
+  /** true: hiện tab Danh sách bán chéo (order_code_hcm · Loại khách hàng = Bán chéo). */
+  showBanCheoOrdersTab = false,
 }) {
   const idSheet = useResolvedIdsheet();
   const [searchParams] = useSearchParams();
@@ -472,9 +474,12 @@ export default function NhanSuSaleLumiMoiView({
 
   /** /xem-bao-cao-cskh-hcm: teamInFilter chứa CSKH-HCM (và biến thể). */
   const isHcmCskhReportPage = useMemo(() => {
+    if (reportTableName === 'sale_report_hcm') return true;
     if (!Array.isArray(teamInFilter) || teamInFilter.length === 0) return false;
     return teamInFilter.some((t) => canonicalTeamKeyForFilter(t) === 'cskh-hcm');
-  }, [teamInFilter]);
+  }, [teamInFilter, reportTableName]);
+
+  const showBanCheoTab = showBanCheoOrdersTab || isHcmCskhReportPage;
 
   const defaultFilterDays = isHcmCskhReportPage ? HCM_CSKH_DEFAULT_FILTER_DAYS : 3;
 
@@ -525,8 +530,6 @@ export default function NhanSuSaleLumiMoiView({
   const [quickMonthKey, setQuickMonthKey] = useState('');
   /** Tăng khi bấm «Tải dữ liệu» — ép gọi lại API theo Từ/Đến ngày hiện tại. */
   const [loadRequestId, setLoadRequestId] = useState(0);
-  /** Đổi tên hàng loạt HCM (Ánh Nguyệt 1 → Ánh Nguyệt). */
-  const [renamingAnhNguyet, setRenamingAnhNguyet] = useState(false);
   /**
    * id Appsheet đã từng chạy resetFilterLists thành công (có user + raw).
    * Khác id → reset; cùng id mà có raw mới → chỉ sync (giữ Sản phẩm/Ca/Team/TT/Tên Sale).
@@ -560,10 +563,61 @@ export default function NhanSuSaleLumiMoiView({
   const [activeTab, setActiveTab] = useState('sau-huy');
   const [selectedRowKey, setSelectedRowKey] = useState(null);
   const [staffDetailName, setStaffDetailName] = useState(null);
+  /** Đếm đơn bán chéo (order_code_hcm) theo Sale — tab Sale sau huỷ (HCM CSKH). */
+  const [banCheoBySaleKey, setBanCheoBySaleKey] = useState({});
+  const [banCheoBySaleDateKey, setBanCheoBySaleDateKey] = useState({});
 
   useEffect(() => {
     if (activeTab !== 'sau-huy' && activeTab !== 'chot') setStaffDetailName(null);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!showBanCheoTab || !startDate || !endDate) {
+      setBanCheoBySaleKey({});
+      setBanCheoBySaleDateKey({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { bySaleKey, bySaleDateKey } = await fetchBanCheoOrderCountsBySale({
+          startDate,
+          endDate,
+          ordersTable: 'order_code_hcm',
+          productAll,
+          selectedProducts: productAll ? null : productSel,
+          marketAll,
+          selectedMarkets: marketAll ? null : marketSel,
+          caAll,
+          selectedShifts: caAll ? null : caSel,
+        });
+        if (!cancelled) {
+          setBanCheoBySaleKey(bySaleKey || {});
+          setBanCheoBySaleDateKey(bySaleDateKey || {});
+        }
+      } catch (err) {
+        console.warn('[ban-cheo counts]', err);
+        if (!cancelled) {
+          setBanCheoBySaleKey({});
+          setBanCheoBySaleDateKey({});
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showBanCheoTab,
+    startDate,
+    endDate,
+    productAll,
+    productSel,
+    marketAll,
+    marketSel,
+    caAll,
+    caSel,
+    loadRequestId,
+  ]);
 
   const [iframeKpi, setIframeKpi] = useState(() => buildKpiEmbedUrl(''));
   const [iframeThuCong, setIframeThuCong] = useState('about:blank');
@@ -746,47 +800,6 @@ export default function NhanSuSaleLumiMoiView({
     setStartDate(bounds.start);
     setEndDate(bounds.end);
   }, []);
-
-  const handleRenameAnhNguyetHcm = useCallback(async () => {
-    if (reportTableName !== 'sale_report_hcm' || !isAdmin) return;
-    const FROM = HCM_RENAME_ANH_NGUYET_FROM;
-    const TO = HCM_RENAME_ANH_NGUYET_TO;
-    if (
-      !window.confirm(
-        `Thay tên khớp chính xác (toàn bộ dòng có giá trị đúng như vậy):\n\n«${FROM}»\n→\n«${TO}»\n\n` +
-          'Cập nhật trên:\n' +
-          '• sale_report_hcm (cột name)\n' +
-          '• order_code_hcm (sale_staff, marketing_staff, delivery_staff, cskh)\n' +
-          '• users (name)\n\n' +
-          'Tiếp tục?'
-      )
-    ) {
-      return;
-    }
-    setRenamingAnhNguyet(true);
-    const lines = [];
-    const countUpdate = async (label, table, patch, column) => {
-      try {
-        const { data, error } = await supabase.from(table).update(patch).eq(column, FROM).select('id');
-        if (error) throw error;
-        const n = Array.isArray(data) ? data.length : 0;
-        lines.push(`${label}: ${n} dòng`);
-      } catch (e) {
-        lines.push(`${label}: lỗi — ${e?.message || String(e)}`);
-      }
-    };
-    try {
-      await countUpdate('sale_report_hcm.name', 'sale_report_hcm', { name: TO }, 'name');
-      for (const col of ['sale_staff', 'marketing_staff', 'delivery_staff', 'cskh']) {
-        await countUpdate(`order_code_hcm.${col}`, 'order_code_hcm', { [col]: TO }, col);
-      }
-      await countUpdate('users.name', 'users', { name: TO }, 'name');
-      toast.success(lines.join('\n'), { autoClose: 8000 });
-    } finally {
-      setRenamingAnhNguyet(false);
-      handleLoadReportData();
-    }
-  }, [reportTableName, isAdmin, handleLoadReportData]);
 
   /** Dữ liệu báo cáo: Supabase `reportTableName` (fallback lumidata chỉ khi bảng là `sales_reports`). Phân quyền `?id=`: users. */
   useEffect(() => {
@@ -1487,6 +1500,14 @@ export default function NhanSuSaleLumiMoiView({
 
   const totalRateChot = netTtAfterCancel(total).rateChot;
 
+  const soDonBanCheoTotal = useMemo(() => {
+    if (!showBanCheoTab) return 0;
+    return flatListFiltered.reduce(
+      (sum, item) => sum + banCheoCountForSale(banCheoBySaleKey, item.name),
+      0
+    );
+  }, [showBanCheoTab, flatListFiltered, banCheoBySaleKey]);
+
   if (!hasPageAccess) {
     return (
       <div className="nssl-root">
@@ -1564,21 +1585,6 @@ export default function NhanSuSaleLumiMoiView({
             <p className="nssl-filter-hint" style={{ marginTop: 8 }}>
               Báo cáo HCM: lọc theo sản phẩm, ca, team, thị trường và tên Sale như bên dưới. Phân quyền xem (nếu có) vẫn áp dụng.
             </p>
-          )}
-
-          {reportTableName === 'sale_report_hcm' && isAdmin && (
-            <button
-              type="button"
-              className="nssl-load-data-btn"
-              style={{ marginTop: 10, background: '#6d28d9', color: '#fff', border: 'none' }}
-              disabled={renamingAnhNguyet}
-              onClick={handleRenameAnhNguyetHcm}
-              title={`Đổi «${HCM_RENAME_ANH_NGUYET_FROM}» thành «${HCM_RENAME_ANH_NGUYET_TO}» trên sale_report_hcm, order_code_hcm và users (admin)`}
-            >
-              {renamingAnhNguyet
-                ? 'Đang đổi tên…'
-                : `Đổi «${HCM_RENAME_ANH_NGUYET_FROM}» → «${HCM_RENAME_ANH_NGUYET_TO}» (toàn HCM)`}
-            </button>
           )}
 
           {showPersonnelNameFilter && (
@@ -1949,6 +1955,15 @@ restrictedForPopulate,
                 Báo cáo thủ công
               </button>
             )}
+            {showBanCheoTab && (
+              <button
+                type="button"
+                className={`tab-button ${activeTab === 'ban-cheo' ? 'active' : ''}`}
+                onClick={() => onTabClick('ban-cheo')}
+              >
+                Danh sách bán chéo
+              </button>
+            )}
           </div>
 
           <div id="tab-sau-huy" className={`tab-content ${activeTab === 'sau-huy' ? 'active' : ''}`}>
@@ -2046,6 +2061,14 @@ restrictedForPopulate,
                     <th rowSpan={2}>Phản hồi</th>
                     <th rowSpan={2}>Số Đơn</th>
                     <th rowSpan={2} title="Số đơn sau huỷ = Số đơn − Đơn huỷ">Số đơn sau huỷ</th>
+                    {showBanCheoTab && (
+                      <th
+                        rowSpan={2}
+                        title="Số đơn Loại khách hàng = Bán chéo (order_code_hcm) theo bộ lọc ngày / SP / TT / ca"
+                      >
+                        Đơn bán chéo
+                      </th>
+                    )}
                     <th rowSpan={2}>DS Chốt</th>
                     <th rowSpan={2} title="Doanh số sau huỷ = Doanh số − Doanh số huỷ">Doanh số sau huỷ</th>
                     <th colSpan={2}>Trạng thái huỷ</th>
@@ -2065,6 +2088,9 @@ restrictedForPopulate,
                     <td className="total-value">{formatNumber(total.phanHoi)}</td>
                     <td className="total-value">{formatNumber(total.don)}</td>
                     <td className="total-value">{formatNumber(soDonSauHuyTotal2)}</td>
+                    {showBanCheoTab && (
+                      <td className="total-value">{formatNumber(soDonBanCheoTotal)}</td>
+                    )}
                     <td className="total-value">{formatCurrency(total.chot)}</td>
                     <td className="total-value">{formatCurrency(dsSauHuyTTTotal)}</td>
                     <td className="total-value">{formatNumber(soDonHuyTotal)}</td>
@@ -2077,6 +2103,9 @@ restrictedForPopulate,
                     const key = `c-${item.name}-${index}`;
                     const soDonHuy = item.soDonHoanHuyThucTe || 0;
                     const dsHuy = item.doanhSoHoanHuyThucTe || 0;
+                    const soDonBanCheo = showBanCheoTab
+                      ? banCheoCountForSale(banCheoBySaleKey, item.name)
+                      : 0;
                     return (
                       <tr
                         key={key}
@@ -2104,6 +2133,7 @@ restrictedForPopulate,
                         <td>{formatNumber(item.phanHoi)}</td>
                         <td>{formatNumber(item.don)}</td>
                         <td>{formatNumber(soDonTT)}</td>
+                        {showBanCheoTab && <td>{formatNumber(soDonBanCheo)}</td>}
                         <td>{formatCurrency(item.chot)}</td>
                         <td>{formatCurrency(dsTT)}</td>
                         <td>{formatNumber(soDonHuy)}</td>
@@ -2122,6 +2152,8 @@ restrictedForPopulate,
                 formatSaleName={formatSaleDisplayName}
                 keepTeamNghiRows={keepTeamNghiRowsForHcmReport}
                 onStaffOpen={setStaffDetailName}
+                showBanCheoColumn={showBanCheoTab}
+                banCheoBySaleDateKey={banCheoBySaleDateKey}
               />
             )}
           </div>
@@ -2144,6 +2176,26 @@ restrictedForPopulate,
               <iframe title="Báo cáo thủ công" className="nssl-iframe-thucong" src={iframeThuCong} loading="lazy" />
             )}
           </div>
+
+          {showBanCheoTab && (
+            <div
+              id="tab-ban-cheo"
+              className={`tab-content ${activeTab === 'ban-cheo' ? 'active' : ''}`}
+            >
+              {activeTab === 'ban-cheo' ? (
+                <QuanLyCSKH
+                  embedded
+                  bypassPersonnelScope
+                  ordersTableName="order_code_hcm"
+                  pageTitle="DANH SÁCH BÁN CHÉO"
+                  pageSubtitle="order_code_hcm — chỉ đơn Loại khách hàng = Bán chéo"
+                  accessPermissionCodes={['CSKH_VIEW_HCM', 'CSKH_LIST_HCM', 'CSKH_VIEW', 'CSKH_LIST']}
+                  customerTypeFilter="Bán chéo"
+                  initialLookbackDays={HCM_CSKH_DEFAULT_FILTER_DAYS}
+                />
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
       {staffDetailName && (activeTab === 'sau-huy' || activeTab === 'chot') && (
@@ -2281,6 +2333,8 @@ function DailyBreakdownChot({
   formatSaleName = (t) => t,
   keepTeamNghiRows = false,
   onStaffOpen,
+  showBanCheoColumn = false,
+  banCheoBySaleDateKey = {},
 }) {
   if (!filteredData.length) {
     return (
@@ -2312,6 +2366,12 @@ function DailyBreakdownChot({
         const flatListFiltered = keepTeamNghiRows ? flatList : flatListFilteredNoTeamNghi(flatList);
         const total = aggregateTotalFromFlatList(flatListFiltered);
         const { soDonTT: soDonTTTotal, dsTT: dsTTTotal, rateChot: totalRateChot } = netTtAfterCancel(total);
+        const soDonBanCheoDayTotal = showBanCheoColumn
+          ? flatListFiltered.reduce(
+              (sum, item) => sum + banCheoCountForSaleDate(banCheoBySaleDateKey, item.name, date),
+              0
+            )
+          : 0;
         return (
           <div key={date}>
             <h3>Chi tiết ngày: {date}</h3>
@@ -2326,6 +2386,11 @@ function DailyBreakdownChot({
                     <th rowSpan={2}>Phản hồi</th>
                     <th rowSpan={2}>Số Đơn</th>
                     <th rowSpan={2} title="Số đơn sau huỷ = Số đơn − Đơn huỷ">Số đơn sau huỷ</th>
+                    {showBanCheoColumn && (
+                      <th rowSpan={2} title="Số đơn Loại khách hàng = Bán chéo theo ngày">
+                        Đơn bán chéo
+                      </th>
+                    )}
                     <th rowSpan={2}>DS Chốt</th>
                     <th rowSpan={2} title="Doanh số sau huỷ = Doanh số − Doanh số huỷ">Doanh số sau huỷ</th>
                     <th colSpan={2}>Trạng thái huỷ</th>
@@ -2345,6 +2410,9 @@ function DailyBreakdownChot({
                     <td className="total-value">{formatNumber(total.phanHoi)}</td>
                     <td className="total-value">{formatNumber(total.don)}</td>
                     <td className="total-value">{formatNumber(soDonTTTotal)}</td>
+                    {showBanCheoColumn && (
+                      <td className="total-value">{formatNumber(soDonBanCheoDayTotal)}</td>
+                    )}
                     <td className="total-value">{formatCurrency(total.chot)}</td>
                     <td className="total-value">{formatCurrency(dsTTTotal)}</td>
                     <td className="total-value">{formatNumber(total.soDonHoanHuyThucTe || 0)}</td>
@@ -2354,6 +2422,9 @@ function DailyBreakdownChot({
                   {flatListFiltered.map((item, index) => {
                     const { soDonTT, dsTT, rateChot } = netTtAfterCancel(item);
                     const rateClass = rateChot >= 0.1 ? 'bg-green' : rateChot > 0.05 ? 'bg-yellow' : '';
+                    const soDonBanCheo = showBanCheoColumn
+                      ? banCheoCountForSaleDate(banCheoBySaleDateKey, item.name, date)
+                      : 0;
                     return (
                       <tr key={`${date}-${item.name}`} style={{ '--row-index': index }}>
                         <td className="text-center">{index + 1}</td>
@@ -2376,6 +2447,7 @@ function DailyBreakdownChot({
                         <td>{formatNumber(item.phanHoi)}</td>
                         <td>{formatNumber(item.don)}</td>
                         <td>{formatNumber(soDonTT)}</td>
+                        {showBanCheoColumn && <td>{formatNumber(soDonBanCheo)}</td>}
                         <td>{formatCurrency(item.chot)}</td>
                         <td>{formatCurrency(dsTT)}</td>
                         <td>{formatNumber(item.soDonHoanHuyThucTe || 0)}</td>

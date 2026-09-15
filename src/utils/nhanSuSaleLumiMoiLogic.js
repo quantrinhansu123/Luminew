@@ -1157,3 +1157,147 @@ export function filterRawForRestrictedPopulate(
 export function uniqueSorted(data, key) {
   return [...new Set(data.map((r) => r[key]).filter(Boolean))].sort();
 }
+
+function normalizeCustomerTypeKeyBanCheo(v) {
+  return String(v ?? '')
+    .replace(/\u00a0/g, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Khớp «Bán chéo» / «Khách bán chéo» / ban_cheo… */
+export function isBanCheoCustomerType(v) {
+  const s = normalizeCustomerTypeKeyBanCheo(v);
+  if (!s) return false;
+  if (s === 'ban cheo' || s === 'bancheo') return true;
+  return s.includes('ban cheo') || (s.includes('cheo') && s.includes('ban'));
+}
+
+/** Khóa tên Sale để gộp đơn bán chéo (bỏ dấu, gom space). */
+export function banCheoSaleMatchKey(name) {
+  return normalizeViAscii(name);
+}
+
+const BAN_CHEO_ORDERS_PAGE = 1000;
+
+/**
+ * Đếm đơn Loại KH = Bán chéo theo Sale (và theo ngày) từ bảng đơn HCM.
+ * Tôn trọng bộ lọc SP / thị trường / ca khi không chọn «Tất cả».
+ * @returns {{ bySaleKey: Record<string, number>, bySaleDateKey: Record<string, number> }}
+ */
+export async function fetchBanCheoOrderCountsBySale({
+  startDate,
+  endDate,
+  ordersTable = 'order_code_hcm',
+  productAll = true,
+  selectedProducts = null,
+  marketAll = true,
+  selectedMarkets = null,
+  caAll = true,
+  selectedShifts = null,
+} = {}) {
+  const empty = { bySaleKey: {}, bySaleDateKey: {} };
+  if (!startDate || !endDate) return empty;
+
+  const productSet = !productAll
+    ? new Set((selectedProducts || []).map((p) => normalizeViAscii(p)).filter(Boolean))
+    : null;
+  const marketSet = !marketAll
+    ? new Set((selectedMarkets || []).map((m) => normalizeViAscii(m)).filter(Boolean))
+    : null;
+  const shiftSet = !caAll
+    ? new Set(
+        (selectedShifts || [])
+          .map((s) => normalizeViAscii(canonicalizeReportCa(s)))
+          .filter(Boolean)
+      )
+    : null;
+
+  const rows = [];
+  let from = 0;
+  for (;;) {
+    let q = supabase
+      .from(ordersTable)
+      .select('order_code, order_date, sale_staff, product, country, shift, customer_type')
+      .gte('order_date', startDate)
+      .lte('order_date', endDate)
+      .or(
+        [
+          'customer_type.ilike.%chéo%',
+          'customer_type.ilike.%cheo%',
+          'customer_type.ilike.%ban-cheo%',
+          'customer_type.ilike.%ban_cheo%',
+        ].join(',')
+      )
+      .order('order_date', { ascending: false })
+      .range(from, from + BAN_CHEO_ORDERS_PAGE - 1);
+    const { data, error } = await q;
+    if (error) throw error;
+    const chunk = data || [];
+    rows.push(...chunk);
+    if (chunk.length < BAN_CHEO_ORDERS_PAGE) break;
+    from += chunk.length;
+  }
+
+  const seenGlobal = new Set();
+  const bySaleCodes = new Map();
+  const bySaleDateCodes = new Map();
+
+  for (const row of rows) {
+    if (!isBanCheoCustomerType(row?.customer_type)) continue;
+    const code = String(row?.order_code ?? '').trim();
+    if (!code) continue;
+
+    if (productSet) {
+      if (!productSet.size) continue;
+      const p = normalizeViAscii(row?.product);
+      if (!p || !productSet.has(p)) continue;
+    }
+    if (marketSet) {
+      if (!marketSet.size) continue;
+      const m = normalizeViAscii(row?.country);
+      if (!m || !marketSet.has(m)) continue;
+    }
+    if (shiftSet) {
+      if (!shiftSet.size) continue;
+      const sh = normalizeViAscii(canonicalizeReportCa(row?.shift));
+      if (!sh || !shiftSet.has(sh)) continue;
+    }
+
+    if (seenGlobal.has(code)) continue;
+    seenGlobal.add(code);
+
+    const saleKey = banCheoSaleMatchKey(row?.sale_staff);
+    if (!saleKey) continue;
+
+    if (!bySaleCodes.has(saleKey)) bySaleCodes.set(saleKey, new Set());
+    bySaleCodes.get(saleKey).add(code);
+
+    const dateDisp = formatDateDisplay(row?.order_date);
+    const dateKey = `${saleKey}|${dateDisp}`;
+    if (!bySaleDateCodes.has(dateKey)) bySaleDateCodes.set(dateKey, new Set());
+    bySaleDateCodes.get(dateKey).add(code);
+  }
+
+  const bySaleKey = {};
+  for (const [k, set] of bySaleCodes) bySaleKey[k] = set.size;
+  const bySaleDateKey = {};
+  for (const [k, set] of bySaleDateCodes) bySaleDateKey[k] = set.size;
+  return { bySaleKey, bySaleDateKey };
+}
+
+export function banCheoCountForSale(bySaleKey, saleName) {
+  if (!bySaleKey) return 0;
+  const k = banCheoSaleMatchKey(saleName);
+  return Number(bySaleKey[k]) || 0;
+}
+
+export function banCheoCountForSaleDate(bySaleDateKey, saleName, dateDisplay) {
+  if (!bySaleDateKey) return 0;
+  const k = `${banCheoSaleMatchKey(saleName)}|${dateDisplay}`;
+  return Number(bySaleDateKey[k]) || 0;
+}

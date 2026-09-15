@@ -263,6 +263,7 @@ function AppShell() {
                     reportTableName="sale_report_hcm"
                     teamInFilter={CSKH_MANUAL_REPORT_HCM_TEAMS}
                     pageAccessCodes={['CSKH_VIEW_HCM']}
+                    showBanCheoOrdersTab
                   />
                 </ProtectedRoute>
               }

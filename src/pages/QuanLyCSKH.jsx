@@ -78,9 +78,42 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Trạng thái thu tiền": resolveTrangThaiThuTienFromOrder(item),
     "Lý do": item.reason,
     "Page": item.page_name,
+    "Loại khách hàng": item.customer_type || item['Loại khách hàng'] || '',
     feedback_pos: item.feedback_pos,
     feedback_neg: item.feedback_neg,
   };
+}
+
+/** Chuẩn hoá customer_type để so khớp «Bán chéo». */
+function normalizeCustomerTypeKey(v) {
+  return String(v ?? '')
+    .replace(/\u00a0/g, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isBanCheoCustomerType(v) {
+  const s = normalizeCustomerTypeKey(v);
+  if (!s) return false;
+  if (s === 'ban cheo' || s === 'bancheo') return true;
+  // «Bán chéo», «Khách bán chéo», …
+  return s.includes('ban cheo') || (s.includes('cheo') && s.includes('ban'));
+}
+
+function rowMatchesCustomerTypeFilter(row, filter) {
+  const f = normalizeCustomerTypeKey(filter);
+  if (!f) return true;
+  const raw =
+    row?.customer_type ??
+    row?.['Loại khách hàng'] ??
+    row?.customerType ??
+    '';
+  if (f === 'ban cheo' || f === 'ban-cheo') return isBanCheoCustomerType(raw);
+  return normalizeCustomerTypeKey(raw) === f || normalizeCustomerTypeKey(raw).includes(f);
 }
 
 const EMPTY_ORDER_QUERY_ID = '00000000-0000-0000-0000-000000000000';
@@ -137,6 +170,7 @@ async function fetchCSKHOrdersForDateMode({
   variants,
   bypassStaffFilter,
   dateMode,
+  customerTypeFilter = null,
 }) {
   const makeBaseQuery = () => {
     let q = supabase.from(ordersTableName).select('*');
@@ -151,6 +185,17 @@ async function fetchCSKHOrdersForDateMode({
         .gte('created_at', createdStart)
         .lte('created_at', createdEnd)
         .order('created_at', { ascending: false });
+    }
+    if (customerTypeFilter && isBanCheoCustomerType(customerTypeFilter)) {
+      // Lọc sớm trên DB — khớp các biến thể «Bán chéo» / ban-cheo
+      q = q.or(
+        [
+          'customer_type.ilike.%chéo%',
+          'customer_type.ilike.%cheo%',
+          'customer_type.ilike.%ban-cheo%',
+          'customer_type.ilike.%ban_cheo%',
+        ].join(',')
+      );
     }
     return q;
   };
@@ -455,18 +500,36 @@ function QuanLyCSKH({
   accessPermissionCodes = ['CSKH_LIST'],
   /** Nếu có: chỉ giữ đơn có Nhân viên Sale thuộc users.team đúng nhãn này (vd. CSKH-HCM). */
   saleStaffTeamExact = null,
+  /**
+   * Lọc Loại khách hàng — vd. `ban-cheo` / `Bán chéo`.
+   * Nguồn: orders.customer_type (order_code_hcm / orders).
+   */
+  customerTypeFilter = null,
+  /** true: nhúng trong tab (bỏ khung trang full, dùng quyền xem báo cáo). */
+  embedded = false,
+  /** Số ngày lùi mặc định khi mở (vd. 180 trên tab Bán chéo HCM). */
+  initialLookbackDays = null,
+  /**
+   * true: không lọc theo selected_personnel / team Sale — lấy mọi đơn khớp bộ lọc khác
+   * (dùng tab Danh sách bán chéo: chỉ cần customer_type).
+   */
+  bypassPersonnelScope = false,
 } = {}) {
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   const navigate = useNavigate();
   const { canView, canEdit, role } = usePermissions();
   const isHcmOrders = ordersTableName === 'order_code_hcm';
   const saleTeamExact = String(saleStaffTeamExact || '').trim();
-  const restrictBySaleTeam = Boolean(saleTeamExact);
+  const restrictBySaleTeam = Boolean(saleTeamExact) && !bypassPersonnelScope;
+  const customerTypeFilterNorm = String(customerTypeFilter || '').trim();
+  const filterBanCheo = Boolean(customerTypeFilterNorm) && isBanCheoCustomerType(customerTypeFilterNorm);
+  const lookbackDays =
+    Number(initialLookbackDays) > 0 ? Math.floor(Number(initialLookbackDays)) : 3;
 
-  const canAccessPage = useMemo(
-    () => accessPermissionCodes.some((code) => canView(code)),
-    [accessPermissionCodes, canView]
-  );
+  const canAccessPage = useMemo(() => {
+    if (embedded) return true;
+    return accessPermissionCodes.some((code) => canView(code));
+  }, [accessPermissionCodes, canView, embedded]);
 
   const canEditFromThisList = useMemo(() => {
     if (accessPermissionCodes.some((code) => canEdit(code))) return true;
@@ -521,12 +584,12 @@ function QuanLyCSKH({
 
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 3);
+    d.setDate(d.getDate() - lookbackDays);
     return formatLocalDate(d);
   });
   const [endDate, setEndDate] = useState(() => formatLocalDate(new Date()));
 
-  const [quickFilter, setQuickFilter] = useState('today');
+  const [quickFilter, setQuickFilter] = useState(lookbackDays > 3 ? '' : 'today');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(1000);
   const [sortColumn, setSortColumn] = useState(null);
@@ -573,6 +636,7 @@ function QuanLyCSKH({
     'Khu vực',
     'Mặt hàng',
     'Số lượng mặt hàng 1',
+    ...(filterBanCheo || customerTypeFilterNorm ? ['Loại khách hàng'] : []),
     'Mã Tracking',
     'Kết quả Check',
     'CSKH',
@@ -583,6 +647,10 @@ function QuanLyCSKH({
     'Phí ship',
     'Tổng tiền VNĐ',
   ];
+
+  const visibleColumnsStorageKey = customerTypeFilterNorm
+    ? `quanLyCSKH_visibleColumns_${normalizeCustomerTypeKey(customerTypeFilterNorm).replace(/\s+/g, '-')}`
+    : 'quanLyCSKH_visibleColumns';
 
   // Mapping từ tên cột DB sang tên hiển thị thân thiện
   const COLUMN_DISPLAY_NAMES = {
@@ -775,7 +843,7 @@ function QuanLyCSKH({
 
   // Load column visibility from localStorage or use defaults
   const [visibleColumns, setVisibleColumns] = useState(() => {
-    const saved = localStorage.getItem('quanLyCSKH_visibleColumns');
+    const saved = localStorage.getItem(visibleColumnsStorageKey);
     let initial = {};
 
     if (saved) {
@@ -860,9 +928,9 @@ function QuanLyCSKH({
           cleaned[col] = visibleColumns[col];
         }
       });
-      localStorage.setItem('quanLyCSKH_visibleColumns', JSON.stringify(cleaned));
+      localStorage.setItem(visibleColumnsStorageKey, JSON.stringify(cleaned));
     }
-  }, [visibleColumns]);
+  }, [visibleColumns, visibleColumnsStorageKey]);
 
   // Load data from Supabase with date filter
   const loadData = useCallback(async () => {
@@ -895,7 +963,10 @@ function QuanLyCSKH({
       let bypassStaffFilter;
       let variants = [];
 
-      if (isHcmOrders) {
+      if (bypassPersonnelScope) {
+        bypassStaffFilter = true;
+        console.log('✅ [CSKH] bypassPersonnelScope: tải mọi đơn trong khoảng (lọc Loại khách hàng / ngày).');
+      } else if (isHcmOrders) {
         if (hcmSystemFullAccess) {
           bypassStaffFilter = true;
           console.log('✅ [CSKH HCM] Quyền quản trị: full danh sách (bỏ lọc nhân sự).');
@@ -966,6 +1037,7 @@ function QuanLyCSKH({
           variants,
           bypassStaffFilter,
           dateMode: 'order_date',
+          customerTypeFilter: customerTypeFilterNorm || null,
         });
 
         if (createdStart && createdEnd) {
@@ -978,6 +1050,7 @@ function QuanLyCSKH({
             variants,
             bypassStaffFilter,
             dateMode: 'created_at_fallback',
+            customerTypeFilter: customerTypeFilterNorm || null,
           });
         }
       } catch (fetchErr) {
@@ -999,6 +1072,7 @@ function QuanLyCSKH({
           variants: [],
           bypassStaffFilter: true,
           dateMode: 'order_date',
+          customerTypeFilter: customerTypeFilterNorm || null,
         });
         if (createdStart && createdEnd) {
           d2 = await fetchCSKHOrdersForDateMode({
@@ -1010,6 +1084,7 @@ function QuanLyCSKH({
             variants: [],
             bypassStaffFilter: true,
             dateMode: 'created_at_fallback',
+            customerTypeFilter: customerTypeFilterNorm || null,
           });
         }
         const mergedRaw = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(d1, d2));
@@ -1036,6 +1111,16 @@ function QuanLyCSKH({
             `🔐 [CSKH] Chỉ đơn sale_staff ∈ users.team="${saleTeamExact}": ${rowsForMap.length}/${before} (có ${saleNameKeys.size} tên NV)`
           );
         }
+      }
+
+      if (customerTypeFilterNorm) {
+        const beforeType = rowsForMap.length;
+        rowsForMap = rowsForMap.filter((row) =>
+          rowMatchesCustomerTypeFilter(row, customerTypeFilterNorm)
+        );
+        console.log(
+          `🏷️ [CSKH] Lọc Loại khách hàng="${customerTypeFilterNorm}": ${rowsForMap.length}/${beforeType}`
+        );
       }
 
       const mappedData = dedupeFriendlyOrdersByMaDon(
@@ -1079,7 +1164,7 @@ function QuanLyCSKH({
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, role, ordersTableName, restrictBySaleTeam, saleTeamExact]);
+  }, [startDate, endDate, role, ordersTableName, restrictBySaleTeam, saleTeamExact, customerTypeFilterNorm, bypassPersonnelScope]);
 
   useEffect(() => {
     loadData();
@@ -1772,15 +1857,15 @@ function QuanLyCSKH({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={embedded ? 'bg-gray-50 rounded-lg border border-gray-200 overflow-hidden' : 'min-h-screen bg-gray-50'}>
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
-        <div className="max-w-full mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
+      <div className={`bg-white border-b border-gray-200 shadow-sm ${embedded ? 'sticky top-0 z-40' : 'sticky top-0 z-50'}`}>
+        <div className={`${embedded ? 'px-3 py-3' : 'max-w-full mx-auto px-6 py-4'}`}>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-4">
 
               <div>
-                <h1 className="text-xl font-bold text-gray-800">{pageTitle}</h1>
+                <h1 className={`${embedded ? 'text-lg' : 'text-xl'} font-bold text-gray-800`}>{pageTitle}</h1>
                 <p className="text-xs text-gray-500">{pageSubtitle}</p>
               </div>
             </div>
@@ -1822,7 +1907,7 @@ function QuanLyCSKH({
       </div>
 
       {/* Main Content */}
-      <div className="max-w-full mx-auto px-6 py-6">
+      <div className={`max-w-full mx-auto ${embedded ? 'px-3 py-3' : 'px-6 py-6'}`}>
         {/* Filters */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6 relative">
           <div className="flex flex-wrap items-end gap-4 relative z-50">
