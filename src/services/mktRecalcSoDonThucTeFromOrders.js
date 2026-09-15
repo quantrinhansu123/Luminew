@@ -280,12 +280,11 @@ export async function fetchMktOrdersInDateRange(startDate, endDate, tableName = 
  */
 export function computeMktOrderMetricsForReportRow(report, ordersList, options = {}) {
   const r = report || {};
-  const caGroups = reportCaGroupsForRecalc(r.ca ?? r['Ca'] ?? '');
-  if (!caGroups.length) {
+  const ignoreCa = Boolean(options.ignoreCa);
+  const caGroups = ignoreCa ? null : reportCaGroupsForRecalc(r.ca ?? r['Ca'] ?? '');
+  if (!ignoreCa && !caGroups.length) {
     return { ...EMPTY_MKT_ORDER_METRICS };
   }
-
-  void options;
 
   const ek = effectiveKeyPartsForReportRow(r, ordersList);
   const key = ek.key;
@@ -317,9 +316,11 @@ export function computeMktOrderMetricsForReportRow(report, ordersList, options =
     );
     if (orderKey !== key) continue;
 
-    const orderGroups = orderShiftGroupsForRecalc(order.shift);
-    const matchesCa = orderGroups.some((g) => caGroups.includes(g));
-    if (!matchesCa) continue;
+    if (!ignoreCa) {
+      const orderGroups = orderShiftGroupsForRecalc(order.shift);
+      const matchesCa = orderGroups.some((g) => caGroups.includes(g));
+      if (!matchesCa) continue;
+    }
 
     const vnd = orderAmountVndHcmOverlay(order);
     // Đơn Ok: khớp Danh sách đơn / Sale — chỉ check_result = Ok, kể cả đơn 0đ.
@@ -354,6 +355,7 @@ export function computeMktOrderMetricsForReportRow(report, ordersList, options =
     so_don_ok: okCount,
     doanh_so_ok: okRevenueVnd,
     doanh_so_thuc_te: netRevenue,
+    doanh_so_huy: cancelRevenueVnd,
     // Tổng đơn (không hủy + mọi hủy, gồm 0đ).
     so_don_gross: nonHuyCount + cancelCount,
   };
@@ -512,6 +514,7 @@ const EMPTY_MKT_ORDER_METRICS = {
   so_don_ok: 0,
   doanh_so_ok: 0,
   doanh_so_thuc_te: 0,
+  doanh_so_huy: 0,
   so_don_gross: 0,
 };
 

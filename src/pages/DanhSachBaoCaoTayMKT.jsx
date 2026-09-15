@@ -24,6 +24,8 @@ import { calendarMonthDateBounds } from '../utils/dateParsing';
 import { parseIntegerVi, parseMoneyNumber } from '../utils/mktNormalizeDetailReportRows';
 import { XEM_BAO_CAO_MKT_HCM_TEAM } from './XemBaoCaoMKTLegacy';
 import './BaoCaoSale.css'; // Reusing styles for consistency
+import BaoCaoMktDayTab from './BaoCaoMktDayTab';
+import { syncBaoCaoMktDayFromManualReports } from '../services/baoCaoMktDaySync';
 
 // Helpers
 const formatCurrency = (value) => Number(value || 0).toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
@@ -249,6 +251,7 @@ export default function DanhSachBaoCaoTayMKT({
     }, [role, permissionCode, permissions, userEmail, userName, userTeam]);
 
     const [loading, setLoading] = useState(true);
+    const [reportTab, setReportTab] = useState('manual');
     const [manualReports, setManualReports] = useState([]);
     const [allReports, setAllReports] = useState([]); // Store all filtered reports for pagination
     const [realValuesMap, setRealValuesMap] = useState({}); // Map report ID to real values
@@ -272,6 +275,7 @@ export default function DanhSachBaoCaoTayMKT({
     const [fixingUsThiTruong, setFixingUsThiTruong] = useState(false);
     const [fixingCombinedCaToHetCa, setFixingCombinedCaToHetCa] = useState(false);
     const [mktRecalcLoading, setMktRecalcLoading] = useState(false);
+    const [syncingBaoCaoMktDay, setSyncingBaoCaoMktDay] = useState(false);
     const [deletingDupKeys, setDeletingDupKeys] = useState(false);
     const [deleting, setDeleting] = useState(false);
     
@@ -1435,6 +1439,68 @@ export default function DanhSachBaoCaoTayMKT({
         }
     };
 
+    /** Ghi bảng bao_cao_mkt_day từ detail_reports (báo cáo tay) theo khoảng ngày bộ lọc. */
+    const handleSyncBaoCaoMktDayRange = async () => {
+        if (syncingBaoCaoMktDay || isHcmMarketingReport || teamFilter === 'RD') return;
+
+        const normStart = String(filters.startDate || '').trim();
+        const normEnd = String(filters.endDate || '').trim();
+        if (!normStart || !normEnd) {
+            alert('Vui lòng chọn đầy đủ Từ ngày và Đến ngày trong bộ lọc.');
+            return;
+        }
+        if (normStart > normEnd) {
+            alert('Từ ngày phải ≤ Đến ngày.');
+            return;
+        }
+
+        const dayCount = daysInclusiveYmd(normStart, normEnd);
+        if (dayCount < 1) {
+            alert('Khoảng ngày không hợp lệ.');
+            return;
+        }
+
+        const ok = window.confirm(
+            `Đồng bộ dữ liệu sang bảng «Báo cáo MKT theo ngày» (bao_cao_mkt_day) từ báo cáo tay (detail_reports).\n\n` +
+                `Khoảng: ${normStart} → ${normEnd} (${dayCount} ngày).\n` +
+                `Mỗi ngày: xóa dòng cũ của ngày đó rồi ghi lại (ca = Hết ca, gộp theo MKT × SP × thị trường).\n\n` +
+                'Bạn có chắc muốn chạy không?'
+        );
+        if (!ok) return;
+
+        try {
+            setSyncingBaoCaoMktDay(true);
+            let totalUpserted = 0;
+            let totalSource = 0;
+            let totalSoDon = 0;
+            let dayCursor = normStart;
+            let dayIndex = 0;
+            while (dayCursor && dayCursor <= normEnd) {
+                dayIndex += 1;
+                toast.dismiss();
+                toast.info(
+                    `Đang đồng bộ báo cáo theo ngày — ${dayCursor} (${dayIndex}/${dayCount})…`,
+                    { autoClose: false }
+                );
+                const result = await syncBaoCaoMktDayFromManualReports(dayCursor);
+                totalUpserted += result.upserted ?? 0;
+                totalSource += result.sourceRows ?? 0;
+                totalSoDon += result.soDonTotal ?? 0;
+                dayCursor = addDaysYmdLocal(dayCursor, 1);
+            }
+            toast.dismiss();
+            toast.success(
+                `Hoàn tất ${dayCount} ngày: ${totalSoDon} đơn → ${totalUpserted} dòng (từ ${totalSource} báo cáo tay).`
+            );
+        } catch (error) {
+            console.error('Sync bao_cao_mkt_day error:', error);
+            toast.dismiss();
+            toast.error('Lỗi đồng bộ: ' + (error?.message || String(error)), { autoClose: 12000 });
+        } finally {
+            setSyncingBaoCaoMktDay(false);
+        }
+    };
+
     /** Cập nhật Số đơn TT / Doanh số TT trên detail_reports từ orders (cùng logic Admin Tools). */
     const handleRecalcMktSoDonTT = async () => {
         if (mktRecalcLoading) return;
@@ -1838,9 +1904,23 @@ export default function DanhSachBaoCaoTayMKT({
 
     return (
         <div className="bao-cao-sale-container">
-            {loading && <div className="loading-overlay">Đang tải dữ liệu...</div>}
+            {!isHcmMarketingReport && teamFilter !== 'RD' && (
+                <div className="flex gap-2 border-b border-gray-200 bg-white p-3" aria-label="Loại báo cáo">
+                    {[['manual', 'Báo cáo tay'], ['daily', 'Báo cáo MKT theo ngày']].map(([key, label]) => (
+                        <button key={key} type="button" aria-pressed={reportTab === key}
+                            onClick={() => setReportTab(key)}
+                            className={`px-4 py-2 rounded font-semibold ${reportTab === key ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            )}
+            {reportTab === 'daily' && !isHcmMarketingReport && teamFilter !== 'RD' && (
+                <BaoCaoMktDayTab isAdmin={isAdmin} personnelNames={selectedPersonnelNames} />
+            )}
+            {loading && reportTab === 'manual' && <div className="loading-overlay">Đang tải dữ liệu...</div>}
 
-            <div className="report-container">
+            <div className="report-container" style={reportTab === 'daily' && !isHcmMarketingReport && teamFilter !== 'RD' ? { display: 'none' } : undefined}>
                 {/* Simple Header/Filter Section */}
                 <div className="sidebar" style={{ width: '250px', minWidth: '250px' }}>
                     <h3>Bộ lọc</h3>
@@ -2142,11 +2222,41 @@ export default function DanhSachBaoCaoTayMKT({
                                     <History className="w-4 h-4" />
                                     Lịch sử
                                 </button>
+	                            {isAdminOnly && teamFilter !== 'RD' && !isHcmMarketingReport && (
+	                                <button
+	                                    type="button"
+                                    onClick={handleSyncBaoCaoMktDayRange}
+                                    disabled={
+                                        syncingBaoCaoMktDay ||
+                                        mktRecalcLoading ||
+                                        deletingDupKeys ||
+                                        loading ||
+                                        deleting ||
+                                        syncing ||
+                                        syncingTeamFromUsers ||
+                                        fixingUsThiTruong ||
+                                        !filters.startDate ||
+                                        !filters.endDate
+                                    }
+                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    title="Đồng bộ bao_cao_mkt_day từ báo cáo tay (detail_reports) theo Từ/Đến ngày bộ lọc trái"
+                                >
+                                    {syncingBaoCaoMktDay ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang đồng bộ…
+                                        </>
+                                    ) : (
+                                        <>📥 Đồng bộ dữ liệu</>
+                                    )}
+                                </button>
+                            )}
 	                            {isAdminOnly && teamFilter !== 'RD' && (
 	                                <button
 	                                    type="button"
                                     onClick={handleRecalcMktSoDonTT}
                                     disabled={
+                                        syncingBaoCaoMktDay ||
                                         mktRecalcLoading ||
                                         deletingDupKeys ||
                                         loading ||
@@ -2344,9 +2454,12 @@ export default function DanhSachBaoCaoTayMKT({
                                 : ''}
                         </div>
                         {[
-                            { label: 'Số đơn', value: formatNumber(totalsByFiltered.soDon) },
+                            { label: 'CPQC', value: formatNumber(totalsByFiltered.cpqc) },
+                            { label: 'Số mess', value: formatNumber(totalsByFiltered.mess) },
+                            { label: 'Số đơn (TT)', value: formatNumber(totalsByFiltered.soDon) },
                             { label: 'Số đơn hủy', value: formatNumber(totalsByFiltered.soDonHuy) },
                             { label: 'Đơn Ok', value: formatNumber(totalsByFiltered.soDonOk) },
+                            { label: 'Số đơn tay', value: formatNumber(totalsByFiltered.soDonTay) },
                             { label: 'Doanh số hủy', value: formatCurrency(totalsByFiltered.doanhSoHuy) },
                             {
                                 label: 'Doanh số sau Huỷ',
