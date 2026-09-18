@@ -107,10 +107,17 @@ const DANH_SACH_DON_HCM_EXTRA_SELECT_COLUMNS = [
 
 function getDanhSachDonSelectColumns(ordersTableName) {
   const columns = [...DANH_SACH_DON_BASE_SELECT_COLUMNS];
-  if (ordersTableName === 'order_code_hcm') {
+  if (ordersTableName === 'order_code_hcm' || ordersTableName === 'order_code_hcm_backup_2025') {
     columns.push(...DANH_SACH_DON_HCM_EXTRA_SELECT_COLUMNS);
   }
   return columns.join(',');
+}
+
+function resolveDanhSachDonOrdersTable(dataSource) {
+  if (dataSource === 'hcm') return 'order_code_hcm';
+  if (dataSource === 'backup') return 'orders_backup_2025';
+  if (dataSource === 'backup-hcm') return 'order_code_hcm_backup_2025';
+  return 'orders';
 }
 
 /** Cộng tiền từ ô lưới — cùng ý với báo cáo chi tiết / format số trên bảng. */
@@ -584,8 +591,9 @@ function DanhSachDon({ dataSource = 'default' }) {
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const teamFilter = searchParams.get('team'); // e.g. 'RD'
+  const isBackupView = dataSource === 'backup' || dataSource === 'backup-hcm';
   const isHcmView = dataSource === 'hcm';
-  const ordersTableName = dataSource === 'hcm' ? 'order_code_hcm' : 'orders';
+  const ordersTableName = resolveDanhSachDonOrdersTable(dataSource);
 
   // Permission Logic
   const { canView, canEdit, canDelete, role } = usePermissions();
@@ -620,22 +628,35 @@ function DanhSachDon({ dataSource = 'default' }) {
     'ORDERS_NEW',
     'RND_NEW_ORDER',
   ];
+  /** Backup kế toán: FINANCE_* (+ admin thấy qua canView rộng). */
+  const ORDER_LIST_ACCESS_BACKUP = [
+    'FINANCE_ORDERS_BACKUP',
+    'FINANCE_ORDERS_BACKUP_HCM',
+    'FINANCE_ACCESS',
+    'FINANCE_DASHBOARD',
+    'FINANCE_F3',
+  ];
   const orderListAccessCodes =
     teamFilter === 'RD'
       ? ORDER_LIST_ACCESS_RD
-      : dataSource === 'hcm'
-        ? ORDER_LIST_ACCESS_SALE_HCM
-        : ORDER_LIST_ACCESS_SALE_DEFAULT;
+      : isBackupView
+        ? ORDER_LIST_ACCESS_BACKUP
+        : dataSource === 'hcm'
+          ? ORDER_LIST_ACCESS_SALE_HCM
+          : ORDER_LIST_ACCESS_SALE_DEFAULT;
 
-  const hasOrderListAccess = orderListAccessCodes.some((code) => canView(code));
+  const hasOrderListAccess =
+    orderListAccessCodes.some((code) => canView(code)) || (isBackupView && isAdmin);
   const effectivePermissionCode =
     orderListAccessCodes.find((code) => canView(code)) || orderListAccessCodes[0];
   /** Xóa đơn: một số bản ghi RBAC (vd. SALE_ORDERS_HCM) chưa bật can_delete; vẫn cho xóa nếu user có can_delete ở mã khác trong cùng nhóm quyền danh sách đơn. */
-  const canDeleteOnThisOrderList = orderListAccessCodes.some((code) => canDelete(code));
-  /** Sửa / xóa vận đơn hàng loạt: cùng logic với nút Sửa VĐ từng dòng. */
-  const canEditOnThisOrderList = orderListAccessCodes.some((code) => canEdit(code));
+  const canDeleteOnThisOrderList =
+    !isBackupView && orderListAccessCodes.some((code) => canDelete(code));
+  /** Sửa / xóa vận đơn hàng loạt: cùng logic với nút Sửa VĐ từng dòng. Backup = chỉ xem. */
+  const canEditOnThisOrderList =
+    !isBackupView && orderListAccessCodes.some((code) => canEdit(code));
   /** Tính lại Tổng tiền VNĐ — cần quyền sửa danh sách hoặc admin/finance. */
-  const canRecalculateTotalVnd = canEditOnThisOrderList || isAdmin;
+  const canRecalculateTotalVnd = !isBackupView && (canEditOnThisOrderList || isAdmin);
 
 
   const [allData, setAllData] = useState([]);
@@ -677,8 +698,9 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [filterPaymentCollectionStatus, setFilterPaymentCollectionStatus] = useState([]);
   const [showPaymentCollectionFilter, setShowPaymentCollectionFilter] = useState(false);
   const [paymentCollectionFilterSearchText, setPaymentCollectionFilterSearchText] = useState('');
-  // HN: mặc định 30 ngày. HCM (/danh-sach-don-hcm): tải sẵn 3 ngày.
+  // HN: mặc định 30 ngày. HCM: 3 ngày. Backup kế toán: từ 2025-01-01 (dữ liệu năm backup).
   const [startDate, setStartDate] = useState(() => {
+    if (dataSource === 'backup' || dataSource === 'backup-hcm') return '2025-01-01';
     const d = new Date();
     d.setDate(d.getDate() - (dataSource === 'hcm' ? 3 : 30));
     return formatLocalYmd(d);
@@ -3481,7 +3503,14 @@ function DanhSachDon({ dataSource = 'default' }) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'TheoBoLoc');
     const stamp = new Date().toISOString().slice(0, 10);
-    const suffix = dataSource === 'hcm' ? '_HCM' : '';
+    const suffix =
+      dataSource === 'backup-hcm'
+        ? '_BACKUP_HCM'
+        : dataSource === 'backup'
+          ? '_BACKUP'
+          : dataSource === 'hcm'
+            ? '_HCM'
+            : '';
     XLSX.writeFile(wb, `DanhSachDon_theo_luoi_hien_thi${suffix}_${stamp}.xlsx`);
     toast.success(
       `Đã tải Excel: ${exportRows.length} dòng, ${cols.length} cột (theo bộ lọc và cột đang hiển thị).`,
@@ -3589,10 +3618,18 @@ function DanhSachDon({ dataSource = 'default' }) {
 
               <div>
                 <h1 className="text-xl font-bold text-gray-800">
-                  {isHcmView ? 'DANH SÁCH ĐƠN HÀNG (HCM)' : 'DANH SÁCH ĐƠN HÀNG'}
+                  {dataSource === 'backup'
+                    ? 'BACKUP ĐƠN HÀNG 2025 (HN)'
+                    : dataSource === 'backup-hcm'
+                      ? 'BACKUP ĐƠN HÀNG 2025 (HCM)'
+                      : isHcmView
+                        ? 'DANH SÁCH ĐƠN HÀNG (HCM)'
+                        : 'DANH SÁCH ĐƠN HÀNG'}
                 </h1>
                 <p className="text-xs text-gray-500">
-                  Dữ liệu từ Database{isHcmView ? ' — bảng order_code_hcm' : ''}
+                  {isBackupView
+                    ? `Chỉ xem — bảng ${ordersTableName}`
+                    : `Dữ liệu từ Database${isHcmView ? ' — bảng order_code_hcm' : ''}`}
                 </p>
               </div>
             </div>
@@ -4706,7 +4743,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                     </th>
 
                   ))}
-                  {isAdmin && (
+                  {isAdmin && !isBackupView && (
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       Hành động
                     </th>
@@ -4716,7 +4753,7 @@ function DanhSachDon({ dataSource = 'default' }) {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={displayColumns.length + (isAdmin ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={displayColumns.length + (isAdmin && !isBackupView ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
                       <div className="flex items-center justify-center gap-2">
                         <div className="animate-spin h-5 w-5 border-2 border-[#F37021] border-t-transparent rounded-full"></div>
                         Đang tải dữ liệu...
@@ -4725,7 +4762,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                   </tr>
                 ) : paginatedData.length === 0 ? (
                   <tr>
-                    <td colSpan={displayColumns.length + (isAdmin ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={displayColumns.length + (isAdmin && !isBackupView ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
                       Không có dữ liệu phù hợp
                     </td>
                   </tr>
@@ -4818,7 +4855,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                           </td>
                         );
                       })}
-                      {isAdmin && (
+                      {isAdmin && !isBackupView && (
                         <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap text-center">
                           <div className="flex items-center justify-center gap-2 flex-wrap">
                             {isAdminOnly && (
@@ -5151,19 +5188,10 @@ function DanhSachDon({ dataSource = 'default' }) {
                 </h2>
                 <p className="text-xs text-gray-600 mt-0.5">
                   Theo bộ lọc hiện tại: <strong>{staffOrderStatsBreakdown.total}</strong> đơn
-                  {isHcmView ? (
-                    <>
-                      {' '}
-                      ·{' '}
-                      <code className="bg-gray-200 px-1 rounded text-[11px]">order_code_hcm</code>
-                    </>
-                  ) : (
-                    <>
-                      {' '}
-                      ·{' '}
-                      <code className="bg-gray-200 px-1 rounded text-[11px]">orders</code> (view Hà Nội)
-                    </>
-                  )}
+                  {' '}
+                  ·{' '}
+                  <code className="bg-gray-200 px-1 rounded text-[11px]">{ordersTableName}</code>
+                  {isBackupView ? ' (backup — chỉ xem)' : isHcmView ? '' : ' (view Hà Nội)'}
                 </p>
               </div>
               <button

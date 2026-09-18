@@ -202,6 +202,22 @@ function AppShell() {
             <Route path="/danh-sach-bao-cao-van-don" element={<ProtectedRoute><DanhSachBaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-don" element={<ProtectedRoute><DanhSachDon key="danh-sach-don-default" /></ProtectedRoute>} />
             <Route path="/danh-sach-don-hcm" element={<ProtectedRoute><DanhSachDon key="danh-sach-don-hcm" dataSource="hcm" /></ProtectedRoute>} />
+            <Route
+              path="/backup-don-2025"
+              element={
+                <ProtectedRoute>
+                  <DanhSachDon key="danh-sach-don-backup" dataSource="backup" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/backup-don-2025-hcm"
+              element={
+                <ProtectedRoute>
+                  <DanhSachDon key="danh-sach-don-backup-hcm" dataSource="backup-hcm" />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/danh-sach-page" element={<ProtectedRoute><DanhSachPage /></ProtectedRoute>} />
             <Route path="/nhap-don" element={<ProtectedRoute><NhapDonMoi /></ProtectedRoute>} />
             <Route path="/nhap-don-moi" element={<ProtectedRoute><NhapDonMoi /></ProtectedRoute>} />
