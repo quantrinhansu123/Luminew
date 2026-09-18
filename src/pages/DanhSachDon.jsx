@@ -709,9 +709,12 @@ function DanhSachDon({ dataSource = 'default' }) {
   });
   const [endDate, setEndDate] = useState(() => formatLocalYmd(new Date()));
   const [dateFilterType, setDateFilterType] = useState(() => {
+    // Backup kế toán: luôn theo Ngày lên đơn (tránh localStorage đang để «Ngày chia đơn» → gần như trống).
+    if (dataSource === 'backup' || dataSource === 'backup-hcm') return 'order_date';
     const saved = localStorage.getItem('danhSachDon_dateFilterType');
     return DANH_SACH_DON_DATE_FILTER_TYPES.some((t) => t.value === saved) ? saved : 'order_date';
   });
+  const [loadError, setLoadError] = useState('');
   /** '' = không dùng lọc tháng; '1'..'12' = cả tháng */
   const [filterMonth, setFilterMonth] = useState('');
   const [filterYear, setFilterYear] = useState(() => new Date().getFullYear());
@@ -892,7 +895,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
   }, [visibleColumns]);
 
-  const nvVanDonListBranch = isHcmView ? 'hcm' : teamFilter === 'RD' ? 'all' : 'hanoi';
+  const nvVanDonListBranch = isHcmBranchView ? 'hcm' : teamFilter === 'RD' ? 'all' : 'hanoi';
 
   // Master NV vận đơn cho dropdown lọc "chia vận đơn" (không phụ thuộc đơn đã gán delivery_staff)
   useEffect(() => {
@@ -980,8 +983,12 @@ function DanhSachDon({ dataSource = 'default' }) {
   // Modified loadData to use date filters on server side
   const loadData = async () => {
     setLoading(true);
+    setLoadError('');
     try {
-      console.log(`Loading data from Supabase (From: ${startDate} To: ${endDate}, Search: ${debouncedSearchText || 'none'})...`);
+      const effectiveDateFilterType = isBackupView ? 'order_date' : dateFilterType;
+      console.log(
+        `Loading data from ${ordersTableName} (From: ${startDate} To: ${endDate}, dateCol: ${effectiveDateFilterType}, Search: ${debouncedSearchText || 'none'})...`
+      );
 
       // --- TESTING MODE CHECK ---
       try {
@@ -1050,21 +1057,35 @@ function DanhSachDon({ dataSource = 'default' }) {
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
 
-      const mergedRaw = await fetchDanhSachDonMergedRawOrders({
+      const fetchArgs = {
         supabaseClient: supabase,
         ordersTableName,
         startDate,
         endDate,
-        dateFilterType,
+        dateFilterType: effectiveDateFilterType,
         teamFilter,
-        isAdmin,
-        selectedPersonnelNames,
+        isAdmin: isAdmin || isBackupView,
+        selectedPersonnelNames: isBackupView ? [] : selectedPersonnelNames,
         userName,
         selectColumns: getDanhSachDonSelectColumns(ordersTableName),
         searchText: debouncedSearchText,
         skipImplicitFilters: false,
         applyPersonnelFilterInDb: false,
-      });
+      };
+
+      let mergedRaw;
+      try {
+        mergedRaw = await fetchDanhSachDonMergedRawOrders(fetchArgs);
+      } catch (firstErr) {
+        // Backup: một số cột mới có thể thiếu → fallback select tối thiểu.
+        if (!isBackupView) throw firstErr;
+        console.warn(`[DanhSachDon backup] select đầy đủ lỗi, thử lại nhẹ:`, firstErr?.message || firstErr);
+        mergedRaw = await fetchDanhSachDonMergedRawOrders({
+          ...fetchArgs,
+          selectColumns:
+            'id,order_code,order_date,customer_name,customer_phone,customer_address,city,state,zipcode,country,product,total_amount_vnd,marketing_staff,sale_staff,team,delivery_status,delivery_status_nb,payment_status,check_result,tracking_code,page_name,created_at,ngay_chia_van_don,carrier,shift,cskh,delivery_staff,reconciled_vnd,accountant_confirm,tong_tien_vnd',
+        });
+      }
 
       // 2. Process Supabase Data
       const supaMapped = mergedRaw.map(mapSupabaseToUI);
@@ -1076,12 +1097,20 @@ function DanhSachDon({ dataSource = 'default' }) {
         return (dateB || 0) - (dateA || 0);
       });
 
-      console.log(`Loaded: ${supaMapped.length} Supabase orders.`);
+      console.log(`Loaded: ${supaMapped.length} from ${ordersTableName}`);
       setAllData(supaMapped);
+      if (supaMapped.length === 0) {
+        setLoadError(
+          `Không có dòng nào từ bảng ${ordersTableName} trong khoảng ${startDate || '…'} → ${endDate || '…'} (lọc Ngày lên đơn).`
+        );
+      }
 
     } catch (error) {
       console.error('Load data error:', error);
-      alert(`❌ Lỗi tải dữ liệu: ${error.message}`);
+      const msg = error?.message || String(error);
+      setLoadError(`Lỗi tải ${ordersTableName}: ${msg}`);
+      setAllData([]);
+      alert(`❌ Lỗi tải dữ liệu (${ordersTableName}): ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -3122,7 +3151,9 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     // Date Range Filter (áp dụng cho cả view thường và HCM)
     if (startDate || endDate) {
-      const { uiCol: dateUiCol } = getDanhSachDonDateFilterMeta(dateFilterType);
+      const dateUiCol = isBackupView
+        ? 'Ngày lên đơn'
+        : getDanhSachDonDateFilterMeta(dateFilterType).uiCol;
       const codeKeys = parsedProductCodes.map((c) => String(c || '').trim()).filter(Boolean);
       data = data.filter((row) => {
         if (isDateInRange(row[dateUiCol], startDate, endDate)) return true;
@@ -3631,7 +3662,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                 </h1>
                 <p className="text-xs text-gray-500">
                   {isBackupView
-                    ? `Chỉ xem — bảng ${ordersTableName}`
+                    ? `Chỉ xem — nguồn Supabase: ${ordersTableName}`
                     : `Dữ liệu từ Database${isHcmView ? ' — bảng order_code_hcm' : ''}`}
                 </p>
               </div>
@@ -3694,6 +3725,12 @@ function DanhSachDon({ dataSource = 'default' }) {
           </div>
         </div>
       </div>
+
+      {loadError ? (
+        <div className="mx-6 mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {loadError}
+        </div>
+      ) : null}
 
       {isHcmView && hcmOrdersLookasideOpen && (
         <div
