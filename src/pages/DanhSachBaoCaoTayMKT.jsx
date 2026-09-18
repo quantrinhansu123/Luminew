@@ -275,6 +275,8 @@ export default function DanhSachBaoCaoTayMKT({
     const [fixingUsThiTruong, setFixingUsThiTruong] = useState(false);
     const [fixingCombinedCaToHetCa, setFixingCombinedCaToHetCa] = useState(false);
     const [mktRecalcLoading, setMktRecalcLoading] = useState(false);
+    const [mktRecalcDialogOpen, setMktRecalcDialogOpen] = useState(false);
+    const [mktRecalcRange, setMktRecalcRange] = useState({ startDate: '', endDate: '' });
     const [syncingBaoCaoMktDay, setSyncingBaoCaoMktDay] = useState(false);
     const [deletingDupKeys, setDeletingDupKeys] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -1213,9 +1215,12 @@ export default function DanhSachBaoCaoTayMKT({
         }
     };
 
-    // Apply sorting (before pagination)
+    // Apply sorting (before pagination) — lọc trùng key như tab Báo cáo sau huỷ /xem-bao-cao-mkt.
     const sortedReports = useMemo(() => {
-        const rows = [...(reportsAfterFilters || [])];
+        const rowsForDedupe = (reportsAfterFilters || []).map((r) =>
+            applyMktRealValuesToReportRowForTotals(r, realValuesMap, reportsAfterFilters)
+        );
+        const rows = dedupeMktDetailReportRows(rowsForDedupe.map((r) => ({ ...r })));
         const dir = sortDirection === 'asc' ? 1 : -1;
 
         const getSortValue = (item) => {
@@ -1247,11 +1252,6 @@ export default function DanhSachBaoCaoTayMKT({
 
             if (sortColumn === 'Đơn Ok') {
                 const rv = mktRealValuesForReportRow(item, realValuesMap, reportsAfterFilters);
-                return Number(rv.so_don_ok || 0);
-            }
-
-            if (sortColumn === 'Đơn Ok') {
-                const rv = mktRealValuesForReportRow(item, realValuesMap, isHcmMarketingReport);
                 return Number(rv.so_don_ok || 0);
             }
 
@@ -1293,7 +1293,7 @@ export default function DanhSachBaoCaoTayMKT({
         });
 
         return rows;
-    }, [reportsAfterFilters, sortColumn, sortDirection, realValuesMap, isHcmMarketingReport]);
+    }, [reportsAfterFilters, sortColumn, sortDirection, realValuesMap]);
 
     // Bộ đếm theo bộ lọc: dedupe; TT/hủy/Ok overlay từ đơn khi đã tính — khớp DS Chốt (TT) trên xem-bao-cao-mkt.
     const totalsByFiltered = useMemo(() => {
@@ -1461,9 +1461,12 @@ export default function DanhSachBaoCaoTayMKT({
         }
 
         const ok = window.confirm(
-            `Đồng bộ dữ liệu sang bảng «Báo cáo MKT theo ngày» (bao_cao_mkt_day) từ báo cáo tay (detail_reports).\n\n` +
+            `Đồng bộ «Báo cáo MKT theo ngày» (bao_cao_mkt_day) — cùng logic tab «Báo cáo sau huỷ» trên xem-bao-cao-mkt:\n` +
+                `• Phủ Số đơn TT / hủy / Ok / DS từ orders (gồm đơn 0đ)\n` +
+                `• Lọc trùng key (Ngày×MKT×SP×TT×ca)\n` +
+                `• Tổng hợp theo ngày×MKT×SP×TT (ca = Hết ca)\n\n` +
                 `Khoảng: ${normStart} → ${normEnd} (${dayCount} ngày).\n` +
-                `Mỗi ngày: xóa dòng cũ của ngày đó rồi ghi lại (ca = Hết ca, gộp theo MKT × SP × thị trường).\n\n` +
+                'Mỗi ngày: xóa dòng cũ rồi ghi lại.\n\n' +
                 'Bạn có chắc muốn chạy không?'
         );
         if (!ok) return;
@@ -1501,30 +1504,26 @@ export default function DanhSachBaoCaoTayMKT({
         }
     };
 
+    /** Mở hộp chọn Từ ngày → Đến ngày trước khi tính lại Số đơn TT. */
+    const openRecalcMktSoDonTTDialog = () => {
+        if (mktRecalcLoading) return;
+        if (teamFilter === 'RD') return;
+        setMktRecalcRange({
+            startDate: String(filters.startDate || '').trim(),
+            endDate: String(filters.endDate || '').trim(),
+        });
+        setMktRecalcDialogOpen(true);
+    };
+
     /** Cập nhật Số đơn TT / Doanh số TT trên detail_reports từ orders (cùng logic Admin Tools). */
     const handleRecalcMktSoDonTT = async () => {
         if (mktRecalcLoading) return;
         if (teamFilter === 'RD') return;
 
-        const orderSourceHint = isHcmMarketingReport
-            ? 'Báo cáo: Supabase `marketing_report_hcm`.\n\n'
-            : 'Nguồn đơn: bảng Supabase `orders`.\n\n';
-        const ok = window.confirm(
-            'Tính lại cho Báo cáo MKT: Số đơn thực tế (TT), Doanh số TT (đã trừ đơn/VND hủy), Số đơn hoàn hủy (đơn Check = Hủy), đơn/DS hoàn hủy thực tế — Key match đơn ↔ báo cáo. Cột «Số đơn tay» (Số đơn nhập) không bị ghi đè.\n\n' +
-                orderSourceHint +
-                'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
-                'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
-                'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu dòng theo từng ca (Hết ca / Giữa ca) so với đơn sẽ INSERT thêm dòng tương ứng — đã có đúng key+ca thì chỉ cập nhật.\n\n' +
-                `Khoảng ngày: ${filters.startDate} → ${filters.endDate} (theo bộ lọc trái).\n` +
-                'Chạy lần lượt từng ngày; trong mỗi ngày cập nhật/tạo từng dòng để giảm lỗi mạng.\n\n' +
-                'Bạn có chắc muốn chạy không?'
-            );
-        if (!ok) return;
-
-        const normStart = String(filters.startDate || '').trim();
-        const normEnd = String(filters.endDate || '').trim();
+        const normStart = String(mktRecalcRange.startDate || '').trim();
+        const normEnd = String(mktRecalcRange.endDate || '').trim();
         if (!normStart || !normEnd) {
-            alert('Vui lòng chọn đầy đủ Từ ngày và Đến ngày trong bộ lọc.');
+            alert('Vui lòng chọn đầy đủ Từ ngày và Đến ngày.');
             return;
         }
         if (normStart > normEnd) {
@@ -1538,10 +1537,23 @@ export default function DanhSachBaoCaoTayMKT({
             return;
         }
 
+        const orderSourceHint = isHcmMarketingReport
+            ? 'Báo cáo: Supabase `marketing_report_hcm`.\n\n'
+            : 'Nguồn đơn: bảng Supabase `orders`.\n\n';
+        const ok = window.confirm(
+            'Tính lại cho Báo cáo MKT: Số đơn thực tế (TT), Doanh số TT (chỉ total_amount_vnd, đã trừ hủy), Số đơn hoàn hủy (Check = Hủy), đơn/DS Ok — Key match đơn ↔ báo cáo. Cột «Số đơn tay» không bị ghi đè.\n\n' +
+                orderSourceHint +
+                `Khoảng ngày: ${normStart} → ${normEnd} (${dayCount} ngày).\n` +
+                'Chạy lần lượt từng ngày.\n\n' +
+                'Bạn có chắc muốn chạy không?'
+        );
+        if (!ok) return;
+
+        setMktRecalcDialogOpen(false);
+
         try {
             setMktRecalcLoading(true);
 
-            // Chạy từng ngày để giảm tải mạng/RAM; trong mỗi ngày update/insert tuần tự từng dòng.
             let nUpd = 0;
             let nNew = 0;
             let nTouched = 0;
@@ -1586,6 +1598,7 @@ export default function DanhSachBaoCaoTayMKT({
             setMktRecalcLoading(false);
         }
     };
+
 
     // Delete all data
     const handleDeleteAll = async () => {
@@ -2222,172 +2235,33 @@ export default function DanhSachBaoCaoTayMKT({
                                     <History className="w-4 h-4" />
                                     Lịch sử
                                 </button>
-	                            {isAdminOnly && teamFilter !== 'RD' && !isHcmMarketingReport && (
-	                                <button
-	                                    type="button"
-                                    onClick={handleSyncBaoCaoMktDayRange}
-                                    disabled={
-                                        syncingBaoCaoMktDay ||
-                                        mktRecalcLoading ||
-                                        deletingDupKeys ||
-                                        loading ||
-                                        deleting ||
-                                        syncing ||
-                                        syncingTeamFromUsers ||
-                                        fixingUsThiTruong ||
-                                        !filters.startDate ||
-                                        !filters.endDate
-                                    }
-                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                    title="Đồng bộ bao_cao_mkt_day từ báo cáo tay (detail_reports) theo Từ/Đến ngày bộ lọc trái"
-                                >
-                                    {syncingBaoCaoMktDay ? (
-                                        <>
-                                            <span className="animate-spin">⏳</span>
-                                            Đang đồng bộ…
-                                        </>
-                                    ) : (
-                                        <>📥 Đồng bộ dữ liệu</>
-                                    )}
-                                </button>
-                            )}
-	                            {isAdminOnly && teamFilter !== 'RD' && (
-	                                <button
-	                                    type="button"
-                                    onClick={handleRecalcMktSoDonTT}
-                                    disabled={
-                                        syncingBaoCaoMktDay ||
-                                        mktRecalcLoading ||
-                                        deletingDupKeys ||
-                                        loading ||
-                                        deleting ||
-                                        syncing ||
-                                        syncingTeamFromUsers ||
-                                        fixingUsThiTruong ||
-                                        !filters.startDate ||
-                                        !filters.endDate
-                                    }
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                    title="Tính lại Số đơn thực tế & Doanh số TT từ orders vào detail_reports theo khoảng ngày bộ lọc"
-                                >
-                                    {mktRecalcLoading ? (
-                                        <>
-                                            <span className="animate-spin">⏳</span>
-                                            Đang cập nhật Số đơn TT…
-                                        </>
-                                    ) : (
-                                        <>🔄 Cập nhật Số đơn TT</>
-                                    )}
-                                </button>
-                            )}
-                            {isAdminOnly && teamFilter !== 'RD' && (
-                                <button
-                                    type="button"
-                                    onClick={handleDeleteDuplicateMktKeys}
-                                    disabled={
-                                        deletingDupKeys ||
-                                        loading ||
-                                        deleting ||
-                                        syncing ||
-                                        syncingTeamFromUsers ||
-                                        fixingUsThiTruong ||
-                                        mktRecalcLoading
-                                    }
-                                    className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                    title="Xóa dòng trùng cùng key (Ngày+Tên+SP+TT+ca) trong phạm vi danh sách đã lọc; gộp CPQC/mess vào dòng giữ lại"
-                                >
-                                    {deletingDupKeys ? (
-                                        <>
-                                            <span className="animate-spin">⏳</span>
-                                            Đang xóa trùng…
-                                        </>
-                                    ) : (
-                                        <>🧹 Xóa trùng key</>
-                                    )}
-                                </button>
-                            )}
-                            {isAdminOnly && (
-                                <>
+                                {isAdminOnly && teamFilter !== 'RD' && (
                                     <button
                                         type="button"
-                                        onClick={handleSyncTeamFromUsersForMarketing}
+                                        onClick={openRecalcMktSoDonTTDialog}
                                         disabled={
-                                            syncingTeamFromUsers ||
+                                            syncingBaoCaoMktDay ||
+                                            mktRecalcLoading ||
+                                            deletingDupKeys ||
                                             loading ||
                                             deleting ||
-                                            deletingDupKeys ||
                                             syncing ||
-                                            mktRecalcLoading ||
+                                            syncingTeamFromUsers ||
                                             fixingUsThiTruong
                                         }
-                                        className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                        title="Khớp cột Tên với users → cập nhật Team theo users.team (chỉ các dòng đang lọc trên danh sách)"
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                        title="Chọn Từ ngày → Đến ngày rồi tính lại Số đơn TT / Doanh số TT từ orders"
                                     >
-                                        {syncingTeamFromUsers ? (
+                                        {mktRecalcLoading ? (
                                             <>
                                                 <span className="animate-spin">⏳</span>
-                                                Đang đồng bộ team theo user…
+                                                Đang cập nhật Số đơn TT…
                                             </>
                                         ) : (
-                                            <>🏷️ Đồng bộ team theo user</>
+                                            <>🔄 Cập nhật Số đơn TT</>
                                         )}
                                     </button>
-                                    {isHcmMarketingReport && (
-                                        <button
-                                            type="button"
-                                            onClick={handleFixUsThiTruongToUS}
-                                            disabled={
-                                                fixingUsThiTruong ||
-                                                fixingCombinedCaToHetCa ||
-                                                loading ||
-                                                deleting ||
-                                                deletingDupKeys ||
-                                                syncing ||
-                                                syncingTeamFromUsers ||
-                                                mktRecalcLoading
-                                            }
-                                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                            title="Cập nhật toàn bảng marketing_report_hcm: Thị_trường = Us → US"
-                                        >
-                                            {fixingUsThiTruong ? (
-                                                <>
-                                                    <span className="animate-spin">⏳</span>
-                                                    Đang đổi Us → US…
-                                                </>
-                                            ) : (
-                                                <>Đổi Us → US (thị trường)</>
-                                            )}
-                                        </button>
-                                    )}
-                                </>
-                            )}
-                            {canDeleteAll && teamFilter !== 'RD' && (
-                                <button
-                                    type="button"
-                                    onClick={handleFixCombinedCaToHetCa}
-                                    disabled={
-                                        fixingCombinedCaToHetCa ||
-                                        fixingUsThiTruong ||
-                                        loading ||
-                                        deleting ||
-                                        deletingDupKeys ||
-                                        syncing ||
-                                        syncingTeamFromUsers ||
-                                        mktRecalcLoading
-                                    }
-                                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                    title='Đổi ca gộp "Hết ca,Giữa ca" thành "Hết ca" trong danh sách đang lọc'
-                                >
-                                    {fixingCombinedCaToHetCa ? (
-                                        <>
-                                            <span className="animate-spin">⏳</span>
-                                            Đang đổi ca gộp…
-                                        </>
-                                    ) : (
-                                        <>Đổi ca gộp → Hết ca</>
-                                    )}
-                                </button>
-                            )}
+                                )}
                         </div>
                         <div style={{ display: 'none', gap: '10px', flexWrap: 'wrap' }}>
                             {/* Chỉ Admin mới thấy nút đồng bộ (không bao gồm Finance) */}
@@ -2608,7 +2482,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 </tr>
                             </thead>
                             <tbody>
-                                {reportsAfterFilters.length === 0 ? (
+                                {sortedReports.length === 0 ? (
                                     <tr>
                                         <td
                                             colSpan={17}
@@ -2721,7 +2595,10 @@ export default function DanhSachBaoCaoTayMKT({
                                     <option value="200">200</option>
                                 </select>
                                 <span className="text-sm text-gray-600 ml-2">
-                                    Hiển thị {startIndex + 1}-{Math.min(endIndex, reportsAfterFilters.length)} / {reportsAfterFilters.length} bản ghi
+                                    Hiển thị {startIndex + 1}-{Math.min(endIndex, sortedReports.length)} / {sortedReports.length} bản ghi
+                                    {totalsByFiltered.filteredRows > sortedReports.length
+                                        ? ` (đã lọc trùng key từ ${formatNumber(totalsByFiltered.filteredRows)} dòng)`
+                                        : ''}
                                 </span>
                             </div>
 
@@ -2762,6 +2639,83 @@ export default function DanhSachBaoCaoTayMKT({
                     )}
                 </div>
             </div>
+
+            {/* Modal chọn Từ ngày → Đến ngày trước khi Cập nhật Số đơn TT */}
+            {mktRecalcDialogOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto p-4">
+                    <div className="bg-white p-6 rounded-lg w-full max-w-md shadow-xl relative">
+                        <div className="flex items-start justify-between gap-3 mb-4 border-b pb-2">
+                            <h3 className="text-lg font-bold text-blue-600">Cập nhật Số đơn TT</h3>
+                            <button
+                                type="button"
+                                onClick={() => !mktRecalcLoading && setMktRecalcDialogOpen(false)}
+                                disabled={mktRecalcLoading}
+                                className="p-1 rounded hover:bg-gray-100 text-gray-600 disabled:opacity-50"
+                                title="Đóng"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Chọn khoảng ngày rồi chạy tính lại Số đơn TT / Doanh số TT từ đơn.
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Từ ngày</label>
+                                <input
+                                    type="date"
+                                    value={mktRecalcRange.startDate}
+                                    onChange={(e) =>
+                                        setMktRecalcRange((prev) => ({
+                                            ...prev,
+                                            startDate: e.target.value,
+                                        }))
+                                    }
+                                    disabled={mktRecalcLoading}
+                                    className="w-full border rounded px-2 py-1.5"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Đến ngày</label>
+                                <input
+                                    type="date"
+                                    value={mktRecalcRange.endDate}
+                                    onChange={(e) =>
+                                        setMktRecalcRange((prev) => ({
+                                            ...prev,
+                                            endDate: e.target.value,
+                                        }))
+                                    }
+                                    disabled={mktRecalcLoading}
+                                    className="w-full border rounded px-2 py-1.5"
+                                />
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={handleRecalcMktSoDonTT}
+                                disabled={
+                                    mktRecalcLoading ||
+                                    !mktRecalcRange.startDate ||
+                                    !mktRecalcRange.endDate
+                                }
+                                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded font-semibold transition"
+                            >
+                                {mktRecalcLoading ? 'Đang chạy…' : 'Chạy cập nhật'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setMktRecalcDialogOpen(false)}
+                                disabled={mktRecalcLoading}
+                                className="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-400 text-white rounded font-semibold transition"
+                            >
+                                Hủy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Edit Modal */}
             {editingReport && (

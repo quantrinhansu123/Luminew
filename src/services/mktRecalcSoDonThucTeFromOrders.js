@@ -460,20 +460,8 @@ function caSegmentFromOrderGroupLabel(groupLabel) {
 }
 
 function orderAmountVndHcmOverlay(order) {
-  const candidates = [
-    order?.total_amount_vnd,
-    order?.total_vnd,
-    order?.tong_tien_vnd,
-    order?.van_don_line_total_vnd,
-    order?.reconciled_vnd,
-    order?.goods_amount,
-  ];
-  for (const raw of candidates) {
-    if (raw == null || raw === '') continue;
-    const n = parseMoneyNumber(raw);
-    if (n > 0) return n;
-  }
-  return parseMoneyNumber(order?.sale_price ?? 0);
+  // Bắt buộc chỉ dùng total_amount_vnd (kể cả 0) — không fallback cột khác.
+  return parseMoneyNumber(order?.total_amount_vnd ?? 0);
 }
 
 function isMktActualOrderCountable(order) {

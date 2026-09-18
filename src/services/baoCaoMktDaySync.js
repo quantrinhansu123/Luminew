@@ -1,17 +1,19 @@
 /**
- * Đồng bộ bao_cao_mkt_day từ Danh sách báo cáo tay (detail_reports) + đơn orders.
- * Ca luôn ghi "Hết ca". Grain: ngày × mkt × sp × thị trường.
- *
- * Số đơn / hủy / Ok / DS: đếm live từ orders (gồm đơn 0đ không hủy) — khớp Số Đơn (TT) xem-bao-cao-mkt.
- * CPQC: lấy từ báo cáo tay (cộng dồn).
+ * Đồng bộ bao_cao_mkt_day — cùng logic tab «Báo cáo sau huỷ» trên /xem-bao-cao-mkt:
+ * 1) Phủ Số đơn TT / hủy / Ok / DS từ orders (gồm đơn 0đ không hủy)
+ * 2) Lọc trùng key (ngày×MKT×SP×TT×ca) qua dedupeMktDetailReportRows
+ * 3) Tổng hợp grain ngày×MKT×SP×TT (ca = Hết ca), cộng dồn các ca
+ * Số đơn ghi vào bảng ngày = Số đơn TT (không gồm hủy).
  */
 import { REPORT_CA_HET } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import {
   computeMktOrderMetricsForReportRow,
+  dedupeMktDetailReportRows,
   fetchMktOrdersInDateRange,
   prepareMktOrdersForRowMetrics,
 } from './mktRecalcSoDonThucTeFromOrders';
+import { parseIntegerVi, parseMoneyNumber } from '../utils/mktNormalizeDetailReportRows';
 
 const TABLE = 'bao_cao_mkt_day';
 const SOURCE_TABLE = 'detail_reports';
@@ -56,46 +58,55 @@ function dayGroupKey(ngay, mkt, sp, thiTruong) {
   return [ngay, mkt, sp, thiTruong].map((x) => String(x || '').trim().toLowerCase()).join('|');
 }
 
-function parseCpqcFromReportRow(row) {
-  const candidates = [
-    row?.CPQC,
-    row?.cpqc,
-    row?.['CPQC theo TKQC'],
-    row?.cpqc_theo_tkqc,
-  ];
-  for (const value of candidates) {
-    if (value == null || value === '') continue;
-    const n = Number(value);
-    if (Number.isFinite(n) && n !== 0) return n;
-  }
-  for (const value of candidates) {
-    if (value == null || value === '') continue;
-    const n = Number(value);
-    if (Number.isFinite(n)) return n;
-  }
-  return 0;
+/** Khớp viewNsMoiNhanh: đơn team HCM không thuộc báo cáo HN. */
+function filterHnOrdersForMktOverlay(orders) {
+  return (orders || []).filter((order) => !/hcm/i.test(String(order?.team ?? '')));
 }
 
 /**
- * Key báo cáo theo ca — dedupe trùng dòng trước khi cộng CPQC.
- * (ngày|mkt|sp|tt|caNorm)
+ * Phủ số liệu TT lên từng dòng báo cáo — cùng ý overlayHnActualsFromOrders (xem-bao-cao-mkt).
  */
-function reportDedupeKey(row, ymd) {
-  const ngay = normalizeNgay(row?.['Ngày'] ?? row?.ngay) || ymd;
-  const mkt = textField(row, ['Tên', 'ten', 'name']);
-  const sp = textField(row, ['Sản_phẩm', 'Sản phẩm', 'san_pham', 'product']);
-  const tt = textField(row, ['Thị_trường', 'Thị trường', 'thi_truong', 'market']);
-  const ca = String(row?.ca ?? row?.['Ca'] ?? row?.shift ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  const caNorm = !ca || (ca.includes('het') && ca.includes('giua')) || ca.includes('het')
-    ? 'het'
-    : ca.includes('giua')
-      ? 'gua'
-      : ca;
-  return `${dayGroupKey(ngay, mkt, sp, tt)}|${caNorm}`;
+export function overlayHnDetailReportsFromOrders(reportRows, ordersPrepared) {
+  const orders = filterHnOrdersForMktOverlay(ordersPrepared);
+  return (reportRows || []).map((row) => {
+    const metrics = computeMktOrderMetricsForReportRow(row, orders);
+    return {
+      ...row,
+      'Số đơn thực tế': metrics.so_don_thuc_te,
+      so_don_thuc_te: metrics.so_don_thuc_te,
+      'Doanh số TT': metrics.doanh_so_thuc_te,
+      doanh_so_tt: metrics.doanh_so_thuc_te,
+      'Số đơn hoàn hủy': metrics.so_don_huy,
+      'Số đơn hoàn hủy thực tế': metrics.so_don_huy,
+      so_don_hoan_huy: metrics.so_don_huy,
+      so_don_hoan_huy_thuc_te: metrics.so_don_huy,
+      'Doanh số hoàn hủy thực tế': metrics.doanh_so_huy || 0,
+      doanh_so_hoan_huy_thuc_te: metrics.doanh_so_huy || 0,
+      'Đơn Ok': metrics.so_don_ok,
+      so_don_ok: metrics.so_don_ok,
+      'Doanh số Ok': metrics.doanh_so_ok,
+      doanh_so_ok: metrics.doanh_so_ok,
+    };
+  });
+}
+
+function metricsFromDedupedRow(row) {
+  const soDonTt = parseIntegerVi(row?.['Số đơn thực tế'] ?? row?.so_don_thuc_te ?? 0);
+  const soDonHuy = parseIntegerVi(
+    row?.['Số đơn hoàn hủy'] ?? row?.['Số đơn hoàn hủy thực tế'] ?? row?.so_don_hoan_huy ?? 0
+  );
+  return {
+    // Số đơn = Số đơn TT (không hủy, gồm 0đ) — khớp cột Số Đơn (TT) tab Báo cáo sau huỷ.
+    so_don: soDonTt,
+    ds: parseMoneyNumber(row?.['Doanh số TT'] ?? row?.doanh_so_tt ?? 0),
+    so_don_huy: soDonHuy,
+    ds_huy: parseMoneyNumber(
+      row?.['Doanh số hoàn hủy thực tế'] ?? row?.doanh_so_hoan_huy_thuc_te ?? 0
+    ),
+    so_don_ok: parseIntegerVi(row?.['Đơn Ok'] ?? row?.['Số đơn Ok'] ?? row?.so_don_ok ?? 0),
+    doanh_so_ok: parseMoneyNumber(row?.['Doanh số Ok'] ?? row?.doanh_so_ok ?? 0),
+    cpqc: parseMoneyNumber(row?.['CPQC'] ?? row?.cpqc ?? 0),
+  };
 }
 
 async function fetchDetailReportsForDay(ymd) {
@@ -125,122 +136,75 @@ async function fetchDetailReportsForDay(ymd) {
 
 /**
  * Tổng hợp 1 ngày → rows bao_cao_mkt_day (ca = Hết ca).
- * Metrics đơn đếm từ orders (1 lần / mã đơn theo ngày×MKT×SP×TT); CPQC từ báo cáo tay.
+ * Pipeline: overlay orders → dedupe key → cộng theo ngày×mkt×sp×tt.
  *
  * @param {object[]} detailRows
  * @param {string} ymd
- * @param {object[]} [ordersPrepared] đơn đã prepareMktOrdersForRowMetrics; nếu thiếu thì metrics = 0
+ * @param {object[]} [ordersPrepared]
  */
 export function aggregateDetailReportsToBaoCaoMktDay(detailRows, ymd, ordersPrepared = null) {
-  const byDay = new Map();
-  const cpqcByDedupeKey = new Map();
+  const dayRows = (detailRows || []).filter((row) => {
+    const ngay = normalizeNgay(row?.['Ngày'] ?? row?.ngay) || ymd;
+    return ngay === ymd;
+  });
 
-  // 1) CPQC + khung dòng từ báo cáo tay (dedupe theo key có ca, rồi cộng theo ngày×mkt×sp×tt)
-  for (const row of detailRows || []) {
+  const orders = Array.isArray(ordersPrepared) ? ordersPrepared : [];
+  const actualized = orders.length
+    ? overlayHnDetailReportsFromOrders(dayRows, orders)
+    : dayRows;
+  const deduped = dedupeMktDetailReportRows(actualized);
+
+  const byDay = new Map();
+  for (const row of deduped) {
     const ngay = normalizeNgay(row?.['Ngày'] ?? row?.ngay) || ymd;
     if (ngay !== ymd) continue;
 
     const mkt = textField(row, ['Tên', 'ten', 'name']);
     const sp = textField(row, ['Sản_phẩm', 'Sản phẩm', 'san_pham', 'product']);
     const thi_truong = textField(row, ['Thị_trường', 'Thị trường', 'thi_truong', 'market']);
-    if (!mkt && !sp && !thi_truong) continue;
+    if (!mkt) continue;
 
-    const dk = reportDedupeKey(row, ymd);
-    const cpqc = parseCpqcFromReportRow(row);
-    // Trùng key+ca: cộng CPQC (khớp dedupe danh sách báo cáo tay)
-    cpqcByDedupeKey.set(dk, (cpqcByDedupeKey.get(dk) || 0) + cpqc);
-
+    const metrics = metricsFromDedupedRow(row);
     const gk = dayGroupKey(ngay, mkt, sp, thi_truong);
-    if (!byDay.has(gk)) {
+    const prev = byDay.get(gk);
+    if (!prev) {
       byDay.set(gk, {
         ngay,
-        mkt: mkt || '',
+        mkt,
         ca: REPORT_CA_HET,
         thi_truong: thi_truong || '',
         sp: sp || '',
-        so_don: 0,
-        ds: 0,
-        so_don_huy: 0,
-        ds_huy: 0,
-        so_don_ok: 0,
-        doanh_so_ok: 0,
-        cpqc: 0,
+        so_don: metrics.so_don,
+        ds: metrics.ds,
+        so_don_huy: metrics.so_don_huy,
+        ds_huy: metrics.ds_huy,
+        so_don_ok: metrics.so_don_ok,
+        doanh_so_ok: metrics.doanh_so_ok,
+        cpqc: metrics.cpqc,
       });
-    }
-  }
-
-  for (const [dk, cpqc] of cpqcByDedupeKey) {
-    const gk = dk.slice(0, dk.lastIndexOf('|'));
-    const entry = byDay.get(gk);
-    if (entry) entry.cpqc += cpqc;
-  }
-
-  // Thêm grain từ đơn của MKT đã có trên báo cáo tay (tránh sót SP/TT chỉ có trên orders)
-  const reportMktKeys = new Set(
-    Array.from(byDay.values()).map((e) =>
-      String(e.mkt || '')
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, ' ')
-    )
-  );
-  const orders = Array.isArray(ordersPrepared) ? ordersPrepared : [];
-  for (const order of orders) {
-    const mkt = String(order?.marketing_staff ?? '').trim();
-    const mktKey = mkt.toLowerCase().replace(/\s+/g, ' ');
-    if (!mkt || !reportMktKeys.has(mktKey)) continue;
-    const ngay = normalizeNgay(order?.order_date) || ymd;
-    if (ngay !== ymd) continue;
-    const sp = String(order?.product ?? '').trim();
-    const thi_truong = String(order?.country ?? '').trim();
-    const gk = dayGroupKey(ngay, mkt, sp, thi_truong);
-    if (byDay.has(gk)) continue;
-    byDay.set(gk, {
-      ngay,
-      mkt,
-      ca: REPORT_CA_HET,
-      thi_truong,
-      sp,
-      so_don: 0,
-      ds: 0,
-      so_don_huy: 0,
-      ds_huy: 0,
-      so_don_ok: 0,
-      doanh_so_ok: 0,
-      cpqc: 0,
-    });
-  }
-
-  // 2) Đếm đơn live theo grain ngày×mkt×sp×tt — bỏ lọc ca (mỗi order_code 1 lần, gồm 0đ)
-  if (orders.length && byDay.size) {
-    for (const entry of byDay.values()) {
-      const pseudo = {
-        Ngày: entry.ngay,
-        Tên: entry.mkt,
-        Sản_phẩm: entry.sp,
-        Thị_trường: entry.thi_truong,
-      };
-      const metrics = computeMktOrderMetricsForReportRow(pseudo, orders, { ignoreCa: true });
-      entry.so_don = Number(metrics.so_don_gross || 0);
-      entry.so_don_huy = Number(metrics.so_don_huy || 0);
-      entry.so_don_ok = Number(metrics.so_don_ok || 0);
-      entry.doanh_so_ok = Number(metrics.doanh_so_ok || 0);
-      entry.ds = Number(metrics.doanh_so_thuc_te || 0);
-      entry.ds_huy = Number(metrics.doanh_so_huy || 0);
+    } else {
+      // Cộng dồn các ca khác nhau cùng ngày×MKT×SP×TT (sau khi đã lọc trùng key+ca).
+      prev.so_don += metrics.so_don;
+      prev.ds += metrics.ds;
+      prev.so_don_huy += metrics.so_don_huy;
+      prev.ds_huy += metrics.ds_huy;
+      prev.so_don_ok += metrics.so_don_ok;
+      prev.doanh_so_ok += metrics.doanh_so_ok;
+      prev.cpqc += metrics.cpqc;
     }
   }
 
   return Array.from(byDay.values()).sort((a, b) => {
-      const m = String(a.mkt || '').localeCompare(String(b.mkt || ''), 'vi');
-      if (m) return m;
-      const s = String(a.sp || '').localeCompare(String(b.sp || ''), 'vi');
-      if (s) return s;
-      return String(a.thi_truong || '').localeCompare(String(b.thi_truong || ''), 'vi');
-    });
+    const m = String(a.mkt || '').localeCompare(String(b.mkt || ''), 'vi');
+    if (m) return m;
+    const s = String(a.sp || '').localeCompare(String(b.sp || ''), 'vi');
+    if (s) return s;
+    return String(a.thi_truong || '').localeCompare(String(b.thi_truong || ''), 'vi');
+  });
 }
 
 /**
- * Xóa dữ liệu ngày đã chọn rồi ghi lại từ báo cáo tay + đơn live.
+ * Xóa dữ liệu ngày đã chọn rồi ghi lại (overlay + lọc trùng key + tổng hợp).
  * @param {string} ymd YYYY-MM-DD
  */
 export async function syncBaoCaoMktDayFromManualReports(ymdRaw) {
@@ -261,7 +225,20 @@ export async function syncBaoCaoMktDayFromManualReports(ymdRaw) {
 
   if (aggregated.length > 0) {
     const rowsToInsert = aggregated.map(
-      ({ ngay, mkt, ca, thi_truong, sp, so_don, ds, so_don_huy, ds_huy, so_don_ok, doanh_so_ok, cpqc }) => ({
+      ({
+        ngay,
+        mkt,
+        ca,
+        thi_truong,
+        sp,
+        so_don,
+        ds,
+        so_don_huy,
+        ds_huy,
+        so_don_ok,
+        doanh_so_ok,
+        cpqc,
+      }) => ({
         ngay,
         mkt,
         ca,
@@ -285,6 +262,7 @@ export async function syncBaoCaoMktDayFromManualReports(ymdRaw) {
   return {
     ymd,
     sourceRows: detailRows.length,
+    dedupedHint: 'overlay+dedupeMktDetailReportRows',
     upserted: aggregated.length,
     soDonTotal,
     ordersLoaded: ordersPrepared.length,

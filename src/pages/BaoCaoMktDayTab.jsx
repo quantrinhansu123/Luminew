@@ -53,6 +53,49 @@ function formatCell(key, value) {
     return formatNumber(n);
 }
 
+function uniqueSorted(values) {
+    return [...new Set((values || []).map((v) => String(v ?? '').trim()).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, 'vi')
+    );
+}
+
+async function fetchDistinctFilterOptions({ start, end, isAdmin, personnelNames }) {
+    const names = (personnelNames || []).map((n) => String(n || '').trim().replace(/\s+/g, ' ')).filter(Boolean);
+    const mktSet = new Set();
+    const spSet = new Set();
+    const marketSet = new Set();
+
+    for (let offset = 0; ; ) {
+        let query = supabase.from('bao_cao_mkt_day').select('mkt, sp, thi_truong');
+        if (start) query = query.gte('ngay', start);
+        if (end) query = query.lte('ngay', end);
+        if (!isAdmin) {
+            if (!names.length) break;
+            query = query.in('mkt', names);
+        }
+        const { data, error } = await query.order('id').range(offset, offset + 999);
+        if (error) throw error;
+        const chunk = data || [];
+        if (!chunk.length) break;
+        for (const row of chunk) {
+            const mkt = String(row?.mkt ?? '').trim();
+            const sp = String(row?.sp ?? '').trim();
+            const tt = String(row?.thi_truong ?? '').trim();
+            if (mkt) mktSet.add(mkt);
+            if (sp) spSet.add(sp);
+            if (tt) marketSet.add(tt);
+        }
+        if (chunk.length < 1000) break;
+        offset += chunk.length;
+    }
+
+    return {
+        mkt: uniqueSorted([...mktSet]),
+        sp: uniqueSorted([...spSet]),
+        thi_truong: uniqueSorted([...marketSet]),
+    };
+}
+
 export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
     const [filters, setFilters] = useState(() => ({
         start: `${today().slice(0, 7)}-01`,
@@ -66,6 +109,7 @@ export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
     const [rows, setRows] = useState([]);
     const [count, setCount] = useState(0);
     const [filterTotals, setFilterTotals] = useState(emptyFilterTotals);
+    const [filterOptions, setFilterOptions] = useState({ mkt: [], sp: [], thi_truong: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [syncing, setSyncing] = useState(false);
@@ -73,6 +117,38 @@ export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
     const [deleting, setDeleting] = useState(false);
     const [notice, setNotice] = useState('');
     const scope = JSON.stringify(personnelNames);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function loadOptions() {
+            try {
+                const names = JSON.parse(scope);
+                const options = await fetchDistinctFilterOptions({
+                    start: filters.start,
+                    end: filters.end,
+                    isAdmin,
+                    personnelNames: names,
+                });
+                if (cancelled) return;
+                setFilterOptions(options);
+                setFilters((prev) => ({
+                    ...prev,
+                    mkt: prev.mkt && options.mkt.includes(prev.mkt) ? prev.mkt : '',
+                    sp: prev.sp && options.sp.includes(prev.sp) ? prev.sp : '',
+                    thi_truong:
+                        prev.thi_truong && options.thi_truong.includes(prev.thi_truong)
+                            ? prev.thi_truong
+                            : '',
+                }));
+            } catch (err) {
+                if (!cancelled) console.warn('[BaoCaoMktDayTab] filter options:', err);
+            }
+        }
+        loadOptions();
+        return () => {
+            cancelled = true;
+        };
+    }, [filters.start, filters.end, isAdmin, scope]);
 
     useEffect(() => {
         let cancelled = false;
@@ -93,9 +169,9 @@ export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
                     if (applied.start) query = query.gte('ngay', applied.start);
                     if (applied.end) query = query.lte('ngay', applied.end);
                     if (!isAdmin) query = query.in('mkt', names);
-                    for (const key of ['mkt', 'sp', 'thi_truong']) {
-                        if (applied[key].trim()) query = query.ilike(key, `%${applied[key].trim()}%`);
-                    }
+                    if (applied.mkt.trim()) query = query.eq('mkt', applied.mkt.trim());
+                    if (applied.sp.trim()) query = query.eq('sp', applied.sp.trim());
+                    if (applied.thi_truong.trim()) query = query.eq('thi_truong', applied.thi_truong.trim());
                     return query;
                 };
 
@@ -175,11 +251,32 @@ export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
 
     async function syncDay() {
         if (deleting || syncing) return;
-        if (!isAdmin) return setError('Chỉ Admin mới được đồng bộ.');
+        if (!isAdmin) {
+            setError('Chỉ Admin mới được đồng bộ.');
+            return;
+        }
         const start = String(filters.start || '').trim();
         const end = String(filters.end || start).trim();
-        if (!start) return setError('Vui lòng chọn Từ ngày.');
-        if (end && start > end) return setError('Từ ngày phải trước hoặc bằng Đến ngày.');
+        if (!start) {
+            setError('Vui lòng chọn Từ ngày.');
+            return;
+        }
+        if (end && start > end) {
+            setError('Từ ngày phải trước hoặc bằng Đến ngày.');
+            return;
+        }
+
+        const ok = window.confirm(
+            `Đồng bộ «Báo cáo MKT theo ngày» (bao_cao_mkt_day):\n` +
+                `• Phủ Số đơn TT / hủy / Ok / DS từ orders\n` +
+                `• Lọc trùng key (Ngày×MKT×SP×TT×ca)\n` +
+                `• Tổng hợp theo ngày×MKT×SP×TT\n\n` +
+                `Khoảng: ${start} → ${end}.\n` +
+                'Mỗi ngày: xóa dòng cũ rồi ghi lại.\n\n' +
+                'Bạn có chắc muốn chạy không?'
+        );
+        if (!ok) return;
+
         setSyncing(true);
         setError('');
         setNotice('');
@@ -237,7 +334,7 @@ export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
                 className="flex flex-wrap items-end gap-3 mb-4"
                 onSubmit={(event) => {
                     event.preventDefault();
-                    if (deleting) return;
+                    if (deleting || syncing) return;
                     if (filters.start && filters.end && filters.start > filters.end) {
                         setError('Từ ngày phải trước hoặc bằng đến ngày.');
                         return;
@@ -246,37 +343,69 @@ export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
                     setApplied({ ...filters });
                 }}
             >
+                <label className="text-sm text-gray-700">
+                    <span className="block mb-1">Từ ngày</span>
+                    <input
+                        type="date"
+                        value={filters.start}
+                        onChange={(event) =>
+                            setFilters((previous) => ({ ...previous, start: event.target.value }))
+                        }
+                        className="border border-gray-300 rounded px-3 py-2"
+                    />
+                </label>
+                <label className="text-sm text-gray-700">
+                    <span className="block mb-1">Đến ngày</span>
+                    <input
+                        type="date"
+                        value={filters.end}
+                        onChange={(event) =>
+                            setFilters((previous) => ({ ...previous, end: event.target.value }))
+                        }
+                        className="border border-gray-300 rounded px-3 py-2"
+                    />
+                </label>
                 {[
-                    ['start', 'Từ ngày'],
-                    ['end', 'Đến ngày'],
                     ['mkt', 'MKT'],
                     ['sp', 'Sản phẩm'],
                     ['thi_truong', 'Thị trường'],
                 ].map(([key, label]) => (
                     <label key={key} className="text-sm text-gray-700">
                         <span className="block mb-1">{label}</span>
-                        <input
-                            type={key === 'start' || key === 'end' ? 'date' : 'text'}
+                        <select
                             value={filters[key]}
                             onChange={(event) =>
                                 setFilters((previous) => ({ ...previous, [key]: event.target.value }))
                             }
-                            className="border border-gray-300 rounded px-3 py-2"
-                        />
+                            className="border border-gray-300 rounded px-3 py-2 min-w-[10rem] bg-white"
+                        >
+                            <option value="">Tất cả</option>
+                            {(filterOptions[key] || []).map((opt) => (
+                                <option key={opt} value={opt}>
+                                    {opt}
+                                </option>
+                            ))}
+                        </select>
                     </label>
                 ))}
-                <button type="submit" className="bg-green-700 text-white rounded px-4 py-2">
+                <button
+                    type="submit"
+                    disabled={deleting || syncing}
+                    className="bg-green-700 text-white rounded px-4 py-2 disabled:opacity-50"
+                >
                     Lọc / Tải lại
                 </button>
-                <button
-                    type="button"
-                    onClick={syncDay}
-                    disabled={deleting || syncing || !isAdmin}
-                    className="bg-indigo-700 text-white rounded px-4 py-2 disabled:opacity-50"
-                    title="Ghi bao_cao_mkt_day từ báo cáo tay theo Từ/Đến ngày"
-                >
-                    {syncing ? 'Đang đồng bộ…' : 'Đồng bộ dữ liệu'}
-                </button>
+                {isAdmin && (
+                    <button
+                        type="button"
+                        onClick={syncDay}
+                        disabled={deleting || syncing}
+                        className="bg-indigo-700 text-white rounded px-4 py-2 disabled:opacity-50"
+                        title="Ghi bao_cao_mkt_day từ báo cáo tay theo Từ/Đến ngày"
+                    >
+                        {syncing ? 'Đang đồng bộ…' : 'Đồng bộ data'}
+                    </button>
+                )}
                 {isAdmin && (
                     <button
                         type="button"
@@ -441,7 +570,7 @@ export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
                 <div className="flex gap-2">
                     <button
                         type="button"
-                        disabled={deleting || loading || page <= 1}
+                        disabled={deleting || syncing || loading || page <= 1}
                         onClick={() => setPage((p) => p - 1)}
                         className="border rounded px-3 py-2 disabled:opacity-40"
                     >
@@ -449,7 +578,7 @@ export default function BaoCaoMktDayTab({ isAdmin, personnelNames = [] }) {
                     </button>
                     <button
                         type="button"
-                        disabled={deleting || loading || page * pageSize >= count}
+                        disabled={deleting || syncing || loading || page * pageSize >= count}
                         onClick={() => setPage((p) => p + 1)}
                         className="border rounded px-3 py-2 disabled:opacity-40"
                     >

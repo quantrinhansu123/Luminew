@@ -1710,7 +1710,7 @@
           <h2>BÁO CÁO OK</h2>
         </div>
         <p style="margin:0 0 10px;font-size:13px;color:#555;">
-          Số đơn OK / DS OK = đơn có cột Kết quả Check = Ok (kể cả đơn 0đ; đơn ca gộp chỉ đếm 1 lần). Tỷ lệ chốt (TT) = Số đơn OK ÷ Số Mess; CPQC/DS OK = CPQC ÷ DS OK.
+          Số đơn = tổng đơn từ orders (TT + hủy, không trừ hủy). Số đơn OK / DS OK = đơn có cột Kết quả Check = Ok (kể cả đơn 0đ; đơn ca gộp chỉ đếm 1 lần). Tỷ lệ chốt (TT) = Số đơn OK ÷ Số Mess; CPQC/DS OK = CPQC ÷ DS OK.
         </p>
         <div class="table-responsive-container">
           <table id="ok-summary-table" class="sortable-table">
@@ -1721,11 +1721,11 @@
                 <th class="green-header">Marketing<span class="sort-icon"></span></th>
                 <th class="green-header">Số Mess<span class="sort-icon"></span></th>
                 <th class="green-header">CPQC<span class="sort-icon"></span></th>
-                <th class="green-header">Số Đơn<span class="sort-icon"></span></th>
+                <th class="green-header" title="Tổng đơn = Số đơn TT + số hủy (không trừ hủy)">Số Đơn<span class="sort-icon"></span></th>
                 <th class="blue-header">Số Đơn OK<span class="sort-icon"></span></th>
                 <th class="green-header">DS Chốt<span class="sort-icon"></span></th>
                 <th class="blue-header">DS OK<span class="sort-icon"></span></th>
-                <th class="yellow-header" title="Số đơn / Số Mess">Tỷ Lệ Chốt<span class="sort-icon"></span></th>
+                <th class="yellow-header" title="Số đơn (TT+hủy) / Số Mess">Tỷ Lệ Chốt<span class="sort-icon"></span></th>
                 <th class="yellow-header" title="Số đơn OK / Số Mess">Tỷ Lệ Chốt (TT)<span class="sort-icon"></span></th>
                 <th class="yellow-header" title="CPQC / Số Mess">Giá Mess<span class="sort-icon"></span></th>
                 <th class="yellow-header" title="CPQC / Số đơn OK">CPS<span class="sort-icon"></span></th>
@@ -3784,20 +3784,8 @@
     }
 
     function orderAmountVndForActualOverlay(order) {
-      const candidates = [
-        order?.total_amount_vnd,
-        order?.total_vnd,
-        order?.tong_tien_vnd,
-        order?.van_don_line_total_vnd,
-        order?.reconciled_vnd,
-        order?.goods_amount,
-      ];
-      for (const raw of candidates) {
-        if (raw == null || raw === '') continue;
-        const n = parseMoneyNumber(raw);
-        if (n > 0) return n;
-      }
-      return parseMoneyNumber(order?.sale_price ?? 0);
+      // Bắt buộc chỉ dùng total_amount_vnd (kể cả 0) — không fallback cột khác.
+      return parseMoneyNumber(order?.total_amount_vnd ?? 0);
     }
 
     function isMktActualOrderCountable(order) {
@@ -5382,9 +5370,17 @@
     }
 
     /**
-     * Báo cáo OK: Số đơn OK / DS OK lấy từ cột Đơn Ok (check_result = Ok), không lấy Số đơn TT / DS TT.
+     * Báo cáo OK:
+     * - Số đơn = tổng đơn gross (Số đơn TT + số hủy), không trừ hủy.
+     * - Số đơn OK / DS OK lấy từ cột Đơn Ok (check_result = Ok), không lấy Số đơn TT / DS TT.
      * Tỷ lệ chốt TT = Số đơn OK / Số Mess; CPQC/DS OK = CPQC / DS OK.
      */
+    function mktOkSoDonGrossFromRow(r) {
+      const donTt = Number(r.soDonThucTe) || 0;
+      const donHuy = Number(r.soDonHuyThucTe ?? r.soDonHuy) || 0;
+      return donTt + donHuy;
+    }
+
     function generateOkSummaryTableData(data) {
       const summary = {};
       data.forEach((r) => {
@@ -5413,7 +5409,7 @@
         const doanhSoOk = Number(r.dsOk ?? r['Doanh số Ok']) || 0;
         S.soMess += Number(r.soMessCmt) || 0;
         S.cpqc += Number(r.cpqc) || 0;
-        S.soDon += Number(r.soDon) || 0;
+        S.soDon += mktOkSoDonGrossFromRow(r);
         S.soDonOk += soDonOk;
         S.dsChot += Number(r.dsChot) || 0;
         S.doanhSoOk += doanhSoOk;
@@ -5545,7 +5541,7 @@
                     <th class="green-header">Marketing</th>
                     <th class="green-header">Số Mess</th>
                     <th class="green-header">CPQC</th>
-                    <th class="green-header">Số Đơn</th>
+                    <th class="green-header" title="Tổng đơn = Số đơn TT + số hủy (không trừ hủy)">Số Đơn</th>
                     <th class="blue-header">Số Đơn OK</th>
                     <th class="green-header">DS Chốt</th>
                     <th class="blue-header">DS OK</th>
