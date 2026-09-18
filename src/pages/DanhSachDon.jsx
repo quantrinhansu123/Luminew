@@ -593,6 +593,8 @@ function DanhSachDon({ dataSource = 'default' }) {
   const teamFilter = searchParams.get('team'); // e.g. 'RD'
   const isBackupView = dataSource === 'backup' || dataSource === 'backup-hcm';
   const isHcmView = dataSource === 'hcm';
+  /** Live HCM + backup HCM: không áp filter chi nhánh Hà Nội. */
+  const isHcmBranchView = dataSource === 'hcm' || dataSource === 'backup-hcm';
   const ordersTableName = resolveDanhSachDonOrdersTable(dataSource);
 
   // Permission Logic
@@ -3034,7 +3036,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
     }
 
-    if (!isHcmView && teamFilter !== 'RD') {
+    if (!isHcmBranchView && teamFilter !== 'RD') {
       data = data.filter((row) => isHanoiBranchTeamLabel(row['Team'] ?? row.team ?? ''));
     }
 
@@ -3042,7 +3044,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     // Admin KHÔNG bị filter, luôn xem tất cả đơn
     // Giờ selectedPersonnelNames chứa TÊN trực tiếp từ DB
     // Match với các cột: "Nhân viên Marketing", "Nhân viên Sale", "NV Vận đơn"
-    if (!isAdmin && selectedPersonnelNames.length > 0) {
+    if (!isAdmin && !isBackupView && selectedPersonnelNames.length > 0) {
       const beforeFilter = data.length;
       let debugCount = 0;
 
@@ -3286,7 +3288,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     endDate,
     dateFilterType,
     isAdmin,
-    isHcmView,
+    isBackupView,
+    isHcmBranchView,
     filterMarket,
     filterProduct,
     parsedProductCodes,
