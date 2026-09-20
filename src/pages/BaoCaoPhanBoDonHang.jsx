@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 
 import BaoCaoPhanBoDonHangReport from '../components/chiaDonVanDon/BaoCaoPhanBoDonHangReport';
 import usePhanBoDonHangAccess from '../hooks/usePhanBoDonHangAccess';
+import '../styles/selection.css';
 
 /** Trang riêng: Báo cáo Phân bổ Đơn hàng (history_chia_don + chi_tiet_chia). */
 export default function BaoCaoPhanBoDonHang() {

@@ -304,16 +304,31 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
     setU1HistoryStaffFilter('');
   }, [activeBranch]);
 
+  useEffect(() => {
+    setShowAllDetailRows(false);
+  }, [u1HistoryStaffFilter]);
+
   const u1HistoryForBranch = useMemo(
     () => u1HistoryRows.filter((r) => historyRowMatchesBranch(r, activeBranch)),
     [u1HistoryRows, activeBranch]
   );
 
+  const activeBranchModel =
+    visibleBranchModels.find((m) => m.key === activeBranch) || visibleBranchModels[0];
+
   const u1HistoryStaffOptions = useMemo(() => {
     const names = new Set(u1HistoryForBranch.map((r) => String(r.ho_va_ten || '').trim()).filter(Boolean));
     (chiaDonVanDonStaffOrder?.[activeBranch] || []).forEach((n) => names.add(String(n).trim()));
+    (activeBranchModel?.flatDetailRows || []).forEach((r) => {
+      const n = String(r.row?.delivery_staff || '').trim();
+      if (n) names.add(n);
+    });
+    (activeBranchModel?.staffEntries || []).forEach(([n]) => {
+      const name = String(n || '').trim();
+      if (name) names.add(name);
+    });
     return [...names].sort((a, b) => a.localeCompare(b, 'vi'));
-  }, [u1HistoryForBranch, chiaDonVanDonStaffOrder, activeBranch]);
+  }, [u1HistoryForBranch, chiaDonVanDonStaffOrder, activeBranch, activeBranchModel]);
 
   const u1HistoryFiltered = useMemo(() => {
     if (!u1HistoryStaffFilter) return u1HistoryForBranch;
@@ -324,17 +339,21 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
 
   const u1HistoryByDate = useMemo(() => groupU1HistoryByDate(u1HistoryFiltered), [u1HistoryFiltered]);
 
-  const activeBranchModel =
-    visibleBranchModels.find((m) => m.key === activeBranch) || visibleBranchModels[0];
+  const detailRowsForStaff = useMemo(() => {
+    const rows = activeBranchModel?.flatDetailRows || [];
+    if (!u1HistoryStaffFilter) return rows;
+    const nk = normalizeNameKeyForStaffSort(u1HistoryStaffFilter);
+    return rows.filter((r) => normalizeNameKeyForStaffSort(r.row?.delivery_staff) === nk);
+  }, [activeBranchModel, u1HistoryStaffFilter]);
 
   const visibleDetailRows = useMemo(() => {
-    const rows = activeBranchModel?.flatDetailRows || [];
-    if (showAllDetailRows || rows.length <= PHAN_BO_DETAIL_ROW_LIMIT) return rows;
-    return rows.slice(0, PHAN_BO_DETAIL_ROW_LIMIT);
-  }, [activeBranchModel, showAllDetailRows]);
+    if (showAllDetailRows || detailRowsForStaff.length <= PHAN_BO_DETAIL_ROW_LIMIT) {
+      return detailRowsForStaff;
+    }
+    return detailRowsForStaff.slice(0, PHAN_BO_DETAIL_ROW_LIMIT);
+  }, [detailRowsForStaff, showAllDetailRows]);
 
-  const hiddenDetailCount =
-    (activeBranchModel?.flatDetailRows?.length || 0) - visibleDetailRows.length;
+  const hiddenDetailCount = detailRowsForStaff.length - visibleDetailRows.length;
 
   const summaryByBranch = useMemo(
     () => ({
@@ -370,7 +389,7 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
       : 0;
 
   return (
-    <div className="flex min-h-[100dvh] w-full flex-col bg-slate-100">
+    <div className="flex min-h-[100dvh] w-full select-text flex-col bg-slate-100" data-phan-bo-report-root>
       <div className="sticky top-0 z-20 shrink-0 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -693,7 +712,20 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
                         activeSummaryRows.map((r) => (
                           <tr key={r.name} className="border-t border-slate-50 hover:bg-slate-50/80">
                             <td className="px-2 py-1.5 text-center font-mono text-slate-400">{r.stt}</td>
-                            <td className="px-2 py-1.5 font-medium text-slate-800">{r.name}</td>
+                            <td className="px-2 py-1.5 font-medium text-slate-800">
+                              <button
+                                type="button"
+                                className={`text-left hover:text-indigo-700 hover:underline ${
+                                  u1HistoryStaffFilter === r.name ? 'text-indigo-700' : ''
+                                }`}
+                                title="Lọc Chi tiết trình tự chia theo nhân sự này"
+                                onClick={() =>
+                                  setU1HistoryStaffFilter(u1HistoryStaffFilter === r.name ? '' : r.name)
+                                }
+                              >
+                                {r.name}
+                              </button>
+                            </td>
                             <td className="px-2 py-1.5 text-right">
                               <span
                                 className={`inline-block rounded px-1.5 py-0.5 text-xs font-bold ${activeSummaryPanel?.countBg}`}
@@ -724,19 +756,43 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
                         <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-700">
                           <GitMerge className="h-3.5 w-3.5 text-blue-600" />
                           Chi tiết trình tự chia
+                          {u1HistoryStaffFilter ? (
+                            <span className="font-normal normal-case text-indigo-600">
+                              · {u1HistoryStaffFilter}
+                            </span>
+                          ) : null}
                         </h2>
-                        {hiddenDetailCount > 0 && (
-                          <button
-                            type="button"
-                            className="text-[11px] font-semibold text-amber-700 underline"
-                            onClick={() => setShowAllDetailRows(true)}
-                          >
-                            +{hiddenDetailCount} dòng nữa
-                          </button>
-                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                            <span className="font-semibold uppercase tracking-wide text-slate-400">
+                              Nhân sự
+                            </span>
+                            <select
+                              value={u1HistoryStaffFilter}
+                              onChange={(e) => setU1HistoryStaffFilter(e.target.value)}
+                              className="h-8 min-w-[180px] rounded-lg border border-slate-200 px-2 text-xs focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                            >
+                              <option value="">Tất cả nhân sự</option>
+                              {u1HistoryStaffOptions.map((name) => (
+                                <option key={name} value={name}>
+                                  {name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {hiddenDetailCount > 0 && (
+                            <button
+                              type="button"
+                              className="text-[11px] font-semibold text-amber-700 underline"
+                              onClick={() => setShowAllDetailRows(true)}
+                            >
+                              +{hiddenDetailCount} dòng nữa
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-[min(44vh,500px)] overflow-y-auto">
-                        <table className="w-full border-collapse text-left">
+                      <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-[min(44vh,500px)] overflow-y-auto select-text">
+                        <table className="w-full border-collapse select-text text-left">
                           <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase text-slate-500">
                             <tr>
                               <th className="w-11 border-r px-2 py-2 text-center">Phiên</th>
@@ -759,8 +815,14 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
                                   colSpan={activeBranchModel.chiaTietTableColSpan}
                                   className="bg-slate-50/50 px-3 py-6 text-center text-[11px] italic leading-relaxed text-slate-500"
                                 >
-                                  Không có đơn có cột <strong>chi_tiet_chia</strong> trong khoảng ngày đã chọn — mở
-                                  rộng ngày và bấm Tải, hoặc chạy chia đơn / Điền STT.
+                                  {u1HistoryStaffFilter
+                                    ? `Không có dòng chia cho «${u1HistoryStaffFilter}» trong khoảng ngày / chi nhánh đang chọn.`
+                                    : (
+                                      <>
+                                        Không có đơn có cột <strong>chi_tiet_chia</strong> trong khoảng ngày đã chọn — mở
+                                        rộng ngày và bấm Tải, hoặc chạy chia đơn / Điền STT.
+                                      </>
+                                    )}
                                 </td>
                               </tr>
                             ) : (
@@ -835,9 +897,16 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
                       </div>
                       {hiddenDetailCount > 0 && (
                         <p className="text-[10px] text-amber-700">
-                          Hiển thị {visibleDetailRows.length}/{activeBranchModel.flatDetailRows.length} dòng.
+                          Hiển thị {visibleDetailRows.length}/{detailRowsForStaff.length} dòng
+                          {u1HistoryStaffFilter ? ` (lọc: ${u1HistoryStaffFilter})` : ''}.
                         </p>
                       )}
+                      {!hiddenDetailCount && u1HistoryStaffFilter ? (
+                        <p className="text-[10px] text-indigo-600">
+                          Đang lọc NV vận đơn: <strong>{u1HistoryStaffFilter}</strong> — {detailRowsForStaff.length}{' '}
+                          dòng.
+                        </p>
+                      ) : null}
                     </section>
 
                     {/* II — Thống kê nhân sự */}
@@ -896,7 +965,22 @@ export default function BaoCaoPhanBoDonHangReport({ onClose, allowedBranchKeys =
                                   <td className="border-r px-3 py-2 text-center text-slate-400">{si + 1}</td>
                                   <td className="border-r px-3 py-2">
                                     <div className="flex flex-wrap items-center gap-1.5">
-                                      <span className="font-bold text-slate-800">{name}</span>
+                                      <button
+                                        type="button"
+                                        className={`text-left font-bold hover:underline ${
+                                          u1HistoryStaffFilter === name
+                                            ? 'text-indigo-700'
+                                            : 'text-slate-800'
+                                        }`}
+                                        title="Lọc Chi tiết trình tự chia theo nhân sự này"
+                                        onClick={() =>
+                                          setU1HistoryStaffFilter(
+                                            u1HistoryStaffFilter === name ? '' : name
+                                          )
+                                        }
+                                      >
+                                        {name}
+                                      </button>
                                       {isLowCount && (
                                         <button
                                           type="button"
