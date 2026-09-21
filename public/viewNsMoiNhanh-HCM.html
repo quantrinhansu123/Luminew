@@ -2196,9 +2196,9 @@
       const counts = new Map();
       for (const order of dropGiftColumnDuplicateOrdersOverlay(orders)) {
         const amount = orderAmountVndForActualOverlay(order);
+        // Lọc đơn 0đ khỏi Số đơn (TT) / Số đơn hủy / DS Chốt (TT).
+        if (amount <= 0) continue;
         const isHuy = isOrderHuyForActualOverlay(order);
-        const countableTt = isMktActualOrderCountable(order);
-        // Không skip đơn 0đ không hủy — tính vào Số Đơn (TT).
         const baseKey = buildMktActualBaseKey(
           order.order_date,
           order.marketing_staff,
@@ -2220,15 +2220,13 @@
               cancelRevenueVnd: 0,
             };
           if (!isHuy) prev.nonHuyCount += 1;
-          if (countableTt) {
-            prev.count += 1;
-            prev.totalRevenueVnd += amount;
-            if (isHuy) {
-              prev.cancelPositiveCount += 1;
-              prev.cancelRevenueVnd += amount;
-            }
+          prev.count += 1;
+          prev.totalRevenueVnd += amount;
+          if (isHuy) {
+            prev.cancelCount += 1;
+            prev.cancelPositiveCount += 1;
+            prev.cancelRevenueVnd += amount;
           }
-          if (isHuy) prev.cancelCount += 1;
           counts.set(key, prev);
         }
       }
@@ -2266,6 +2264,7 @@
         const grossCount = actual?.count || 0;
         const cancelCount = actual?.cancelCount || 0;
         const cancelPositive = actual?.cancelPositiveCount ?? cancelCount;
+        // Số đơn TT / hủy: chỉ đơn total_amount_vnd > 0 (đã lọc 0đ ở buildHcmActualsByReportKey).
         const netCount =
           actual?.nonHuyCount != null
             ? actual.nonHuyCount
@@ -2296,7 +2295,7 @@
       });
 
       console.log(
-        `🔁 Phủ Số đơn TT (net, trừ hủy) HCM từ ${MKT_HCM_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
+        `🔁 Phủ Số đơn TT HCM (chỉ VND>0, trừ hủy) từ ${MKT_HCM_ORDERS_TABLE}: ${orders.length} đơn, ${changedRows} dòng báo cáo thay đổi trước khi render.`
       );
       return rows;
     }

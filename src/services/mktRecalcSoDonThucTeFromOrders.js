@@ -580,8 +580,9 @@ function buildHcmActualsByReportKeyFromOrders(orders) {
   const counts = new Map();
   for (const order of orders || []) {
     const amount = orderAmountVndHcmOverlay(order);
+    // Lọc đơn 0đ khỏi Số đơn (TT) / Số đơn hủy / DS Chốt (TT) — khớp viewNsMoiNhanh-HCM.html.
+    if (amount <= 0) continue;
     const isHuy = isOrderHuyHcmOverlay(order);
-    const countableTt = isMktActualOrderCountable(order);
 
     const baseKey = buildKey(
       order.order_date,
@@ -603,15 +604,13 @@ function buildHcmActualsByReportKeyFromOrders(orders) {
           cancelRevenueVnd: 0,
         };
       if (!isHuy) prev.nonHuyCount += 1;
-      if (countableTt) {
-        prev.count += 1;
-        prev.totalRevenueVnd += amount;
-        if (isHuy) {
-          prev.cancelPositiveCount += 1;
-          prev.cancelRevenueVnd += amount;
-        }
+      prev.count += 1;
+      prev.totalRevenueVnd += amount;
+      if (isHuy) {
+        prev.cancelCount += 1;
+        prev.cancelPositiveCount += 1;
+        prev.cancelRevenueVnd += amount;
       }
-      if (isHuy) prev.cancelCount += 1;
       counts.set(key, prev);
     }
   }
@@ -640,7 +639,7 @@ export function overlayHcmMarketingReportRowsFromOrders(reportRows, orders) {
     const cancelPositive = actual?.cancelPositiveCount ?? cancelCount;
     const totalRevenueVnd = actual?.totalRevenueVnd || 0;
     const cancelRevenueVnd = actual?.cancelRevenueVnd || 0;
-    // Số Đơn (TT) = đơn không Hủy (gồm 0đ); fallback gross−hủy VND>0 nếu thiếu nonHuyCount.
+    // Số Đơn (TT) = đơn không Hủy có total_amount_vnd > 0 (đã lọc 0đ ở buildHcmActuals).
     const netCount =
       actual?.nonHuyCount != null
         ? actual.nonHuyCount

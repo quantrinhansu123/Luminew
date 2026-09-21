@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { History, X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -62,6 +63,28 @@ const formatDateYmdLocal = (d) => {
     const day = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
 };
+
+/** Chuẩn hoá ngày cho input type=date / Postgres (YYYY-MM-DD). */
+function toDateInputValue(dateValue) {
+    if (dateValue == null || dateValue === '') return '';
+    const raw = String(dateValue).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+    const dmy = raw.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+    if (dmy) {
+        const dd = String(dmy[1]).padStart(2, '0');
+        const mm = String(dmy[2]).padStart(2, '0');
+        return `${dmy[3]}-${mm}-${dd}`;
+    }
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return '';
+    return formatDateYmdLocal(d);
+}
+
+function toOptionalNumber(value) {
+    if (value == null || value === '') return 0;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+}
 
 /** Khoảng ngày mặc định khi mở trang (không còn giới hạn cứng khi lọc / cập nhật TT). */
 const MKT_MANUAL_FILTER_DEFAULT_INCLUSIVE_DAYS = 3;
@@ -1688,20 +1711,20 @@ export default function DanhSachBaoCaoTayMKT({
             // Basic info
             ten: report['Tên'] || '',
             email: report['Email'] || '',
-            ngay: report['Ngày'] || '',
+            ngay: toDateInputValue(report['Ngày'] || ''),
             ca: getMktReportCaFromRow(report) || '',
             team: report['Team'] || '',
             san_pham: report['Sản_phẩm'] || '',
             thi_truong: report['Thị_trường'] || '',
             // Financial metrics
-            cpqc: report['CPQC'] || 0,
-            mess_cmt: report['Số_Mess_Cmt'] || 0,
-            orders: report['Số đơn'] || 0,
-            revenue: report['Doanh số'] || 0,
+            cpqc: report['CPQC'] ?? 0,
+            mess_cmt: report['Số_Mess_Cmt'] ?? 0,
+            orders: report['Số đơn'] ?? 0,
+            revenue: report['Doanh số'] ?? 0,
             // Additional fields
             tkqc: report['TKQC'] || '',
             id_ns: report['id_NS'] || '',
-            cpqc_theo_tkqc: report['CPQC theo TKQC'] || 0,
+            cpqc_theo_tkqc: report['CPQC theo TKQC'] ?? 0,
             bao_cao_theo_page: report['Báo cáo theo Page'] || '',
             trang_thai: report['Trạng thái'] || '',
             canh_bao: report['Cảnh báo'] || ''
@@ -1852,6 +1875,10 @@ export default function DanhSachBaoCaoTayMKT({
 
     const handleSaveEdit = async () => {
         if (!editingReport) return;
+        if (editingReport.id == null || editingReport.id === '') {
+            alert('Không có ID dòng báo cáo — không lưu được. Thử tải lại trang rồi sửa lại.');
+            return;
+        }
 
         const caValue = String(editForm.ca || '').trim();
         if (reportCaMeansBothHetAndGua(caValue)) {
@@ -1862,54 +1889,107 @@ export default function DanhSachBaoCaoTayMKT({
             const isSoDonBlank = String(editForm.orders ?? '').trim() === '';
             const isDoanhSoBlank = String(editForm.revenue ?? '').trim() === '';
             if (isSoDonBlank || isDoanhSoBlank) {
-                alert('Ca «Giữa ca» bắt buộc nhập Số đơn và Doanh số. Có thể nhập 0 nếu không phát sinh.');
+                alert('Ca «Giữa ca» bắt buộc nhập Số đơn tay và Doanh số tay. Có thể nhập 0 nếu không phát sinh.');
                 return;
             }
         }
 
+        const ngayYmd = toDateInputValue(editForm.ngay);
+        if (!ngayYmd) {
+            alert('Ngày không hợp lệ. Chọn lại ngày (định dạng YYYY-MM-DD).');
+            return;
+        }
+
         setSaving(true);
         try {
-            // Note: Real values ("Số đơn thực tế", "Doanh số thực tế") được tính tự động từ orders table
-            // Không cần tính và update vào detail_reports vì các cột này không tồn tại trong schema
-
+            const auditUser = getCurrentAuditUser();
             const updateData = {
-                // Basic info
                 'Tên': editForm.ten || null,
                 'Email': editForm.email || null,
-                'Ngày': editForm.ngay || null,
+                'Ngày': ngayYmd,
                 'ca': editForm.ca || null,
                 'Team': editForm.team || null,
                 'Sản_phẩm': editForm.san_pham || null,
                 'Thị_trường': editForm.thi_truong || null,
-                // Financial metrics
-                'CPQC': editForm.cpqc ? Number(editForm.cpqc) : 0,
-                'Số_Mess_Cmt': editForm.mess_cmt ? Number(editForm.mess_cmt) : 0,
-                'Số đơn': editForm.orders ? Number(editForm.orders) : 0,
-                'Doanh số': editForm.revenue ? Number(editForm.revenue) : 0,
-                // Additional fields
+                'CPQC': toOptionalNumber(editForm.cpqc),
+                'Số_Mess_Cmt': toOptionalNumber(editForm.mess_cmt),
+                'Số đơn': toOptionalNumber(editForm.orders),
+                'Doanh số': toOptionalNumber(editForm.revenue),
                 'TKQC': editForm.tkqc || null,
                 'id_NS': editForm.id_ns || null,
-                'CPQC theo TKQC': editForm.cpqc_theo_tkqc ? Number(editForm.cpqc_theo_tkqc) : 0,
+                'CPQC theo TKQC': toOptionalNumber(editForm.cpqc_theo_tkqc),
                 'Báo cáo theo Page': editForm.bao_cao_theo_page || null,
                 'Trạng thái': editForm.trang_thai || null,
                 'Cảnh báo': editForm.canh_bao || null,
-                'last_modified_by': getCurrentAuditUser()
-                // Note: "Số đơn thực tế" và "Doanh số thực tế" được tính tự động từ orders table sau khi update
-                // Không cần truyền vào khi update
+                'last_modified_by': auditUser,
             };
 
-            const { error } = await supabase
+            // Form đang sửa 1 dòng đã dedupe (CPQC/mess/số đơn tay có thể là tổng).
+            // Các bản ghi trùng key còn lại phải về 0, không thì bảng ngoài vẫn cộng dồn như cũ.
+            const oldKey = buildMktDetailReportRowKey(editingReport);
+            const siblingIds = (allReports || [])
+                .filter((r) => r?.id != null && r.id !== editingReport.id && buildMktDetailReportRowKey(r) === oldKey)
+                .map((r) => r.id);
+
+            const { data, error } = await supabase
                 .from(reportTableName)
                 .update(updateData)
-                .eq('id', editingReport.id);
+                .eq('id', editingReport.id)
+                .select('id');
 
             if (error) throw error;
-            alert('Cập nhật thành công!');
+            if (!data?.length) {
+                throw new Error(
+                    `Không cập nhật được dòng id=${editingReport.id} trên ${reportTableName} (RLS hoặc id không khớp).`
+                );
+            }
+
+            if (siblingIds.length > 0) {
+                const { error: zeroErr } = await supabase
+                    .from(reportTableName)
+                    .update({
+                        CPQC: 0,
+                        'Số_Mess_Cmt': 0,
+                        'Số đơn': 0,
+                        'Doanh số': 0,
+                        'CPQC theo TKQC': 0,
+                        last_modified_by: auditUser,
+                    })
+                    .in('id', siblingIds);
+                if (zeroErr) throw zeroErr;
+            }
+
+            // Cập nhật UI ngay (trước khi fetch) để thấy đổi trên cột CPQC / Số đơn tay / Doanh số tay
+            setAllReports((prev) =>
+                (prev || []).map((r) => {
+                    if (r?.id === editingReport.id) return { ...r, ...updateData };
+                    if (siblingIds.includes(r?.id)) {
+                        return {
+                            ...r,
+                            CPQC: 0,
+                            'Số_Mess_Cmt': 0,
+                            'Số đơn': 0,
+                            'Doanh số': 0,
+                            'CPQC theo TKQC': 0,
+                            last_modified_by: auditUser,
+                        };
+                    }
+                    return r;
+                })
+            );
+
+            toast.success(
+                siblingIds.length > 0
+                    ? `Đã lưu (đã gỡ ${siblingIds.length} dòng trùng key để số liệu khớp).`
+                    : 'Cập nhật thành công!'
+            );
             handleCloseModal();
-            fetchData();
+            await fetchData();
         } catch (error) {
             console.error('Error updating:', error);
-            alert('Lỗi cập nhật: ' + error.message);
+            const msg = error?.message || error?.details || String(error);
+            toast.error('Lỗi cập nhật: ' + msg, { autoClose: 10000 });
+            alert('Lỗi cập nhật: ' + msg);
         } finally {
             setSaving(false);
         }
@@ -2717,12 +2797,25 @@ export default function DanhSachBaoCaoTayMKT({
                 </div>
             )}
 
-            {/* Edit Modal */}
-            {editingReport && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto p-4">
-                    <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[90vh] shadow-xl relative overflow-y-auto">
-                        <h3 className="text-lg font-bold mb-4 text-blue-600 border-b pb-2">Sửa Báo Cáo MKT</h3>
+            {/* Edit Modal — portal ra body để tránh z-index bộ lọc (99999) và reset padding của .bao-cao-sale-container * */}
+            {editingReport &&
+                createPortal(
+                <div className="fixed inset-0 z-[200000] flex items-center justify-center bg-black/50 p-4">
+                    <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] shadow-xl relative flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b shrink-0">
+                            <h3 className="text-lg font-bold text-blue-600">Sửa Báo Cáo MKT</h3>
+                            <button
+                                type="button"
+                                onClick={handleCloseModal}
+                                disabled={saving}
+                                className="p-2 rounded hover:bg-gray-100 text-gray-600"
+                                title="Đóng"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
 
+                        <div className="px-6 py-4 overflow-y-auto flex-1 min-h-0">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Basic Info Section */}
                             <div className="space-y-3">
@@ -2811,7 +2904,11 @@ export default function DanhSachBaoCaoTayMKT({
 
                             {/* Financial Metrics Section */}
                             <div className="space-y-3">
-                                <h4 className="font-semibold text-gray-700 border-b pb-1">Chỉ số tài chính</h4>
+                                <h4 className="font-semibold text-gray-700 border-b pb-1">Chỉ số tài chính (nhập tay)</h4>
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                                    CPQC / Số mess / Số đơn tay / Doanh số tay lưu vào báo cáo.
+                                    Cột «Số đơn» và «Doanh số» trên bảng lấy từ đơn hàng — sửa form không đổi 2 cột đó.
+                                </p>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">CPQC:</label>
                                     <input
@@ -2835,7 +2932,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">
-                                        Số đơn
+                                        Số đơn tay
                                         {isReportCaGiuacaOnly(editForm.ca) ? (
                                             <span className="text-red-600"> *</span>
                                         ) : null}
@@ -2851,7 +2948,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">
-                                        Doanh số
+                                        Doanh số tay
                                         {isReportCaGiuacaOnly(editForm.ca) ? (
                                             <span className="text-red-600"> *</span>
                                         ) : null}
@@ -2943,25 +3040,29 @@ export default function DanhSachBaoCaoTayMKT({
                                 Không thể chỉnh sửa thủ công.
                             </p>
                         </div>
+                        </div>
 
-                        <div className="flex gap-2 mt-6">
+                        <div className="flex gap-2 px-6 py-4 border-t bg-white shrink-0">
                             <button
+                                type="button"
                                 onClick={handleSaveEdit}
                                 disabled={saving}
-                                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded font-semibold transition"
+                                className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded font-semibold transition"
                             >
                                 {saving ? 'Đang lưu...' : 'Lưu'}
                             </button>
                             <button
+                                type="button"
                                 onClick={handleCloseModal}
                                 disabled={saving}
-                                className="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-400 text-white rounded font-semibold transition"
+                                className="flex-1 px-4 py-2.5 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-400 text-white rounded font-semibold transition"
                             >
                                 Hủy
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {historyReport && (

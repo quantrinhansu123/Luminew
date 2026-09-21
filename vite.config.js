@@ -3,7 +3,7 @@ import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import { viteBaocaoVandonNvSupabaseConfigPlugin } from './scripts/viteBaocaoVandonNvSupabaseConfig.js';
 
-// Vite mặc định cổng 3002; Express (server.js) mặc định 3003 — tránh trùng.
+// Vite mặc định cổng 3001; Express (server.js) mặc định 3003 — tránh trùng.
 // Ghi đè proxy API: VITE_DEV_API_PROXY=http://127.0.0.1:9999 npm run dev
 
 // https://vitejs.dev/config/
@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
     chunkSizeWarningLimit: 4000,
   },
   server: {
-    port: Number(env.VITE_DEV_PORT) || 3002,
+    port: Number(env.VITE_DEV_PORT) || 3001,
     host: '0.0.0.0', // Listen on all interfaces (IPv4 and IPv6)
     open: true,
     proxy: {
