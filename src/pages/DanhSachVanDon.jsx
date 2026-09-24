@@ -630,7 +630,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
             if (error) throw error;
 
-            await logDanhSachVanDonU1Change({
+            const logResult = await logDanhSachVanDonU1Change({
                 recordId: item.id,
                 hoVaTen: item.ho_va_ten,
                 chiNhanh: item.chi_nhanh,
@@ -638,6 +638,9 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                 toStatus: next,
                 note: viaToggle ? 'Bật/tắt nhanh trên bảng' : 'Cập nhật từ form sửa',
             });
+            if (!logResult?.ok && !logResult?.skipped) {
+                toast.warning('Đã đổi trạng thái chia nhưng chưa ghi được lịch sử U1.');
+            }
 
             if (isTrangThaiU1(next)) {
                 toast.success(`Đã bật U1 cho ${item.ho_va_ten}`);
@@ -771,7 +774,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             const savedId = isAdding ? data?.[0]?.id : editingId;
             const fromStatus = isAdding ? '' : editingOriginalTrangThai;
             const toStatus = formData.trang_thai_chia;
-            await logDanhSachVanDonU1Change({
+            const logResult = await logDanhSachVanDonU1Change({
                 recordId: savedId,
                 hoVaTen: formData.ho_va_ten,
                 chiNhanh: formData.chi_nhanh,
@@ -779,6 +782,9 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                 toStatus,
                 note: isAdding ? 'Thêm mới danh sách' : 'Lưu từ form sửa',
             });
+            if (!logResult?.ok && !logResult?.skipped) {
+                toast.warning('Đã lưu bản ghi nhưng chưa ghi được lịch sử U1.');
+            }
 
             toast.success(isAdding ? 'Đã thêm thành công!' : 'Đã cập nhật thành công!');
 

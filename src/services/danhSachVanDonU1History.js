@@ -49,9 +49,37 @@ export function readVanDonActorLabel() {
   return username || email || 'hệ thống';
 }
 
+/** UUID hoặc số — khớp cột uuid/text/bigint trên lịch sử U1. */
+function normalizeHistoryRecordId(recordId) {
+  if (recordId == null || recordId === '') return null;
+  const raw = String(recordId).trim();
+  if (!raw) return null;
+  // UUID (production danh_sach_van_don.id)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return raw;
+  }
+  // bigint / int dạng chuỗi số
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    if (Number.isSafeInteger(n)) return n;
+    return raw;
+  }
+  return raw;
+}
+
+function isRecordIdTypeError(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return (
+    msg.includes('invalid input syntax for type bigint') ||
+    msg.includes('invalid input syntax for type uuid') ||
+    msg.includes('danh_sach_van_don_id')
+  );
+}
+
 /**
  * Ghi một dòng lịch sử khi trạng thái chia thay đổi.
  * Không throw — lỗi chỉ log console.
+ * Nếu lệch kiểu id (uuid vs bigint), thử lại không kèm record id để vẫn lưu được thao tác.
  */
 export async function logDanhSachVanDonU1Change({
   recordId,
@@ -65,8 +93,7 @@ export async function logDanhSachVanDonU1Change({
   const action = resolveU1HistoryAction(fromStatus, toStatus);
   if (!action || !hoVaTen) return { ok: false, skipped: true };
 
-  const payload = {
-    danh_sach_van_don_id: recordId ?? null,
+  const basePayload = {
     ho_va_ten: String(hoVaTen).trim(),
     chi_nhanh: chiNhanh || null,
     trang_thai_cu: normalizeTrangThaiChia(fromStatus) || null,
@@ -76,13 +103,36 @@ export async function logDanhSachVanDonU1Change({
     ghi_chu: note || null,
   };
 
+  const normalizedId = normalizeHistoryRecordId(recordId);
+  const attempts = normalizedId != null
+    ? [
+        { ...basePayload, danh_sach_van_don_id: normalizedId },
+        basePayload,
+      ]
+    : [basePayload];
+
   try {
-    const { error } = await supabase.from('danh_sach_van_don_u1_history').insert([payload]);
-    if (error) {
+    let lastError = null;
+    for (let i = 0; i < attempts.length; i += 1) {
+      const { error } = await supabase.from('danh_sach_van_don_u1_history').insert([attempts[i]]);
+      if (!error) {
+        if (i > 0) {
+          console.warn(
+            '[danhSachVanDonU1History] insert ok without danh_sach_van_don_id (column type mismatch?). Run migration fix_u1_history_record_id_uuid.'
+          );
+        }
+        return { ok: true, withoutRecordId: i > 0 };
+      }
+      lastError = error;
+      if (i === 0 && attempts.length > 1 && isRecordIdTypeError(error)) {
+        console.warn('[danhSachVanDonU1History] insert with record id failed, retrying without id:', error.message);
+        continue;
+      }
       console.warn('[danhSachVanDonU1History] insert failed:', error.message);
       return { ok: false, error };
     }
-    return { ok: true };
+    console.warn('[danhSachVanDonU1History] insert failed:', lastError?.message);
+    return { ok: false, error: lastError };
   } catch (err) {
     console.warn('[danhSachVanDonU1History] insert exception:', err);
     return { ok: false, error: err };
@@ -117,20 +167,23 @@ export async function fetchDanhSachVanDonU1History({
 
   let rows = data || [];
   if (branchFilter) {
-    const wantHcm = branchFilter.toUpperCase().includes('HCM');
-    const wantHn =
-      branchFilter.toLowerCase().includes('hà nội') ||
-      branchFilter.toLowerCase().includes('ha noi') ||
-      branchFilter.toUpperCase() === 'HN';
-    rows = rows.filter((r) => {
-      const b = String(r.chi_nhanh || '').toLowerCase();
-      if (wantHcm) return b.includes('hcm') || b.includes('ho chi minh');
-      if (wantHn) return b.includes('hà nội') || b.includes('ha noi') || b === 'hn';
-      return String(r.chi_nhanh || '') === branchFilter;
-    });
+    rows = rows.filter((r) => historyRowMatchesBranch(r, normalizeBranchFilterKey(branchFilter)));
   }
 
   return rows;
+}
+
+/** Chuẩn hóa filter chi nhánh về key báo cáo: HCM | Hà Nội | nguyên gốc. */
+function normalizeBranchFilterKey(branchFilter) {
+  const raw = String(branchFilter || '').trim();
+  if (!raw) return '';
+  const ascii = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (ascii.includes('hcm') || ascii.includes('ho chi minh') || ascii === 'tphcm') return 'HCM';
+  if (ascii.includes('ha noi') || ascii === 'hn' || ascii.includes('hanoi')) return 'Hà Nội';
+  return raw;
 }
 
 /** Khớp chi nhánh lịch sử với key báo cáo (HCM | Hà Nội). */
