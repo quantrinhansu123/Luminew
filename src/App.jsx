@@ -152,6 +152,7 @@ function AppShell() {
                     teamKeyword="sale"
                     showPersonnelNameFilter
                     excludeReportTeamsContainingHcm
+                    showKpiCskhTab={false}
                   />
                 </ProtectedRoute>
               }
@@ -267,7 +268,7 @@ function AppShell() {
               path="/xem-bao-cao-cskh"
               element={
                 <ProtectedRoute>
-                  <NhanSuSaleLumiMoiView teamExactFilter="CSKH-HN" />
+                  <NhanSuSaleLumiMoiView teamExactFilter="CSKH-HN" showKpiSaleTab={false} />
                 </ProtectedRoute>
               }
             />

@@ -460,6 +460,10 @@ export default function NhanSuSaleLumiMoiView({
   hideBoPhanFilter = false,
   /** true: hiện tab Danh sách bán chéo (order_code_hcm · Loại khách hàng = Bán chéo). */
   showBanCheoOrdersTab = false,
+  /** false: ẩn tab KPIs Sale (vd. /xem-bao-cao-cskh). */
+  showKpiSaleTab = true,
+  /** false: ẩn tab KPIs CSKH (vd. /xem-bao-cao-sale). */
+  showKpiCskhTab = true,
 }) {
   const idSheet = useResolvedIdsheet();
   const [searchParams] = useSearchParams();
@@ -567,6 +571,14 @@ export default function NhanSuSaleLumiMoiView({
   /** Đếm đơn bán chéo (order_code_hcm) theo Sale — tab Sale sau huỷ (HCM CSKH). */
   const [banCheoBySaleKey, setBanCheoBySaleKey] = useState({});
   const [banCheoBySaleDateKey, setBanCheoBySaleDateKey] = useState({});
+
+  useEffect(() => {
+    if (!showKpiSaleTab && activeTab === 'kpi-sale') setActiveTab('sau-huy');
+  }, [showKpiSaleTab, activeTab]);
+
+  useEffect(() => {
+    if (!showKpiCskhTab && activeTab === 'kpi-cskh') setActiveTab('sau-huy');
+  }, [showKpiCskhTab, activeTab]);
 
   useEffect(() => {
     if (activeTab !== 'sau-huy' && activeTab !== 'chot') setStaffDetailName(null);
@@ -1954,20 +1966,24 @@ restrictedForPopulate,
             >
               Sale sau huỷ
             </button>
-            <button
-              type="button"
-              className={`tab-button ${activeTab === 'kpi-sale' ? 'active' : ''}`}
-              onClick={() => onTabClick('kpi-sale')}
-            >
-              KPIs Sale
-            </button>
-            <button
-              type="button"
-              className={`tab-button ${activeTab === 'kpi-cskh' ? 'active' : ''}`}
-              onClick={() => onTabClick('kpi-cskh')}
-            >
-              KPIs CSKH
-            </button>
+            {showKpiSaleTab && (
+              <button
+                type="button"
+                className={`tab-button ${activeTab === 'kpi-sale' ? 'active' : ''}`}
+                onClick={() => onTabClick('kpi-sale')}
+              >
+                KPIs Sale
+              </button>
+            )}
+            {showKpiCskhTab && (
+              <button
+                type="button"
+                className={`tab-button ${activeTab === 'kpi-cskh' ? 'active' : ''}`}
+                onClick={() => onTabClick('kpi-cskh')}
+              >
+                KPIs CSKH
+              </button>
+            )}
             {showThuCongTab && (
               <button
                 type="button"
@@ -2180,32 +2196,36 @@ restrictedForPopulate,
             )}
           </div>
 
-          <div id="tab-kpi-sale" className={`tab-content ${activeTab === 'kpi-sale' ? 'active' : ''}`}>
-            {activeTab === 'kpi-sale' && (
-              <iframe
-                ref={kpiIframeRef}
-                title="KPIs Sale"
-                className="nssl-iframe-kpi"
-                src={iframeKpi}
-                loading="lazy"
-                allow="clipboard-read; clipboard-write"
-                onLoad={postKpiSidebarFilters}
-              />
-            )}
-          </div>
-          <div id="tab-kpi-cskh" className={`tab-content ${activeTab === 'kpi-cskh' ? 'active' : ''}`}>
-            {activeTab === 'kpi-cskh' && (
-              <iframe
-                ref={kpiCskhIframeRef}
-                title="KPIs CSKH"
-                className="nssl-iframe-kpi"
-                src={iframeKpiCskh}
-                loading="lazy"
-                allow="clipboard-read; clipboard-write"
-                onLoad={postKpiCskhSidebarFilters}
-              />
-            )}
-          </div>
+          {showKpiSaleTab && (
+            <div id="tab-kpi-sale" className={`tab-content ${activeTab === 'kpi-sale' ? 'active' : ''}`}>
+              {activeTab === 'kpi-sale' && (
+                <iframe
+                  ref={kpiIframeRef}
+                  title="KPIs Sale"
+                  className="nssl-iframe-kpi"
+                  src={iframeKpi}
+                  loading="lazy"
+                  allow="clipboard-read; clipboard-write"
+                  onLoad={postKpiSidebarFilters}
+                />
+              )}
+            </div>
+          )}
+          {showKpiCskhTab && (
+            <div id="tab-kpi-cskh" className={`tab-content ${activeTab === 'kpi-cskh' ? 'active' : ''}`}>
+              {activeTab === 'kpi-cskh' && (
+                <iframe
+                  ref={kpiCskhIframeRef}
+                  title="KPIs CSKH"
+                  className="nssl-iframe-kpi"
+                  src={iframeKpiCskh}
+                  loading="lazy"
+                  allow="clipboard-read; clipboard-write"
+                  onLoad={postKpiCskhSidebarFilters}
+                />
+              )}
+            </div>
+          )}
           <div id="tab-thu-cong" className={`tab-content ${activeTab === 'thu-cong' ? 'active' : ''}`}>
             {activeTab === 'thu-cong' && (
               <iframe title="Báo cáo thủ công" className="nssl-iframe-thucong" src={iframeThuCong} loading="lazy" />
