@@ -83,6 +83,7 @@ const DB_TO_APP_MAPPING = {
   reconciled_vnd: 'Tiền Việt đã đối soát',
   ngay_doi_soat_bill: 'Ngày đối soát bill',
   ngay_doi_soat_cuoc: 'Ngày đối soát cước',
+  cskh: 'CSKH',
   cskh_status: 'Trạng thái cskh',
   log: 'Nhật ký',
   ffm_log: 'Lịch sử FFM',

@@ -41,6 +41,7 @@ export const SALES_REPORTS_API_BASE = 'https://lumidataapi.vercel.app';
  * KPIVandon.html vẫn dùng cho báo cáo Bộ phận Vận đơn.
  */
 export const NSSL_KPI_EMBED_PATH = '/baocao-vandon-nv/KPISale.html';
+export const NSSL_KPI_CSKH_EMBED_PATH = '/baocao-vandon-nv/KPICSKH.html';
 export const NSSL_IFRAME_THU_CONG = 'https://nguyenbatyads37.github.io/static-html-show-data/baoCaoThuCong.html';
 /** Host `/xem-bao-cao-sale` → iframe KPIs: đồng bộ bộ lọc thanh trái. */
 export const NSSL_KPI_FILTERS_MSG_TYPE = 'LUMINEW_NSSL_KPI_FILTERS';
@@ -62,9 +63,30 @@ function buildKpiSaleEmbedUrl(idAppsheet, title) {
   return `${window.location.origin}${NSSL_KPI_EMBED_PATH}?${params.toString()}`;
 }
 
+function buildKpiCskhEmbedUrl(idAppsheet, title) {
+  const params = new URLSearchParams({
+    view: 'vandon',
+    table: 'orders',
+    dept: 'CSKH',
+    teamLock: 'CSKH-HN',
+    hideFilters: '1',
+  });
+  if (title) params.set('title', title);
+  if (idAppsheet) params.set('id', String(idAppsheet));
+  if (typeof window === 'undefined') {
+    return `${NSSL_KPI_CSKH_EMBED_PATH}?${params.toString()}`;
+  }
+  return `${window.location.origin}${NSSL_KPI_CSKH_EMBED_PATH}?${params.toString()}`;
+}
+
 /** URL iframe KPIs Sale = KPISale.html, nhân sự Bộ phận Sale. */
 export function buildKpiEmbedUrl(idAppsheet) {
   return buildKpiSaleEmbedUrl(idAppsheet, 'KPI Sale');
+}
+
+/** URL iframe KPIs CSKH = KPICSKH.html, Team = CSKH-HN, khớp cột Nhân viên Sale. */
+export function buildKpiCskhEmbedUrlForSalePage(idAppsheet) {
+  return buildKpiCskhEmbedUrl(idAppsheet, 'KPI CSKH');
 }
 
 export function formatCurrency(value) {

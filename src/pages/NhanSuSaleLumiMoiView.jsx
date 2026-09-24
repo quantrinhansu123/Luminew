@@ -21,6 +21,7 @@ import {
   NSSL_KPI_FILTERS_MSG_TYPE,
   NSSL_KPI_READY_MSG_TYPE,
   buildKpiEmbedUrl,
+  buildKpiCskhEmbedUrlForSalePage,
   fetchLatestSalesReportNDayRange,
   fetchSalesReportsMapped,
   getLastNDaysRangeLocal,
@@ -620,8 +621,10 @@ export default function NhanSuSaleLumiMoiView({
   ]);
 
   const [iframeKpi, setIframeKpi] = useState(() => buildKpiEmbedUrl(''));
+  const [iframeKpiCskh, setIframeKpiCskh] = useState(() => buildKpiCskhEmbedUrlForSalePage(''));
   const [iframeThuCong, setIframeThuCong] = useState('about:blank');
   const kpiIframeRef = useRef(null);
+  const kpiCskhIframeRef = useRef(null);
 
   /**
    * Tên nhân sự được phép xem (users.selected_personnel → khớp cột name/ten trên dòng báo cáo).
@@ -962,6 +965,7 @@ export default function NhanSuSaleLumiMoiView({
       setCurrentUserInfo(null);
       setShowThuCongTab(false);
       setIframeKpi(buildKpiEmbedUrl(''));
+      setIframeKpiCskh(buildKpiCskhEmbedUrlForSalePage(''));
       setReportTitle('DỮ LIỆU TỔNG HỢP');
       setAllowedUserEmail(null);
       if (mapped.length === 0) {
@@ -1059,6 +1063,7 @@ export default function NhanSuSaleLumiMoiView({
     setShowThuCongTab(showThu);
 
     setIframeKpi(buildKpiEmbedUrl(idFromUrl));
+    setIframeKpiCskh(buildKpiCskhEmbedUrlForSalePage(idFromUrl));
 
     if (!currentUserRecord) {
       lastFullFilterResetIdRef.current = null;
@@ -1459,9 +1464,18 @@ export default function NhanSuSaleLumiMoiView({
     );
   }, [postMessageToIframe, buildSidebarFilterMessage]);
 
+  const postKpiCskhSidebarFilters = useCallback(() => {
+    // Team khóa CSKH-HN trong iframe — không đẩy team lọc Sale từ thanh trái.
+    postMessageToIframe(
+      kpiCskhIframeRef,
+      buildSidebarFilterMessage({ includeNameFilter: true, includeTeamFilter: false })
+    );
+  }, [postMessageToIframe, buildSidebarFilterMessage]);
+
   useEffect(() => {
     if (activeTab === 'kpi-sale') postKpiSidebarFilters();
-  }, [activeTab, postKpiSidebarFilters]);
+    if (activeTab === 'kpi-cskh') postKpiCskhSidebarFilters();
+  }, [activeTab, postKpiSidebarFilters, postKpiCskhSidebarFilters]);
 
   useEffect(() => {
     const onMessage = (event) => {
@@ -1470,10 +1484,11 @@ export default function NhanSuSaleLumiMoiView({
       if (!data || typeof data !== 'object') return;
       if (data.type !== NSSL_KPI_READY_MSG_TYPE) return;
       if (activeTab === 'kpi-sale') postKpiSidebarFilters();
+      if (activeTab === 'kpi-cskh') postKpiCskhSidebarFilters();
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [activeTab, postKpiSidebarFilters]);
+  }, [activeTab, postKpiSidebarFilters, postKpiCskhSidebarFilters]);
 
   const toggleMaster = (all, setAll, setSel) => {
     if (all) {
@@ -1946,6 +1961,13 @@ restrictedForPopulate,
             >
               KPIs Sale
             </button>
+            <button
+              type="button"
+              className={`tab-button ${activeTab === 'kpi-cskh' ? 'active' : ''}`}
+              onClick={() => onTabClick('kpi-cskh')}
+            >
+              KPIs CSKH
+            </button>
             {showThuCongTab && (
               <button
                 type="button"
@@ -2168,6 +2190,19 @@ restrictedForPopulate,
                 loading="lazy"
                 allow="clipboard-read; clipboard-write"
                 onLoad={postKpiSidebarFilters}
+              />
+            )}
+          </div>
+          <div id="tab-kpi-cskh" className={`tab-content ${activeTab === 'kpi-cskh' ? 'active' : ''}`}>
+            {activeTab === 'kpi-cskh' && (
+              <iframe
+                ref={kpiCskhIframeRef}
+                title="KPIs CSKH"
+                className="nssl-iframe-kpi"
+                src={iframeKpiCskh}
+                loading="lazy"
+                allow="clipboard-read; clipboard-write"
+                onLoad={postKpiCskhSidebarFilters}
               />
             )}
           </div>
