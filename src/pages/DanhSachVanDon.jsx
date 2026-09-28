@@ -1371,37 +1371,38 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             {showU1HistoryModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
                     <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
-                        <div className="flex items-center justify-between border-b px-5 py-4">
-                            <div>
-                                <h2 className="flex items-center gap-2 text-lg font-bold text-gray-800">
-                                    <Clock className="h-5 w-5 text-indigo-600" />
-                                    Lịch sử bật/tắt U1
+                        <div className="border-b px-5 py-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <h2 className="flex min-w-0 items-center gap-2 text-lg font-bold leading-none text-gray-800">
+                                    <Clock className="h-5 w-5 shrink-0 text-indigo-600" />
+                                    <span className="truncate">Lịch sử bật/tắt U1</span>
                                 </h2>
-                                <p className="mt-0.5 text-xs text-gray-500">
-                                    Khoảng {startDate} → {endDate}
-                                    {branchFilter || isHcmView ? ` · ${isHcmView ? 'HCM' : branchFilter}` : ' · Tất cả chi nhánh'}
-                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowU1HistoryModal(false)}
+                                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                                    aria-label="Đóng"
+                                >
+                                    <X className="h-5 w-5" />
+                                </button>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowU1HistoryModal(false)}
-                                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                            >
-                                <X className="h-5 w-5" />
-                            </button>
+                            <p className="mt-1.5 pl-7 text-xs leading-snug text-gray-500">
+                                Khoảng {startDate} → {endDate}
+                                {branchFilter || isHcmView ? ` · ${isHcmView ? 'HCM' : branchFilter}` : ' · Tất cả chi nhánh'}
+                            </p>
                         </div>
 
-                        <div className="flex items-center justify-between gap-2 border-b bg-gray-50 px-5 py-2">
-                            <span className="text-xs text-gray-600">
+                        <div className="flex h-10 items-center justify-between gap-2 border-b bg-gray-50 px-5">
+                            <span className="text-xs leading-none text-gray-600">
                                 {u1HistoryRows.length} thao tác
                             </span>
                             <button
                                 type="button"
                                 onClick={loadU1History}
                                 disabled={u1HistoryLoading}
-                                className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium leading-none text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                             >
-                                <RefreshCw className={`h-3.5 w-3.5 ${u1HistoryLoading ? 'animate-spin' : ''}`} />
+                                <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${u1HistoryLoading ? 'animate-spin' : ''}`} />
                                 Tải lại
                             </button>
                         </div>
