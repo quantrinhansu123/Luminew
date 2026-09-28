@@ -106,6 +106,12 @@ function isUsersTableHanoiBranch(branch) {
   return n.includes('ha noi') || n.includes('hanoi') || n === 'hn';
 }
 
+function isUsersTableHcmBranch(branch) {
+  const n = normalizeKeyVi(branch);
+  if (!n) return false;
+  return n === 'hcm' || n === 'tphcm' || n === 'tp hcm' || n.includes('hcm') || n.includes('ho chi minh');
+}
+
 /** Chuẩn hóa tên để khớp `users.name` với cột `Tên` báo cáo. */
 function normMktPersonNameForTeamLookup(s) {
   return normalizeKeyVi(String(s ?? '').trim().replace(/\s+/g, ' '));
@@ -268,6 +274,8 @@ export default function BaoCaoMarketing({
     employeeDetails: [],
     /** Nhân viên lấy từ bảng `users`: bộ phận MKT + chi nhánh Hà Nội (ưu tiên cho cột Tên). */
     mktHnUserEmployees: [],
+    /** Nhân viên `users`: bộ phận MKT + chi nhánh HCM — dropdown Tên trên báo cáo HCM. */
+    mktHcmUserEmployees: [],
     /** Sheet / fallback khi không có user MKT HN trong DB */
     sheetLookupEmployees: [],
     shiftList: [...REPORT_CA_SHIFT_OPTIONS],
@@ -417,15 +425,16 @@ export default function BaoCaoMarketing({
 
 
 
-  /** Danh sách Tên/Email/Team: ưu tiên Supabase `users` (department MKT, branch Hà Nội); Tên chỉ lấy từ `name`. */
-  const fetchMktHanoiUsersFromSupabase = async () => {
+  /** Danh sách Tên/Email/Team từ `users`: bộ phận MKT, lọc chi nhánh HN hoặc HCM. Tên chỉ lấy từ `name`. */
+  const fetchMktBranchUsersFromSupabase = async (branchMode) => {
+    const matchBranch = branchMode === 'hcm' ? isUsersTableHcmBranch : isUsersTableHanoiBranch;
     const { data, error } = await supabase
       .from('users')
       .select('name, email, department, branch, team, id_appsheet')
       .order('name', { ascending: true });
 
     if (error) {
-      console.error('BaoCaoMarketing — users (MKT HN):', error);
+      console.error(`BaoCaoMarketing — users (MKT ${branchMode}):`, error);
       return [];
     }
 
@@ -434,7 +443,7 @@ export default function BaoCaoMarketing({
         (u) =>
           String(u.email || '').trim() &&
           isUsersTableMktDepartment(u.department) &&
-          isUsersTableHanoiBranch(u.branch)
+          matchBranch(u.branch)
       )
       .map((u) => ({
         name: String(u.name ?? '').trim(),
@@ -546,25 +555,38 @@ export default function BaoCaoMarketing({
 
   const initializeApp = async (email, hoten) => {
     try {
-      updateStatus('Đang tải nhân viên MKT Hà Nội (bảng users)…');
-      const [usersMktHn, hrRes] = await Promise.all([
-        fetchMktHanoiUsersFromSupabase(),
+      const branchMode = isHcmReport ? 'hcm' : 'hn';
+      updateStatus(
+        isHcmReport
+          ? 'Đang tải nhân viên MKT HCM (bảng users)…'
+          : 'Đang tải nhân viên MKT Hà Nội (bảng users)…'
+      );
+      const [usersMktBranch, hrRes] = await Promise.all([
+        fetchMktBranchUsersFromSupabase(branchMode),
         supabase.from('human_resources').select('"Họ Và Tên", email, "Bộ phận"'),
       ]);
 
       let employees;
       let sheetLookup;
-      if (usersMktHn.length > 0) {
-        employees = usersMktHn;
-        sheetLookup = usersMktHn;
-        updateStatus(`Đã tải ${usersMktHn.length} user — MKT, chi nhánh Hà Nội (bảng users).`);
-      } else {
+      if (usersMktBranch.length > 0) {
+        employees = usersMktBranch;
+        sheetLookup = usersMktBranch;
+        updateStatus(
+          isHcmReport
+            ? `Đã tải ${usersMktBranch.length} user — MKT, chi nhánh HCM (bảng users).`
+            : `Đã tải ${usersMktBranch.length} user — MKT, chi nhánh Hà Nội (bảng users).`
+        );
+      } else if (!isHcmReport) {
         const fetchPack = await fetchEmployeeList();
         employees = fetchPack.mktEmployees || [];
         sheetLookup = fetchPack.sheetLookupEmployees || [];
         if (!employees.length && !sheetLookup.length) {
           updateStatus('Không có user MKT HN trong users và không tải được Sheet — kiểm tra RLS / dữ liệu.', true);
         }
+      } else {
+        employees = [];
+        sheetLookup = [];
+        updateStatus('Không có user MKT HCM trong bảng users — kiểm tra chi nhánh / bộ phận.', true);
       }
 
       if (hrRes.error) {
@@ -595,7 +617,8 @@ export default function BaoCaoMarketing({
 
       setAppData((prev) => ({
         ...prev,
-        mktHnUserEmployees: usersMktHn,
+        mktHnUserEmployees: isHcmReport ? prev.mktHnUserEmployees : usersMktBranch,
+        mktHcmUserEmployees: isHcmReport ? usersMktBranch : prev.mktHcmUserEmployees,
         employeeDetails: employees,
         sheetLookupEmployees: sheetLookup,
       }));
@@ -633,7 +656,17 @@ export default function BaoCaoMarketing({
       const employeeName = employee?.name || hoten || '';
       const firstRow = createRowData({ Tên: employeeName }, employees, hrLookup, sheetLookup);
       const login = String(email || '').trim();
-      if (login) firstRow.data['Email'] = login;
+      if (isHcmReport) {
+        const matchedEmail = resolveEmailFromPersonName(
+          firstRow.data['Tên'],
+          sheetLookup.length > 0 ? sheetLookup : employees,
+          hrLookup,
+          ''
+        );
+        firstRow.data['Email'] = matchedEmail || login;
+      } else if (login) {
+        firstRow.data['Email'] = login;
+      }
       if (fetchedTeam) firstRow.data['Team'] = fetchedTeam;
       setTableRows([firstRow]);
       updateStatus('Ứng dụng đã sẵn sàng.');
@@ -683,11 +716,13 @@ export default function BaoCaoMarketing({
     const byNameList =
       (sheetLookupOverride && sheetLookupOverride.length > 0
         ? sheetLookupOverride
-        : appData.mktHnUserEmployees && appData.mktHnUserEmployees.length > 0
-          ? appData.mktHnUserEmployees
-          : appData.sheetLookupEmployees && appData.sheetLookupEmployees.length > 0
-            ? appData.sheetLookupEmployees
-            : employees) || [];
+        : isHcmReport && appData.mktHcmUserEmployees && appData.mktHcmUserEmployees.length > 0
+          ? appData.mktHcmUserEmployees
+          : appData.mktHnUserEmployees && appData.mktHnUserEmployees.length > 0
+            ? appData.mktHnUserEmployees
+            : appData.sheetLookupEmployees && appData.sheetLookupEmployees.length > 0
+              ? appData.sheetLookupEmployees
+              : employees) || [];
 
     let employeeToUse = null;
 
@@ -719,8 +754,8 @@ export default function BaoCaoMarketing({
       data['Tên'] = sessionUserName;
     }
 
-    // User thường: Tên theo profile đăng nhập; Email luôn email đăng nhập (xử lý cuối hàm)
-    if (!canEditMktReporterName(role)) {
+    // User thường (HN): Tên theo profile đăng nhập. HCM: được chọn tên MKT để báo cáo hộ.
+    if (!isHcmReport && !canEditMktReporterName(role)) {
       if (sessionUserName) data['Tên'] = sessionUserName || data['Tên'];
       if (!employeeToUse) {
         const forcedEmp =
@@ -739,7 +774,11 @@ export default function BaoCaoMarketing({
     }
 
     const loginEm = String(userEmail || '').trim();
-    if (loginEm) {
+    if (isHcmReport) {
+      const matchedEmail = resolveEmailFromPersonName(data['Tên'], byNameList, lookup, '');
+      const hasName = !!String(data['Tên'] || '').trim();
+      data['Email'] = hasName ? matchedEmail : matchedEmail || loginEm;
+    } else if (loginEm) {
       data['Email'] = loginEm;
     } else if (data['Tên'] && !String(data['Email'] || '').trim()) {
       data['Email'] = resolveEmailFromPersonName(data['Tên'], byNameList, lookup, '');
@@ -1067,15 +1106,17 @@ export default function BaoCaoMarketing({
   };
 
   const getMktNameLookup = () =>
-    appData.mktHnUserEmployees?.length > 0
-      ? appData.mktHnUserEmployees
-      : appData.sheetLookupEmployees?.length > 0
-        ? appData.sheetLookupEmployees
-        : appData.employeeDetails || [];
+    isHcmReport && appData.mktHcmUserEmployees?.length > 0
+      ? appData.mktHcmUserEmployees
+      : appData.mktHnUserEmployees?.length > 0
+        ? appData.mktHnUserEmployees
+        : appData.sheetLookupEmployees?.length > 0
+          ? appData.sheetLookupEmployees
+          : appData.employeeDetails || [];
 
   /** Đồng bộ Email/Team/id_NS khi chọn từ datalist (một số trình duyệt chỉ hoàn tất giá trị lúc blur). */
   const syncTenColumnFromInput = (index, value) => {
-    if (!canEditMktReporterName(role)) return;
+    if (!isHcmReport && !canEditMktReporterName(role)) return;
 
     const nameLookup = getMktNameLookup();
     setTableRows((prev) => {
@@ -1097,8 +1138,12 @@ export default function BaoCaoMarketing({
           newRows[index].data['Chi nhánh'] = byEmail.branch || '';
         }
       }
-      const le = String(userEmail || '').trim();
-      if (le) newRows[index].data['Email'] = le;
+      if (isHcmReport) {
+        newRows[index].data['Email'] = resolveEmailFromPersonName(v, nameLookup, hrEmailLookup, '');
+      } else {
+        const le = String(userEmail || '').trim();
+        if (le) newRows[index].data['Email'] = le;
+      }
       let stampT = String(loginUserTeam || '').trim();
       if (!stampT) {
         try {
@@ -1117,7 +1162,7 @@ export default function BaoCaoMarketing({
       (role || '').toLowerCase()
     );
     if (field === 'Email' && !strictManager) return;
-    if (field === 'Tên' && !canEditMktReporterName(role)) return;
+    if (field === 'Tên' && !isHcmReport && !canEditMktReporterName(role)) return;
 
     let lsTeam = '';
     try {
@@ -1151,6 +1196,9 @@ export default function BaoCaoMarketing({
           newRows[index].data['Chi nhánh'] = byEmail.branch || '';
         }
       }
+      if (isHcmReport) {
+        newRows[index].data['Email'] = resolveEmailFromPersonName(value, nameLookup, hrEmailLookup, '');
+      }
     }
 
     if (field === 'Email') {
@@ -1162,7 +1210,7 @@ export default function BaoCaoMarketing({
       }
     }
 
-    if (loginEm) {
+    if (!isHcmReport && loginEm) {
       newRows[index].data['Email'] = loginEm;
     }
     if (stampTeam) {
@@ -1527,15 +1575,17 @@ export default function BaoCaoMarketing({
 
           rowObject.id = row.id;
 
-          // Email theo Tên (user / dòng nhập) → HR → sheet → userEmail
-          const nameLookup =
-            appData.mktHnUserEmployees?.length > 0
-              ? appData.mktHnUserEmployees
-              : appData.sheetLookupEmployees?.length > 0
-                ? appData.sheetLookupEmployees
-                : appData.employeeDetails;
+          const nameLookup = getMktNameLookup();
 
-          if (submitLogin) {
+          if (isHcmReport) {
+            const matchedEmail = resolveEmailFromPersonName(
+              rowObject['Tên'],
+              nameLookup,
+              hrEmailLookup,
+              ''
+            );
+            rowObject['Email'] = matchedEmail || String(row.data?.['Email'] || '').trim();
+          } else if (submitLogin) {
             rowObject['Email'] = submitLogin;
           } else if (!String(rowObject['Email'] || '').trim()) {
             rowObject['Email'] = resolveEmailFromPersonName(
@@ -1655,7 +1705,7 @@ export default function BaoCaoMarketing({
   const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số'];
   const hiddenFields = ['id', 'id phản hồi', 'id số mess', 'id_ns', 'trạng thái', 'chi nhánh', 'doanh số đi', 'số đơn hoàn huỷ', 'số đơn hoàn hủy', 'doanh số hoàn huỷ', 'số đơn thành công', 'doanh số thành công', 'khách mới', 'khách cũ', 'bán chéo', 'bán chéo team', 'ds chốt', 'ds sau hoàn hủy', 'số đơn sau hoàn hủy', 'doanh số sau ship', 'doanh số tc', 'kpis', 'cpqc theo tkqc', 'báo cáo theo page', 'cảnh báo', 'số đơn thực tế', 'doanh số thực tế'];
 
-  const canPickMktReporterName = canEditMktReporterName(role);
+  const canPickMktReporterName = isHcmReport || canEditMktReporterName(role);
 
   /**
    * Gợi ý cột Tên: users MKT HN + tên MKT trong human_resources (khớp cách viết HR);
@@ -1663,34 +1713,49 @@ export default function BaoCaoMarketing({
    */
   const mktTenSelectOptions = useMemo(() => {
     const set = new Set();
-    const primary = appData.mktHnUserEmployees || [];
-    if (primary.length > 0) {
-      primary.forEach((e) => {
+    if (isHcmReport) {
+      (appData.mktHcmUserEmployees || []).forEach((e) => {
         const n = String(e?.name || '').trim();
         if (n) set.add(n);
-      });
-      (hrMktDisplayNames || []).forEach((n) => {
-        const t = String(n || '').trim();
-        if (t) set.add(t);
       });
     } else {
-      (appData.sheetLookupEmployees || []).forEach((e) => {
-        const n = String(e?.name || '').trim();
-        if (n) set.add(n);
-      });
-      (hrAllDisplayNames || []).forEach((n) => {
-        const t = String(n || '').trim();
-        if (t) set.add(t);
-      });
+      const primary = appData.mktHnUserEmployees || [];
+      if (primary.length > 0) {
+        primary.forEach((e) => {
+          const n = String(e?.name || '').trim();
+          if (n) set.add(n);
+        });
+        (hrMktDisplayNames || []).forEach((n) => {
+          const t = String(n || '').trim();
+          if (t) set.add(t);
+        });
+      } else {
+        (appData.sheetLookupEmployees || []).forEach((e) => {
+          const n = String(e?.name || '').trim();
+          if (n) set.add(n);
+        });
+        (hrAllDisplayNames || []).forEach((n) => {
+          const t = String(n || '').trim();
+          if (t) set.add(t);
+        });
+      }
+      const session = getDisplayNameFromStoredUser();
+      if (session) set.add(session);
     }
-    const session = getDisplayNameFromStoredUser();
-    if (session) set.add(session);
     (tableRows || []).forEach((r) => {
       const t = String(r?.data?.Tên || '').trim();
       if (t) set.add(t);
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
-  }, [appData.mktHnUserEmployees, appData.sheetLookupEmployees, hrAllDisplayNames, hrMktDisplayNames, tableRows]);
+  }, [
+    isHcmReport,
+    appData.mktHnUserEmployees,
+    appData.mktHcmUserEmployees,
+    appData.sheetLookupEmployees,
+    hrAllDisplayNames,
+    hrMktDisplayNames,
+    tableRows,
+  ]);
 
   /** Email trong datalist: nhân viên form + mọi email human_resources (khớp khi Tên lấy từ HR). */
   const emailDatalistValues = useMemo(() => {
@@ -1737,7 +1802,7 @@ export default function BaoCaoMarketing({
       const strictManager = ['admin', 'director', 'manager', 'super_admin', 'administrator'].includes(
         (role || '').toLowerCase()
       );
-      const canPick = canEditMktReporterName(role);
+      const canPick = isHcmReport || canEditMktReporterName(role);
       const loginEm = String(userEmail || '').trim();
       let lsTeam = '';
       try {
@@ -1823,6 +1888,9 @@ export default function BaoCaoMarketing({
                 next[idx].data['id_NS'] = employee.id_ns || '';
                 next[idx].data['Chi nhánh'] = employee.branch || '';
               }
+              if (isHcmReport) {
+                next[idx].data['Email'] = resolveEmailFromPersonName(outVal, nameLookup, hrEmailLookup, '');
+              }
             }
 
             if (['Ngày', 'Tên', 'ca', 'Sản_phẩm', 'Thị_trường'].includes(col)) {
@@ -1865,7 +1933,7 @@ export default function BaoCaoMarketing({
         });
       }
     },
-    [visibleMktHeaders, role, userEmail, loginUserTeam, employeeNameFromUrl]
+    [visibleMktHeaders, role, userEmail, loginUserTeam, employeeNameFromUrl, isHcmReport, hrEmailLookup]
   );
 
   const mktReportGridTemplate = [MKT_REPORT_ACTION_COL, ...visibleMktHeaders.map(mktReportGridColWidth)].join(' ');
@@ -1936,6 +2004,17 @@ export default function BaoCaoMarketing({
       );
     }
     if (header === 'Email') {
+      if (isHcmReport) {
+        return (
+          <input
+            type="email"
+            readOnly
+            value={String(row.data[header] || '').trim()}
+            className={`${mktInputCls} cursor-default bg-gray-100 text-gray-700`}
+            title="Email tự điền theo tên MKT HCM đã chọn"
+          />
+        );
+      }
       const loginEm = String(userEmail || '').trim();
       const display = loginEm || String(row.data[header] || '').trim();
       return (
@@ -1952,6 +2031,26 @@ export default function BaoCaoMarketing({
       );
     }
     if (header === 'Tên') {
+      if (isHcmReport) {
+        const cur = String(row.data[header] || '').trim();
+        const list = mktTenSelectOptions;
+        const head = cur && !list.includes(cur) ? [cur] : [];
+        return (
+          <select
+            value={cur}
+            onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+            className={`${mktInputCls} bg-white`}
+            title="Chọn tên MKT HCM để báo cáo hộ — Email tự điền theo tên"
+          >
+            <option value="">-- Chọn tên MKT HCM --</option>
+            {[...head, ...list].map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        );
+      }
       if (canPickMktReporterName) {
         return (
           <input
