@@ -103,7 +103,10 @@ function getDanhSachDonDateFilterMeta(dateFilterType) {
 const DANH_SACH_DON_HCM_EXTRA_SELECT_COLUMNS = [
   'feedback_pos',
   'feedback_neg',
+  'vandon_note',
 ];
+
+const DANH_SACH_DON_HCM_VAN_DON_NOTE_COLUMN = 'Ghi chú vận đơn';
 
 function getDanhSachDonSelectColumns(ordersTableName) {
   const columns = [...DANH_SACH_DON_BASE_SELECT_COLUMNS];
@@ -435,6 +438,18 @@ function orderColumnsByDanhSachDonTemplate(cols, { includeAllDefaultTemplate = f
   return ordered.concat(extras);
 }
 
+/** Đặt «Ghi chú vận đơn» cạnh cột vận đơn, không để cuối danh sách cột lạ. */
+function placeHcmVanDonNoteColumn(cols) {
+  const col = DANH_SACH_DON_HCM_VAN_DON_NOTE_COLUMN;
+  if (!cols.includes(col)) return cols;
+  const without = cols.filter((c) => c !== col);
+  const anchor = ['NV Vận đơn', 'Ghi chú', 'Mã Tracking'].find((name) => without.includes(name));
+  if (!anchor) return [...without, col];
+  const index = without.indexOf(anchor);
+  without.splice(index + 1, 0, col);
+  return without;
+}
+
 /**
  * Cùng phạm vi đơn như loadData: team, nhân sự, khoảng ngày (order_date hoặc ngay_chia_van_don).
  * Với order_date: thêm đơn order_date null nhưng created_at trong khoảng.
@@ -761,7 +776,13 @@ function DanhSachDon({ dataSource = 'default' }) {
   /** Tên NV vận đơn chuẩn từ master (users/danh_sach_van_don) — luôn có trong dropdown lọc chia vận đơn */
   const [vanDonStaffMasterNames, setVanDonStaffMasterNames] = useState([]);
 
-  const defaultColumns = DANH_SACH_DON_DEFAULT_VISIBLE_COLUMNS;
+  const defaultColumns = useMemo(
+    () =>
+      isHcmView
+        ? [...DANH_SACH_DON_DEFAULT_VISIBLE_COLUMNS, DANH_SACH_DON_HCM_VAN_DON_NOTE_COLUMN]
+        : DANH_SACH_DON_DEFAULT_VISIBLE_COLUMNS,
+    [isHcmView]
+  );
 
   // Debounce search text for better performance
   useEffect(() => {
@@ -801,6 +822,10 @@ function DanhSachDon({ dataSource = 'default' }) {
       }
     });
 
+    if (isHcmView) {
+      allKeys.add(DANH_SACH_DON_HCM_VAN_DON_NOTE_COLUMN);
+    }
+
     // Sắp cột theo mẫu cố định (không xếp A→Z giữa các cột mặc định).
     const knownOrdered = DANH_SACH_DON_FULL_DISPLAY_ORDER.filter((col) => allKeys.has(col));
     const unknown = Array.from(allKeys)
@@ -808,7 +833,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
 
     return [...knownOrdered, ...unknown];
-  }, [allData, defaultColumns.join('|')]);
+  }, [allData, defaultColumns.join('|'), isHcmView]);
 
   // Default columns
 
@@ -852,8 +877,9 @@ function DanhSachDon({ dataSource = 'default' }) {
   // Update displayColumns based on visibleColumns (HCM: khớp thứ tự mẫu 22 cột / Excel)
   const displayColumns = useMemo(() => {
     const visible = allAvailableColumns.filter((col) => visibleColumns[col] === true);
-    return orderColumnsByDanhSachDonTemplate(visible);
-  }, [allAvailableColumns, visibleColumns]);
+    const ordered = orderColumnsByDanhSachDonTemplate(visible);
+    return isHcmView ? placeHcmVanDonNoteColumn(ordered) : ordered;
+  }, [allAvailableColumns, visibleColumns, isHcmView]);
 
   // Clean up hidden columns from visibleColumns and ensure default columns exist
   useEffect(() => {
@@ -953,6 +979,9 @@ function DanhSachDon({ dataSource = 'default' }) {
     check_result: String(item.check_result ?? '').trim(),
     "Kết quả Check": item.check_result || item.payment_status, // Hiển thị lưới: ưu tiên check_result, fallback payment_status
     "Ghi chú": item.note,
+    "Ghi chú vận đơn": item.vandon_note || '',
+    /** COLUMN_MAPPING đổi «Ghi chú vận đơn» → «Ghi chú của VĐ» khi đọc ô. */
+    "Ghi chú của VĐ": item.vandon_note || '',
     "Phản hồi tích cực": item.feedback_pos || '',
     "Phản hồi tiêu cực": item.feedback_neg || '',
     "CSKH": item.cskh,
@@ -4882,8 +4911,12 @@ function DanhSachDon({ dataSource = 'default' }) {
                         return (
                           <td
                             key={col}
-                            className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50 transition-colors ${
-                              col === 'Loại tiền thanh toán' ? 'w-[150px]' : ''
+                            className={`px-4 py-3 text-sm text-gray-900 cursor-copy hover:bg-blue-50 transition-colors ${
+                              col === 'Loại tiền thanh toán'
+                                ? 'w-[150px] whitespace-nowrap'
+                                : col === DANH_SACH_DON_HCM_VAN_DON_NOTE_COLUMN
+                                  ? 'min-w-[12rem] max-w-[18rem] whitespace-normal'
+                                  : 'whitespace-nowrap'
                             }`}
                             title={`${value || '-'} (Click để copy)`}
                             onClick={(e) => {
