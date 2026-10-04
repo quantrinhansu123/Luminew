@@ -262,7 +262,7 @@ function sanitizeExcelTsvCell(raw, opts = {}) {
   return s;
 }
 
-/** Một dòng tiền cho header «Tổng tiền»: ưu tiên ô «Tổng tiền VNĐ»; sau đó cùng logic DB (line → nullif tong → total → …). */
+/** Một dòng tiền cho header «Tổng tiền»: chỉ ô «Tổng tiền VNĐ» / `total_amount_vnd`. */
 function pickVanDonRowMoneyVnd(row) {
   if (!row) return 0;
   const displayedCandidates = [

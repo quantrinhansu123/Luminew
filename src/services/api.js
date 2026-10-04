@@ -280,30 +280,16 @@ export const mapSupabaseOrderToApp = (sOrder) => {
 };
 
 /**
- * Tiền một dòng DB cho tổng / lưới — khớp COALESCE(line, NULLIF(tong_tien_vnd,0), total, sale, goods).
- * Trang Vận đơn map «Tổng tiền VNĐ» → total_amount_vnd; SUM van_don_line_total_vnd toàn bảng dễ thấp hơn tổng cột đó.
+ * Tiền một dòng cho header «Tổng tiền» — chỉ `total_amount_vnd`, khớp cột «Tổng tiền VNĐ» trên lưới.
  */
 export function resolveVanDonMoneyVndFromDbRow(r) {
     if (!r || typeof r !== 'object') return 0;
-    if (r.van_don_line_total_vnd != null && r.van_don_line_total_vnd !== '') {
-        const v = Number(r.van_don_line_total_vnd);
-        if (!Number.isNaN(v)) return v;
-    }
-    const rawTong = r.tong_tien_vnd ?? r.tong_tien_VND;
-    if (rawTong != null && rawTong !== '' && !Number.isNaN(Number(rawTong))) {
-        const tn = Number(rawTong);
-        if (tn !== 0) return tn;
-    }
-    const candidates = [r.total_amount_vnd, r.sale_price, r.goods_amount];
-    for (let i = 0; i < candidates.length; i++) {
-        const raw = candidates[i];
-        if (raw === undefined || raw === null) continue;
-        if (typeof raw === 'string' && raw.trim() === '') continue;
-        if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
-        const n = parseVietnameseMoneyToNumber(raw);
-        if (n != null && Number.isFinite(n)) return n;
-    }
-    return 0;
+    const raw = r.total_amount_vnd;
+    if (raw === undefined || raw === null) return 0;
+    if (typeof raw === 'string' && raw.trim() === '') return 0;
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    const n = parseVietnameseMoneyToNumber(raw);
+    return n != null && Number.isFinite(n) ? n : 0;
 }
 
 function pickVanDonMoneyFromDbRow(r) {
@@ -401,31 +387,8 @@ function applyVanDonBillPaidFilter(query, billOr, moneyOr) {
     return query.filter('and', vanDonBillPaidAndFilterValue(billOr, moneyOr));
 }
 
-/** Cột SUM trên order_code_hcm — tránh aggregate cột generated gây 400 trên một số project. */
-function vanDonMoneySumSelectForTable(tableName) {
-    if (tableName === 'order_code_hcm') {
-        return 'total_amount_vnd.sum(),tong_tien_vnd.sum()';
-    }
-    return 'total_amount_vnd.sum(),van_don_line_total_vnd.sum(),tong_tien_vnd.sum()';
-}
-
-/** Một response PostgREST với nhiều `.sum()` — ví dụ `total_amount_vnd.sum`, `van_don_line_total_vnd.sum`. */
-function extractVanDonMoneyAggregateSums(data) {
-    const row = unwrapPostgrestAggregateRow(data);
-    if (row == null || typeof row !== 'object') {
-        return { totalRaw: null, lineRaw: null, tongRaw: null };
-    }
-    const num = (v) => {
-        if (v === null || v === undefined || v === '') return null;
-        const n = typeof v === 'number' ? v : Number(v);
-        return Number.isFinite(n) ? n : null;
-    };
-    return {
-        totalRaw: num(row['total_amount_vnd.sum']),
-        lineRaw: num(row['van_don_line_total_vnd.sum']),
-        tongRaw: num(row['tong_tien_vnd.sum']),
-    };
-}
+/** Header «Tổng tiền» chỉ SUM `total_amount_vnd` — không cộng line / tong_tien. */
+const VAN_DON_MONEY_SUM_SELECT = 'total_amount_vnd.sum()';
 
 const PROD_HOST = 'https://n-api-gamma.vercel.app';
 // const LOCAL_HOST = 'http://localhost:8081'; 
@@ -1740,113 +1703,34 @@ export const fetchVanDon = async (options = {}) => {
         const loadVanDonFromTable = async (tableName) => {
             const selectCols =
                 tableName === 'order_code_hcm' ? VAN_DON_SELECT_QUERY_ORDER_CODE_HCM : VAN_DON_SELECT_QUERY;
-            /** SUM trên bảng vật lý: ưu tiên total_amount_vnd — khớp cột «Tổng tiền VNĐ» trên lưới (không dùng line total trước). */
+            /** SUM trên bảng vật lý: chỉ `total_amount_vnd`, khớp cột «Tổng tiền VNĐ». */
             const sumFromTable = tableName === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
             const isHcmSumTable = sumFromTable === 'order_code_hcm';
-            const sumMoneyCombinedQ = isHcmSumTable
-                ? Promise.resolve({ data: null, error: { message: 'hcm-client-scan' } })
-                : applyVanDonFilters(
-                      supabase.from(sumFromTable).select(vanDonMoneySumSelectForTable(sumFromTable))
-                  );
+            const sumMoneyCombinedQ = applyVanDonFilters(
+                supabase.from(sumFromTable).select(VAN_DON_MONEY_SUM_SELECT)
+            );
 
             /**
              * @param {{ count?: number|null, data?: unknown[] }} listRes
              * @param {{ data: unknown, error: unknown }} sumCombinedRes
              */
             const computeMoneyTotals = async (listRes, sumCombinedRes) => {
-                let totalMissing = false;
-                let lineMissing = false;
-                let tongMissing = false;
-                let totalRaw = null;
-                let lineRaw = null;
-                let tongRaw = null;
+                let totalAmountVndSum = null;
                 let sumError = null;
 
                 if (sumCombinedRes.error) {
-                    if (isHcmSumTable) {
-                        totalMissing = lineMissing = tongMissing = true;
-                        sumError = null;
-                    } else {
-                        const [sumTotalRes, sumLineRes, sumTongTienRes] = await Promise.all([
-                            applyVanDonFilters(supabase.from(sumFromTable).select('total_amount_vnd.sum()')),
-                            applyVanDonFilters(
-                                supabase.from(sumFromTable).select('van_don_line_total_vnd.sum()')
-                            ),
-                            applyVanDonFilters(supabase.from(sumFromTable).select('tong_tien_vnd.sum()')),
-                        ]);
-                        const totalErr = sumTotalRes.error;
-                        totalMissing = Boolean(
-                            totalErr &&
-                                (String(totalErr.message || '').toLowerCase().includes('total_amount_vnd') ||
-                                    String(totalErr.code || '') === '42703')
-                        );
-                        const lineErr = sumLineRes.error;
-                        lineMissing = Boolean(
-                            lineErr &&
-                                (String(lineErr.message || '')
-                                    .toLowerCase()
-                                    .includes('van_don_line_total_vnd') ||
-                                    String(lineErr.code || '') === '42703')
-                        );
-                        const tongErr = sumTongTienRes.error;
-                        tongMissing = Boolean(
-                            tongErr &&
-                                (String(tongErr.message || '').toLowerCase().includes('tong_tien_vnd') ||
-                                    String(tongErr.code || '') === '42703')
-                        );
-                        if (!totalMissing) totalRaw = extractPostgrestAggregateNumeric(sumTotalRes.data);
-                        if (!lineMissing) lineRaw = extractPostgrestAggregateNumeric(sumLineRes.data);
-                        if (!tongMissing) tongRaw = extractPostgrestAggregateNumeric(sumTongTienRes.data);
-                        sumError = totalMissing ? lineErr : totalErr || lineErr || (tongMissing ? null : tongErr);
-                    }
+                    sumError = sumCombinedRes.error;
                 } else {
-                    const sums = extractVanDonMoneyAggregateSums(sumCombinedRes.data);
-                    totalRaw = sums.totalRaw;
-                    lineRaw = sums.lineRaw;
-                    tongRaw = sums.tongRaw;
+                    const n = extractPostgrestAggregateNumeric(sumCombinedRes.data);
+                    if (n != null && Number.isFinite(n)) totalAmountVndSum = n;
                 }
-
-                /**
-                 * Gộp SUM khớp `resolveVanDonMoneyVndFromDbRow` / cột generated `van_don_line_total_vnd`:
-                 * `SUM(total_amount_vnd)` có thể = 0 trong khi tiền nằm ở tong_tien / sale_price / goods / line.
-                 * Trước đây nhánh `totalRaw != null` gán luôn cả 0 → bỏ qua line/tong → header «Tổng tiền» sai (vd. 43 đơn nhưng tổng 0).
-                 */
-                let totalAmountVndSum = null;
-                const nz = (v) => {
-                    if (v == null || v === '') return null;
-                    const n = typeof v === 'number' ? v : Number(v);
-                    return Number.isFinite(n) && n !== 0 ? n : null;
-                };
-                if (!totalMissing && nz(totalRaw) != null) {
-                    totalAmountVndSum = nz(totalRaw);
-                }
-                if (totalAmountVndSum == null && !lineMissing && nz(lineRaw) != null) {
-                    totalAmountVndSum = nz(lineRaw);
-                }
-                if (totalAmountVndSum == null && !tongMissing && nz(tongRaw) != null) {
-                    totalAmountVndSum = nz(tongRaw);
-                }
-                if (totalAmountVndSum == null && !totalMissing && totalRaw != null) {
-                    const n = typeof totalRaw === 'number' ? totalRaw : Number(totalRaw);
-                    if (Number.isFinite(n)) totalAmountVndSum = n;
-                }
-                if (totalAmountVndSum == null && !lineMissing && lineRaw != null) {
-                    const n = typeof lineRaw === 'number' ? lineRaw : Number(lineRaw);
-                    if (Number.isFinite(n)) totalAmountVndSum = n;
-                }
-                if (totalAmountVndSum == null && !tongMissing && tongRaw != null) {
-                    const n = typeof tongRaw === 'number' ? tongRaw : Number(tongRaw);
-                    if (Number.isFinite(n)) totalAmountVndSum = n;
-                }
-                if (totalAmountVndSum == null) totalAmountVndSum = 0;
 
                 const rowCount = listRes.count ?? 0;
-                const pageRows = listRes.data || [];
-                const pageHasPositiveMoney = pageRows.some((r) => pickVanDonMoneyFromDbRow(r) > 0);
-                const needMoneyFallback =
-                    rowCount > 0 && (isHcmSumTable || totalAmountVndSum === 0);
-                if (needMoneyFallback) {
-                    const moneyCols = 'van_don_line_total_vnd,tong_tien_vnd,total_amount_vnd,sale_price,goods_amount';
+                /** SUM SQL bị tắt / lỗi thì quét từng dòng, vẫn chỉ cộng `total_amount_vnd`. */
+                if (totalAmountVndSum == null && rowCount > 0) {
+                    const moneyCols = 'total_amount_vnd';
+                    const pageRows = listRes.data || [];
+                    const pageHasPositiveMoney = pageRows.some((r) => pickVanDonMoneyFromDbRow(r) > 0);
                     const PROBE = 800;
                     const { data: probeRows, error: probeErr } = await applyVanDonFilters(
                         supabase.from(sumFromTable).select(moneyCols)
@@ -1881,13 +1765,12 @@ export const fetchVanDon = async (options = {}) => {
                                 scanned += chunk.length;
                                 if (scanned >= rowCount) break;
                             }
-                            if (fallbackSum > 0) {
-                                totalAmountVndSum = fallbackSum;
-                            }
+                            if (scanned > 0) totalAmountVndSum = fallbackSum;
                         }
                     }
                 }
 
+                if (totalAmountVndSum == null) totalAmountVndSum = 0;
                 return { sumError, totalAmountVndSum };
             };
 
