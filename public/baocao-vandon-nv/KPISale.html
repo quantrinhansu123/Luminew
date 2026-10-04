@@ -2131,9 +2131,14 @@
       return false;
     }
 
-    /** Cùng overlay Báo cáo sau huỷ: chỉ `total_amount_vnd`, kể cả 0. */
+    /**
+     * Chỉ `total_amount_vnd`.
+     * Không đọc «Tổng tiền VNĐ»: mapOrderDbRowToLegacyF3 ghi đè ô đó bằng tong_tien / line khi khác 0
+     * (vd. DánEBVVtttG: total 4.707.500, tong 4.357.500 → lệch 350.000).
+     */
     function orderAmountVndForMktTt(r) {
-      return parseNumber(getRowValue(r, 'Tổng tiền VNĐ', 'Tổng_tiền_VNĐ', 'total_amount_vnd'));
+      if (!r || r.total_amount_vnd == null || r.total_amount_vnd === '') return 0;
+      return parseNumber(r.total_amount_vnd);
     }
 
     function isMktHnScopeOrder(r) {
