@@ -1997,6 +1997,8 @@
         dsChot: 0,
         soDonHuy: 0,
         dsHuy: 0,
+        soDonSauHuy: 0,
+        dsSauHuy: 0,
         soDonDi: 0,
         dsDi: 0,
         soDonThuTien: 0,
@@ -2007,8 +2009,10 @@
     }
 
     /**
-     * Chuẩn Báo cáo sau hủy (viewNsMoiNhanh overlay TT):
-     * - loại team HCM, chỉ đếm đơn VND > 0
+     * Chuẩn Số Đơn (TT) / DS Chốt (TT) trên Báo cáo sau huỷ:
+     * - loại team HCM
+     * - Số Đơn (TT) = mọi đơn không Hủy, gồm 0đ
+     * - DS = chỉ total_amount_vnd
      * - hủy: check_result || payment_status → ascii «huy»
      * - bỏ trùng order_code + trùng cột gift
      */
@@ -2127,20 +2131,14 @@
       return false;
     }
 
+    /** Cùng overlay Báo cáo sau huỷ: chỉ `total_amount_vnd`, kể cả 0. */
     function orderAmountVndForMktTt(r) {
-      const candidates = [
-        getRowValue(r, 'Tổng tiền VNĐ', 'Tổng_tiền_VNĐ', 'total_amount_vnd'),
-        getRowValue(r, 'total_vnd', 'tong_tien_vnd'),
-        getRowValue(r, 'van_don_line_total_vnd'),
-        getRowValue(r, 'Tiền Việt đã đối soát', 'Tiền_Việt_đã_đối_soát', 'reconciled_vnd'),
-        getRowValue(r, 'goods_amount'),
-      ];
-      for (const raw of candidates) {
-        if (raw == null || raw === '') continue;
-        const n = parseNumber(raw);
-        if (n > 0) return n;
-      }
-      return parseNumber(getRowValue(r, 'Giá bán', 'sale_price'));
+      return parseNumber(getRowValue(r, 'Tổng tiền VNĐ', 'Tổng_tiền_VNĐ', 'total_amount_vnd'));
+    }
+
+    function isMktHnScopeOrder(r) {
+      const team = String(getRowValue(r, 'Team', 'team') || '');
+      return !(team && /hcm/i.test(team));
     }
 
     function isOrderHuyForMktTt(r) {
@@ -2304,7 +2302,7 @@
       });
     }
 
-    /** Cộng 1 đơn — chốt/hủy/sau hủy khớp Số Đơn (TT) / DS Chốt (TT) Báo cáo sau hủy. */
+    /** Cộng 1 đơn — Sau hủy = Số Đơn (TT): không Hủy, gồm 0đ; DS chỉ total_amount_vnd. */
     function accumulateOrderIntoStaffAgg(agg, r) {
       const ship = parseNumber(
         getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
@@ -2318,9 +2316,9 @@
       );
       const isHuy = isOrderHuyForMktTt(r);
       const isDi = maTracking !== '';
-      const countableTt = isMktTtCountableOrder(r);
+      const isHn = isMktHnScopeOrder(r);
+      const countableTt = isHn && tongTien > 0;
 
-      // Số Đơn / DS chốt & hủy: chốt/TT chỉ VND>0; hủy đếm cả đơn 0đ (Check = Hủy)
       if (countableTt) {
         agg.soDonChot += 1;
         agg.dsChot += tongTien;
@@ -2328,8 +2326,13 @@
           agg.dsHuy += tongTien;
         }
       }
-      if (isHuy) {
+      if (isHn && isHuy) {
         agg.soDonHuy += 1;
+      }
+      // Số Đơn (TT): mọi đơn HN không Hủy, gồm đơn 0đ. DS = total_amount_vnd của các đơn đó.
+      if (isHn && !isHuy) {
+        agg.soDonSauHuy += 1;
+        agg.dsSauHuy += tongTien;
       }
       if (isDi && !isHuy) {
         agg.soDonDi += 1;
@@ -2392,7 +2395,7 @@
         case 'huy':
           return isHuy;
         case 'sau_huy':
-          return countable && !isHuy;
+          return isMktHnScopeOrder(r) && !isHuy;
         case 'di':
         case 'ship':
           return isDi && !isHuy;
@@ -2590,8 +2593,8 @@
     }
 
     function staffAggToDbRow(reportDate, agg) {
-      const donSauHuy = Math.max(0, (agg.soDonChot || 0) - (agg.soDonHuy || 0));
-      const dsSauHuy = Math.max(0, (agg.dsChot || 0) - (agg.dsHuy || 0));
+      const donSauHuy = agg.soDonSauHuy || 0;
+      const dsSauHuy = agg.dsSauHuy || 0;
       const dthuKpi = (agg.dThuThanhCong || 0) - (agg.ship || 0);
       const tyLeThu = agg.dsDi > 0 ? agg.dThuThanhCong / agg.dsDi : 0;
       return {
@@ -2645,6 +2648,8 @@
         agg.dsChot += Number(r.ds_chot) || 0;
         agg.soDonHuy += Number(r.don_huy) || 0;
         agg.dsHuy += Number(r.ds_huy) || 0;
+        agg.soDonSauHuy += Number(r.don_sau_huy) || 0;
+        agg.dsSauHuy += Number(r.ds_sau_huy) || 0;
         agg.soDonDi += Number(r.don_di) || 0;
         agg.dsDi += Number(r.ds_di) || 0;
         agg.soDonThuTien += Number(r.don_thu_tien) || 0;
@@ -2654,7 +2659,6 @@
       });
 
       let rows = [...byName.values()].map((it, idx) => {
-        const dsSauHuy = Math.max(0, (it.dsChot || 0) - (it.dsHuy || 0));
         const dThuTinhKpi = (it.dThuThanhCong || 0) - (it.ship || 0);
         return {
           stt: idx + 1,
@@ -2666,8 +2670,8 @@
           dsChot: it.dsChot,
           soDonHuy: it.soDonHuy,
           dsHuy: it.dsHuy,
-          soDonSauHuy: Math.max(0, it.soDonChot - it.soDonHuy),
-          dsSauHuy,
+          soDonSauHuy: it.soDonSauHuy || 0,
+          dsSauHuy: it.dsSauHuy || 0,
           soDonDi: it.soDonDi,
           dsDi: it.dsDi,
           soDonThuTien: it.soDonThuTien,
@@ -2685,6 +2689,8 @@
           row.dsChot > 0 ||
           row.soDonHuy > 0 ||
           row.dsHuy > 0 ||
+          row.soDonSauHuy > 0 ||
+          row.dsSauHuy > 0 ||
           row.soDonDi > 0 ||
           row.dsDi > 0 ||
           row.soDonThuTien > 0 ||
@@ -2896,7 +2902,7 @@
       return parts.join('\n');
     }
 
-    /** Chốt: Sau hủy = Số Đơn (TT)/DS Chốt (TT) Báo cáo sau hủy — tính từ orders (VND>0, không HCM, Hết ca, hủy chuẩn hoá, bỏ trùng gift). */
+    /** Chốt: Đơn/DS sau hủy = Số Đơn (TT)/DS Chốt (TT) — không Hủy, gồm 0đ, chỉ total_amount_vnd, không HCM, Hết ca, bỏ trùng gift. */
     async function chotKpisMktData() {
       if (!isKpisMktMode()) return;
       await requestLatestParentFilters();
@@ -2909,9 +2915,9 @@
       if (
         !confirm(
           `Chốt KPI MKT theo khoảng ngày thanh trái?\n${ctx.startVal} → ${ctx.endVal}\n\n` +
-            `Sau hủy khớp Báo cáo sau hủy: Số Đơn (TT) / DS Chốt (TT)\n` +
-            `(đơn VND > 0, không team HCM, Ca Hết ca, trừ hủy, bỏ trùng gift).\n` +
-            `Không đếm đơn 0đ. Ghi đè phạm vi ngày.`
+            `Sau hủy = Số Đơn (TT) / DS Chốt (TT) trên Báo cáo sau huỷ.\n` +
+            `(mọi đơn không Hủy, gồm 0đ; tiền chỉ total_amount_vnd; không team HCM; Ca Hết ca; bỏ trùng gift).\n` +
+            `Ghi đè phạm vi ngày.`
         )
       ) {
         return;
@@ -2938,7 +2944,7 @@
           ...ctx,
           selectedProduct: { all: true, values: [], empty: false },
           selectedMarket: { all: true, values: [], empty: false },
-          includeZero: true, // ship=0 vẫn tính; lọc TT theo VND>0 trong accumulate
+          includeZero: true, // ship=0 vẫn tính; Số Đơn (TT) gồm đơn 0đ không hủy
         };
 
         const candidates = [];
@@ -2991,13 +2997,15 @@
             (agg) =>
               agg.soDonChot > 0 ||
               agg.soDonHuy > 0 ||
+              agg.soDonSauHuy > 0 ||
+              agg.dsSauHuy > 0 ||
               agg.dThuThanhCong > 0 ||
               agg.soDonDi > 0
           )
           .map((agg) => staffAggToDbRow(agg.reportDate, agg));
 
         if (!upsertRows.length) {
-          alert('Không có đơn MKT (VND > 0) trong khoảng ngày để chốt.');
+          alert('Không có đơn MKT (không Hủy, gồm 0đ) trong khoảng ngày để chốt.');
           return;
         }
 
@@ -3559,7 +3567,13 @@
           if (!it.name || it.name.trim() === '') {
           }
           const cpqc = cpqcByName.get(it.name) || 0;
-          const dsSauHuy = Math.max(0, (it.dsChot || 0) - (it.dsHuy || 0));
+          const mktSauHuy = it.type === 'Marketing';
+          const dsSauHuy = mktSauHuy
+            ? (it.dsSauHuy || 0)
+            : Math.max(0, (it.dsChot || 0) - (it.dsHuy || 0));
+          const soDonSauHuy = mktSauHuy
+            ? (it.soDonSauHuy || 0)
+            : Math.max(0, (it.soDonChot || 0) - (it.soDonHuy || 0));
           const dThuTinhKpi = (it.dThuThanhCong || 0) - (it.ship || 0);
           return {
             stt: idx + 1,
@@ -3569,7 +3583,7 @@
             cpqc,
             soDonChot: it.soDonChot, dsChot: it.dsChot,
             soDonHuy: it.soDonHuy, dsHuy: it.dsHuy,
-            soDonSauHuy: Math.max(0, it.soDonChot - it.soDonHuy), dsSauHuy,
+            soDonSauHuy, dsSauHuy,
             soDonDi: it.soDonDi, dsDi: it.dsDi,
             soDonThuTien: it.soDonThuTien, dThuThanhCong: it.dThuThanhCong,
             ship: it.ship,

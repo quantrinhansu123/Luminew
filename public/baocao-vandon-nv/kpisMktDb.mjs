@@ -7,7 +7,7 @@ const SUPABASE_ANON_KEY_DEFAULT =
   'sb_publishable_vXBSa3eP8cvjIK2qLWI6Ug_FoYm4CNy';
 
 const SELECT_COLS =
-  'report_date,employee_name,team,product,market,don_chot,ds_chot,don_huy,ds_huy,don_di,ds_di,don_thu_tien,dthu_tc,ship,dthu_kpi,ty_le_thu,cpqc';
+  'report_date,employee_name,team,product,market,don_chot,ds_chot,don_huy,ds_huy,don_sau_huy,ds_sau_huy,don_di,ds_di,don_thu_tien,dthu_tc,ship,dthu_kpi,ty_le_thu,cpqc';
 
 let clientPromise = null;
 /** @type {Map<string, { rows: Array<Record<string, unknown>>, fetchedAt: number }>} */
