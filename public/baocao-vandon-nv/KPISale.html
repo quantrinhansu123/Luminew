@@ -454,6 +454,74 @@
       top: 52px;
       z-index: 1;
     }
+    #chot-month-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10060;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    #chot-month-modal.open {
+      display: flex;
+    }
+    #chot-month-modal .chot-month-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+    }
+    #chot-month-modal .chot-month-panel {
+      position: relative;
+      width: min(420px, 100%);
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px 18px 16px;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+    }
+    #chot-month-modal h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      color: #0f172a;
+    }
+    #chot-month-modal .chot-month-hint {
+      margin: 0 0 12px;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.45;
+    }
+    #chot-month-modal label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin: 10px 0 4px;
+      color: #0f172a;
+    }
+    #chot-month-modal input[type="month"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 15px;
+    }
+    #chot-month-ngay {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f766e;
+    }
+    #chot-month-range {
+      margin: 10px 0 0;
+      font-size: 13px;
+      color: #1e293b;
+    }
+    #chot-month-modal .chot-month-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+    }
     #kpi-orders-modal td.kpi-order-code {
       font-family: ui-monospace, Consolas, monospace;
       font-weight: 600;
@@ -462,6 +530,22 @@
   </style>
 </head>
 <body>
+  <div id="chot-month-modal" role="dialog" aria-modal="true" aria-labelledby="chot-month-title" hidden>
+    <div class="chot-month-backdrop" data-chot-month-close="1"></div>
+    <div class="chot-month-panel">
+      <h3 id="chot-month-title">Chốt đơn theo tháng</h3>
+      <p id="chot-month-hint" class="chot-month-hint"></p>
+      <label for="chot-month-input">Tháng</label>
+      <input type="month" id="chot-month-input" />
+      <label>Ngày chốt</label>
+      <div id="chot-month-ngay"></div>
+      <p id="chot-month-range"></p>
+      <div class="chot-month-actions">
+        <button type="button" class="btn btn-secondary" data-chot-month-close="1">Hủy</button>
+        <button type="button" class="btn btn-primary" id="chot-month-confirm">Chốt tháng này</button>
+      </div>
+    </div>
+  </div>
   <div id="kpi-orders-modal" role="dialog" aria-modal="true" aria-labelledby="kpi-orders-title" hidden>
     <div class="kpi-orders-backdrop" data-kpi-orders-close="1"></div>
     <div class="kpi-orders-panel">
@@ -905,7 +989,10 @@
       } catch (_) { /* dropdown chưa sẵn */ }
     }
 
+    let chotBusy = false;
+
     function applyExternalFiltersFromParent(payload) {
+      if (chotBusy) return;
       if (!payload || typeof payload !== 'object') return;
       const start = String(payload.startDate || '').trim();
       const end = String(payload.endDate || '').trim();
@@ -1683,7 +1770,8 @@
       // Name dropdown uses checkbox menu; removed text search
       document.getElementById('refreshBtn').addEventListener('click', () => loadData());
       const chotBtn = document.getElementById('chotDataBtn');
-      if (chotBtn) chotBtn.addEventListener('click', () => chotKpisMktData());
+      if (chotBtn) chotBtn.addEventListener('click', () => openChotMonthModal());
+      bindChotMonthModal();
       syncChotDataButtonVisibility();
       const showAllBtn = document.getElementById('showAllBtn');
       if (showAllBtn) showAllBtn.addEventListener('click', () => clearFiltersToShowAll());
@@ -2907,24 +2995,153 @@
       return parts.join('\n');
     }
 
-    /** Chốt: Đơn/DS sau hủy = Số Đơn (TT)/DS Chốt (TT) — không Hủy, gồm 0đ, chỉ total_amount_vnd, không HCM, Hết ca, bỏ trùng gift. */
-    async function chotKpisMktData() {
+    function formatViYmd(ymd) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '').trim());
+      if (!m) return '';
+      return `${m[3]}/${m[2]}/${m[1]}`;
+    }
+
+    function todayYmdLocal() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const mo = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      return `${y}-${mo}-${d}`;
+    }
+
+    /** Tháng gợi ý = tháng của bộ lọc đang chọn (ưu tiên nếu Từ/Đến cùng tháng, không thì tháng của Từ ngày). */
+    function suggestChotMonthFromFilter(startVal, endVal) {
+      const parse = (ymd) => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '').trim());
+        return m ? `${m[1]}-${m[2]}` : '';
+      };
+      const sm = parse(startVal);
+      const em = parse(endVal);
+      if (sm && sm === em) return sm;
+      if (sm) return sm;
+      return todayYmdLocal().slice(0, 7);
+    }
+
+    function monthInputToRange(monthVal) {
+      const m = /^(\d{4})-(\d{2})$/.exec(String(monthVal || '').trim());
+      if (!m) return null;
+      const y = Number(m[1]);
+      const mo = Number(m[2]);
+      if (!y || mo < 1 || mo > 12) return null;
+      const last = new Date(y, mo, 0).getDate();
+      const mm = String(mo).padStart(2, '0');
+      return {
+        startVal: `${y}-${mm}-01`,
+        endVal: `${y}-${mm}-${String(last).padStart(2, '0')}`,
+      };
+    }
+
+    function applyChotDateRange(startVal, endVal) {
+      const sd = document.getElementById('startDate');
+      const ed = document.getElementById('endDate');
+      if (sd) sd.value = startVal;
+      if (ed) ed.value = endVal;
+      if (!externalFilterState) {
+        externalFilterState = {
+          startDate: startVal,
+          endDate: endVal,
+          team: { all: true, values: [], empty: false },
+          name: { all: true, values: [], empty: false },
+          product: { all: true, values: [], empty: false },
+          market: { all: true, values: [], empty: false },
+        };
+      } else {
+        externalFilterState.startDate = startVal;
+        externalFilterState.endDate = endVal;
+      }
+    }
+
+    function notifyParentChotMonth(startVal, endVal) {
+      if (!window.parent || window.parent === window) return;
+      try {
+        window.parent.postMessage(
+          { type: 'LUMINEW_NSSL_KPI_SET_DATES', startDate: startVal, endDate: endVal },
+          '*'
+        );
+      } catch (_) { /* ignore */ }
+    }
+
+    function refreshChotMonthRangeLabel() {
+      const input = document.getElementById('chot-month-input');
+      const rangeEl = document.getElementById('chot-month-range');
+      if (!input || !rangeEl) return;
+      const range = monthInputToRange(input.value);
+      rangeEl.textContent = range
+        ? `Chốt cả tháng: ${formatViYmd(range.startVal)} → ${formatViYmd(range.endVal)}`
+        : 'Chọn tháng để chốt.';
+    }
+
+    function closeChotMonthModal() {
+      const modal = document.getElementById('chot-month-modal');
+      if (!modal) return;
+      modal.classList.remove('open');
+      modal.hidden = true;
+    }
+
+    function bindChotMonthModal() {
+      const modal = document.getElementById('chot-month-modal');
+      if (!modal || modal.dataset.bound === '1') return;
+      modal.dataset.bound = '1';
+      modal.addEventListener('click', (e) => {
+        const t = e.target;
+        if (t && t.closest && t.closest('[data-chot-month-close]')) closeChotMonthModal();
+      });
+      const input = document.getElementById('chot-month-input');
+      if (input) input.addEventListener('change', refreshChotMonthRangeLabel);
+      const confirmBtn = document.getElementById('chot-month-confirm');
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => {
+          const range = monthInputToRange(input && input.value);
+          if (!range) {
+            alert('Chọn tháng cần chốt.');
+            return;
+          }
+          closeChotMonthModal();
+          chotKpisMktData(range);
+        });
+      }
+    }
+
+    async function openChotMonthModal() {
       if (!isKpisMktMode()) return;
       await requestLatestParentFilters();
+      const ctx = getActiveKpiFilterContext();
+      const month = suggestChotMonthFromFilter(ctx.startVal, ctx.endVal);
+      const input = document.getElementById('chot-month-input');
+      const hint = document.getElementById('chot-month-hint');
+      const ngay = document.getElementById('chot-month-ngay');
+      if (input) input.value = month;
+      if (ngay) ngay.textContent = formatViYmd(todayYmdLocal());
+      if (hint) {
+        const cur =
+          ctx.startVal && ctx.endVal
+            ? `Bộ lọc hiện tại: ${formatViYmd(ctx.startVal)} → ${formatViYmd(ctx.endVal)}.`
+            : 'Chưa có bộ lọc ngày trên thanh trái.';
+        hint.textContent = `${cur} Gợi ý tháng theo bộ lọc này. Ngày chốt là hôm nay.`;
+      }
+      refreshChotMonthRangeLabel();
+      const modal = document.getElementById('chot-month-modal');
+      if (!modal) return;
+      modal.hidden = false;
+      modal.classList.add('open');
+    }
+
+    /** Chốt: Đơn/DS sau hủy = Số Đơn (TT)/DS Chốt (TT) — không Hủy, gồm 0đ, chỉ total_amount_vnd, không HCM, Hết ca, bỏ trùng gift. */
+    async function chotKpisMktData(rangeOverride) {
+      if (!isKpisMktMode()) return;
       clearTimeout(loadOrdersDebounce);
+      const picked = rangeOverride && rangeOverride.startVal && rangeOverride.endVal
+        ? rangeOverride
+        : null;
+      if (picked) applyChotDateRange(picked.startVal, picked.endVal);
       const ctx = getActiveKpiFilterContext();
       if (!ctx.startVal || !ctx.endVal) {
-        alert('Chọn Từ ngày / Đến ngày trên thanh trái trước khi chốt.');
-        return;
-      }
-      if (
-        !confirm(
-          `Chốt KPI MKT theo khoảng ngày thanh trái?\n${ctx.startVal} → ${ctx.endVal}\n\n` +
-            `Sau hủy = Số Đơn (TT) / DS Chốt (TT) trên Báo cáo sau huỷ.\n` +
-            `(mọi đơn không Hủy, gồm 0đ; tiền chỉ total_amount_vnd; không team HCM; Ca Hết ca; bỏ trùng gift).\n` +
-            `Ghi đè phạm vi ngày.`
-        )
-      ) {
+        alert('Chọn tháng cần chốt.');
         return;
       }
 
@@ -2935,6 +3152,7 @@
         btn.textContent = 'Đang chốt…';
       }
       if (st) st.textContent = '';
+      chotBusy = true;
 
       try {
         await loadData({ forceOrders: true });
@@ -3030,15 +3248,18 @@
           st.textContent = `Đã chốt ${count} dòng · Sau hủy ${tongSau.toLocaleString('vi-VN')} đơn`;
         }
         alert(
-          `Đã chốt ${count} dòng KPI MKT (${ctx.startVal} → ${ctx.endVal}).\n` +
+          `Đã chốt ${count} dòng KPI MKT (${formatViYmd(ctx.startVal)} → ${formatViYmd(ctx.endVal)}).\n` +
+            `Ngày chốt: ${formatViYmd(todayYmdLocal())}.\n` +
             `Sau hủy: ${tongSau.toLocaleString('vi-VN')} đơn · ${tongDsSau.toLocaleString('vi-VN')} ₫`
         );
         await applyFiltersAndRender();
+        notifyParentChotMonth(ctx.startVal, ctx.endVal);
       } catch (err) {
         console.error('[KPIs MKT] chốt data lỗi:', err);
         alert(`Chốt data thất bại: ${err?.message || err}`);
         if (st) st.textContent = 'Chốt lỗi';
       } finally {
+        chotBusy = false;
         if (btn) {
           btn.disabled = false;
           btn.textContent = 'Chốt data';

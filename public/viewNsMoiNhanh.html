@@ -3447,6 +3447,19 @@
     window.addEventListener('message', (e) => {
       if (!e.data || typeof e.data !== 'object') return;
       const t = e.data.type;
+      if (t === 'LUMINEW_NSSL_KPI_SET_DATES') {
+        const start = String(e.data.startDate || '').trim();
+        const end = String(e.data.endDate || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return;
+        const s1 = document.getElementById('start-date-tab1');
+        const e1 = document.getElementById('end-date-tab1');
+        if (s1) s1.value = start;
+        if (e1) e1.value = end;
+        if (typeof persistMktFilterStatesFromDom === 'function') persistMktFilterStatesFromDom();
+        mktAdsNeedsRefetch = true;
+        if (typeof postKpisMktFilters === 'function') postKpisMktFilters();
+        return;
+      }
       if (t !== 'LUMINEW_NSSL_KPI_READY' && t !== 'LUMINEW_NSSL_KPI_REQUEST_FILTERS') return;
       if (typeof isKpisMktTabActive === 'function' && isKpisMktTabActive()) {
         postKpisMktFilters();
