@@ -658,6 +658,8 @@
         <label><input type="checkbox" class="toggle-column" data-col="14" checked> Ship</label>
         <label><input type="checkbox" class="toggle-column" data-col="15" checked> DThu tính KPI</label>
         <label><input type="checkbox" class="toggle-column" data-col="16" checked> Tỷ lệ thu tiền</label>
+        <label class="kpi-mkt-cp-dtc-toggle"><input type="checkbox" class="toggle-column" data-col="19" checked> CPQC</label>
+        <label class="kpi-mkt-cp-dtc-toggle"><input type="checkbox" class="toggle-column" data-col="20" checked> Tổng CP</label>
         <label class="kpi-mkt-cp-dtc-toggle"><input type="checkbox" class="toggle-column" data-col="18" checked> CP/DOANH THU TC</label>
       </div>
       <div class="table-wrap">
@@ -679,6 +681,8 @@
             <col class="col-money">
             <col class="col-money-wide">
             <col class="col-percent">
+            <col class="col-money kpi-mkt-cp-dtc">
+            <col class="col-money kpi-mkt-cp-dtc">
             <col class="col-percent kpi-mkt-cp-dtc">
           </colgroup>
           <thead>
@@ -694,7 +698,9 @@
               <th rowspan="2" data-col-index="14">Ship</th>
               <th rowspan="2" data-col-index="15">DThu KPI</th>
               <th rowspan="2" data-col-index="16">Tỷ lệ thu</th>
-              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="18" data-sort-key="cpDoanhThuTc" title="CPQC / Doanh thu thành công">CP/DOANH THU TC</th>
+              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="19" data-sort-key="cpqc" title="CPQC trên báo cáo MKT">CPQC</th>
+              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="20" data-sort-key="tongCp" title="Phí ship + CPQC">Tổng CP</th>
+              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="18" data-sort-key="cpDoanhThuTc" title="Tổng CP / Doanh thu thành công">CP/DOANH THU TC</th>
             </tr>
             <tr>
               <th class="cell-count" data-col-index="4" title="Số đơn">Đơn</th>
@@ -2085,12 +2091,16 @@
       btn.style.display = isKpisMktMode() ? 'inline-block' : 'none';
     }
 
-    /** CPQC / Doanh thu thành công. 0 khi chưa có doanh thu TC. */
-    function cpTrenDoanhThuTc(cpqc, dThuThanhCong) {
-      const cp = Number(cpqc) || 0;
+    /** Tổng CP = phí ship + CPQC. */
+    function tongCpRow(ship, cpqc) {
+      return (Number(ship) || 0) + (Number(cpqc) || 0);
+    }
+
+    /** Tổng CP / Doanh thu thành công. 0 khi chưa có doanh thu TC. */
+    function cpTrenDoanhThuTc(ship, cpqc, dThuThanhCong) {
       const dt = Number(dThuThanhCong) || 0;
       if (dt <= 0) return 0;
-      return cp / dt;
+      return tongCpRow(ship, cpqc) / dt;
     }
 
     function emptyStaffAgg(name, team) {
@@ -2849,6 +2859,12 @@
           nghiPack.nghiKeys,
           nghiPack.knownNameKeys
         );
+        try {
+          const cpRows = await mod.fetchDetailReportCpqcInRange(startVal, endVal);
+          applyReportCpqcToKpiRows(rows, cpRows, teamSel, productSel, marketSel);
+        } catch (cpErr) {
+          console.warn('[KPIs MKT] không đọc được CPQC từ báo cáo MKT:', cpErr);
+        }
         currentData = rows;
         renderKpiSummary(rows, null);
         const st = document.getElementById('chotDataStatus');
@@ -2916,6 +2932,32 @@
         } catch (_) {
           finish(false);
         }
+      });
+    }
+
+    function kpiStaffNameKey(name) {
+      return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    /** Gắn CPQC từ detail_reports vào từng NV. Không có dòng báo cáo thì giữ số đã chốt. */
+    function applyReportCpqcToKpiRows(rows, cpRows, teamSel, productSel, marketSel) {
+      const byName = new Map();
+      (cpRows || []).forEach((r) => {
+        const name = String(r.name || r['Tên'] || '').trim();
+        if (!name) return;
+        const team = String(r.team || r['Team'] || '').trim();
+        const product = String(r.product || r['Sản_phẩm'] || '').trim();
+        const market = String(r.market || r['Thị_trường'] || '').trim();
+        if (!filterSelMatches(teamSel, team)) return;
+        if (!filterSelMatches(productSel, product)) return;
+        if (!filterSelMatches(marketSel, market)) return;
+        const key = kpiStaffNameKey(name);
+        const cp = Number(r.cpqc ?? r['CPQC']) || 0;
+        byName.set(key, (byName.get(key) || 0) + cp);
+      });
+      (rows || []).forEach((row) => {
+        const key = kpiStaffNameKey(row.name);
+        if (byName.has(key)) row.cpqc = byName.get(key);
       });
     }
 
@@ -3924,7 +3966,9 @@
                 ${cell('ship', 'cell-money', 14, formatCurrency(s.ship))}
                 <td data-col-index="15" class="cell-money">${formatCurrency(s.dThuTinhKpi)}</td>
                 <td data-col-index="16">${formatPercent(tyLeThuTien)}</td>
-                <td class="kpi-mkt-cp-dtc" data-col-index="18">${formatPercent(cpTrenDoanhThuTc(s.cpqc, s.dThuThanhCong))}</td>
+                <td class="kpi-mkt-cp-dtc cell-money" data-col-index="19">${formatCurrency(s.cpqc)}</td>
+                <td class="kpi-mkt-cp-dtc cell-money" data-col-index="20">${formatCurrency(tongCpRow(s.ship, s.cpqc))}</td>
+                <td class="kpi-mkt-cp-dtc" data-col-index="18">${formatPercent(cpTrenDoanhThuTc(s.ship, s.cpqc, s.dThuThanhCong))}</td>
             </tr>`;
       }).join('');
 
@@ -3964,7 +4008,9 @@
             ${tcell('ship', 'cell-money', 14, formatCurrency(total.ship))}
             <td class="total-value cell-money" data-col-index="15">${formatCurrency(total.dThuTinhKpi)}</td>
             <td class="total-value" data-col-index="16">${formatPercent(totalTyLeThuTien)}</td>
-            <td class="total-value kpi-mkt-cp-dtc" data-col-index="18">${formatPercent(cpTrenDoanhThuTc(total.cpqc, total.dThuThanhCong))}</td>
+            <td class="total-value kpi-mkt-cp-dtc cell-money" data-col-index="19">${formatCurrency(total.cpqc)}</td>
+            <td class="total-value kpi-mkt-cp-dtc cell-money" data-col-index="20">${formatCurrency(tongCpRow(total.ship, total.cpqc))}</td>
+            <td class="total-value kpi-mkt-cp-dtc" data-col-index="18">${formatPercent(cpTrenDoanhThuTc(total.ship, total.cpqc, total.dThuThanhCong))}</td>
         </tr>`;
 
       document.getElementById('kpi-summary-body').innerHTML = totalRowHtml + bodyRowsHtml;
@@ -3975,13 +4021,17 @@
     function sortKpiTable(event) {
       const th = event.target.closest('th');
       if (!th) return;
-      if (th.getAttribute('data-sort-key') === 'cpDoanhThuTc') {
-        if (sortState.column === 'cpDoanhThuTc') sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
-        else { sortState.column = 'cpDoanhThuTc'; sortState.direction = 'asc'; }
+      const sortKey = th.getAttribute('data-sort-key');
+      if (sortKey === 'cpDoanhThuTc' || sortKey === 'cpqc' || sortKey === 'tongCp') {
+        if (sortState.column === sortKey) sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+        else { sortState.column = sortKey; sortState.direction = 'asc'; }
         const dir = sortState.direction === 'asc' ? 1 : -1;
-        const arr = [...currentData].sort((a, b) => (
-          cpTrenDoanhThuTc(a.cpqc, a.dThuThanhCong) - cpTrenDoanhThuTc(b.cpqc, b.dThuThanhCong)
-        ) * dir).map((r, i) => ({ ...r, stt: i + 1 }));
+        const getter = sortKey === 'cpqc'
+          ? (r) => Number(r.cpqc) || 0
+          : sortKey === 'tongCp'
+            ? (r) => tongCpRow(r.ship, r.cpqc)
+            : (r) => cpTrenDoanhThuTc(r.ship, r.cpqc, r.dThuThanhCong);
+        const arr = [...currentData].sort((a, b) => (getter(a) - getter(b)) * dir).map((r, i) => ({ ...r, stt: i + 1 }));
         currentData = arr;
         renderKpiSummary(arr);
         return;

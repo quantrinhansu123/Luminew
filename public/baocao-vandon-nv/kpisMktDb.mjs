@@ -145,3 +145,37 @@ export async function fetchDetailReportsForMktChot(startDate, endDate) {
   }
   return all;
 }
+
+/**
+ * CPQC trên detail_reports theo khoảng Ngày.
+ * Cột CPQC của KPI MKT đọc nguồn này — kpis_mkt.cpqc lúc chốt đang là 0.
+ */
+export async function fetchDetailReportCpqcInRange(startDate, endDate) {
+  const sb = await getClient();
+  const page = 1000;
+  let from = 0;
+  const all = [];
+  for (;;) {
+    const { data, error } = await sb
+      .from('detail_reports')
+      .select('Tên,Team,Sản_phẩm,Thị_trường,CPQC,Ngày,department')
+      .gte('Ngày', startDate)
+      .lte('Ngày', endDate)
+      .order('id', { ascending: true })
+      .range(from, from + page - 1);
+    if (error) throw error;
+    for (const r of data || []) {
+      if (!r || r.department === 'RD') continue;
+      all.push({
+        name: r['Tên'],
+        team: r['Team'],
+        product: r['Sản_phẩm'],
+        market: r['Thị_trường'],
+        cpqc: Number(r['CPQC']) || 0,
+      });
+    }
+    if (!data || data.length < page) break;
+    from += page;
+  }
+  return all;
+}
