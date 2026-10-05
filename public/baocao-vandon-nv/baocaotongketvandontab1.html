@@ -937,7 +937,7 @@
                     "Trạng thái thu tiền": getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"),
                     "Trạng thái thanh toán": getRowValue(row, "Trạng thái thanh toán", "Trạng_thái_thanh_toán", "payment_status_detail"),
                     "Trạng thái giao hàng NB": getRowValue(row, "Trạng thái giao hàng NB", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"),
-                    "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ", "total_amount_vnd"),
+                    "Tổng tiền VNĐ": VandonNvRegion.resolveOrderTotalAmountVnd(row),
                     "Tiền Việt đã đối soát": getRowValue(row, "Tiền Việt đã đối soát", "Tiền_Việt_đã_đối_soát", "reconciled_vnd"),
                 };
             }
@@ -1235,7 +1235,7 @@ function handleData(response) {
                         const staffName = VandonNvRegion.resolveNvVanDon(row) || "Chưa có NV";
                         if (!staffStats[staffName]) staffStats[staffName] = this.createEmptyStats();
                         const statsToUpdate = [staffStats[staffName], grandTotal];
-                        const amount = parseFloat(String(getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ") || '0').replace(/[^\d.-]/g, '')) || 0;
+                        const amount = VandonNvRegion.resolveOrderTotalAmountVnd(row);
                         statsToUpdate.forEach(stats => {
                             VandonNvRegion.accumulateVanDonSummaryStats(stats, row, amount);
                         });

@@ -934,7 +934,7 @@ z-index: 50;
                     "Trạng thái giao hàng NB": VandonNvRegion.resolveTrangThaiGiaoHangNb(row),
                     "Trạng thái thu tiền": getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"),
                     "Trạng thái thanh toán": getRowValue(row, "Trạng thái thanh toán", "Trạng_thái_thanh_toán", "payment_status_detail"),
-                    "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ"),
+                    "Tổng tiền VNĐ": VandonNvRegion.resolveOrderTotalAmountVnd(row),
                     "Team": getRowValue(row, "Team", "Chi nhánh", "Chi_nhánh"),
                 };
             }

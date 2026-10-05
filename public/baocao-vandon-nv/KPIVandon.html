@@ -2096,7 +2096,7 @@
         const ship = parseNumber(
           getRowValue(r, 'Phí cước', 'Phí_cước', 'Phí_ship', 'Phí ship', 'shipping_cost')
         );
-        const tongTien = parseNumber(getRowValue(r, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ'));
+        const tongTien = VandonNvRegion.resolveOrderTotalAmountVnd(r);
         const ketQuaCheck = (getRowValue(r, 'Kết_quả_Check', 'Kết quả Check') || '').toString().trim();
         const maTracking = (getRowValue(r, 'Mã_Tracking', 'Mã Tracking') || '').toString().trim();
         const tienVietDoiSoat = parseNumber(getRowValue(r, 'Tiền_Việt_đã_đối_soát', 'Tiền Việt đã đối soát'));

@@ -162,34 +162,15 @@ export function mapOrderDbRowToLegacyF3(sOrder) {
     }
   });
 
-  // Khớp header «Tổng tiền» trang /van-don: line (≠0) → tong_tien (≠0) → total_amount_vnd.
+  // Doanh số / cột «Tổng tiền VNĐ»: chỉ total_amount_vnd. Bằng 0 thì giữ 0 — không lấy line, tong_tien, giá bán.
   {
-    let money = null;
-    if (sOrder.van_don_line_total_vnd != null && sOrder.van_don_line_total_vnd !== '') {
-      const v = Number(sOrder.van_don_line_total_vnd);
-      if (!Number.isNaN(v) && v !== 0) money = v;
+    const raw = sOrder.total_amount_vnd;
+    let money = 0;
+    if (raw !== undefined && raw !== null && !(typeof raw === 'string' && String(raw).trim() === '')) {
+      const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[^\d.-]/g, ''));
+      if (Number.isFinite(n)) money = n;
     }
-    if (money == null) {
-      const rawTong = sOrder.tong_tien_vnd ?? sOrder.tong_tien_VND;
-      if (rawTong != null && rawTong !== '' && !Number.isNaN(Number(rawTong))) {
-        const tn = Number(rawTong);
-        if (tn !== 0) money = tn;
-      }
-    }
-    if (money == null) {
-      const candidates = [sOrder.total_amount_vnd, sOrder.sale_price, sOrder.goods_amount];
-      for (let i = 0; i < candidates.length; i++) {
-        const raw = candidates[i];
-        if (raw === undefined || raw === null) continue;
-        if (typeof raw === 'string' && String(raw).trim() === '') continue;
-        const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[^\d.-]/g, ''));
-        if (Number.isFinite(n)) {
-          money = n;
-          break;
-        }
-      }
-    }
-    if (money != null) appOrder['Tổng tiền VNĐ'] = money;
+    appOrder['Tổng tiền VNĐ'] = money;
   }
 
   {
@@ -319,7 +300,7 @@ export function mapOrderDbRowToLegacyF3(sOrder) {
 /** Bản gọn cho iframe báo cáo — bỏ log/ffm_log và key DB trùng bản map (city/City) để JSON hợp lệ. */
 export function mapOrderDbRowToLegacyF3Baocao(sOrder) {
   const appOrder = mapOrderDbRowToLegacyF3(sOrder);
-  // Giữ cột tiền nguồn để báo cáo luôn resolve giống /van-don (không chỉ total_amount_vnd).
+  // Giữ total_amount_vnd gốc. «Tổng tiền VNĐ» đã là đúng cột đó, kể cả khi bằng 0.
   const moneyKeep = {
     van_don_line_total_vnd: sOrder?.van_don_line_total_vnd,
     tong_tien_vnd: sOrder?.tong_tien_vnd ?? sOrder?.tong_tien_VND,

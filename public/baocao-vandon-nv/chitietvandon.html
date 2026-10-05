@@ -680,7 +680,7 @@
                     "Phone*": getRowValue(row, "Phone*", "Phone"),
                     "Mặt hàng": getRowValue(row, "Mặt hàng", "Mặt_hàng"),
                     "Số lượng mặt hàng 1": getRowValue(row, "Số lượng mặt hàng 1", "Số_lượng_mặt_hàng_1"),
-                    "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ"),
+                    "Tổng tiền VNĐ": VandonNvRegion.resolveOrderTotalAmountVnd(row),
                     "Nhân sự Marketing": getRowValue(row, "Nhân sự Marketing", "Nhân_viên_Marketing"),
                     "Nhân sự Sale": getRowValue(row, "Nhân sự Sale", "Nhân_viên_Sale"),
                     "NV Vận đơn": VandonNvRegion.resolveNvVanDon(row),

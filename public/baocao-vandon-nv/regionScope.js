@@ -261,6 +261,19 @@
     };
   }
 
+  /**
+   * Doanh số một đơn: chỉ `total_amount_vnd` (cột Tổng tiền VNĐ).
+   * Bằng 0 thì trả 0 — không lấy tong_tien, line, giá bán, goods_amount.
+   */
+  function resolveOrderTotalAmountVnd(row) {
+    if (!row || typeof row !== 'object') return 0;
+    var raw = row.total_amount_vnd;
+    if (raw === undefined || raw === null || raw === '') return 0;
+    if (typeof raw === 'number') return isFinite(raw) ? raw : 0;
+    var n = Number(String(raw).replace(/[^\d.-]/g, ''));
+    return isFinite(n) ? n : 0;
+  }
+
   /** Đọc «Tiền Việt đã đối soát» / reconciled_vnd từ 1 dòng đơn. */
   function resolveReconciledVnd(row) {
     if (!row || typeof row !== 'object') return 0;
@@ -527,6 +540,7 @@
     calcBillAmountOnSuccessRate: calcBillAmountOnSuccessRate,
     addTrackingCodeOrderAmount: addTrackingCodeOrderAmount,
     calcBillAmountOnTrackingCodeRate: calcBillAmountOnTrackingCodeRate,
+    resolveOrderTotalAmountVnd: resolveOrderTotalAmountVnd,
     resolveReconciledVnd: resolveReconciledVnd,
     calcTienVeOnTrackingCodeRate: calcTienVeOnTrackingCodeRate,
     accumulateVanDonSummaryStats: accumulateVanDonSummaryStats,
