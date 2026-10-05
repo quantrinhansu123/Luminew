@@ -86,6 +86,10 @@
     body.hide-local-filters #kpi-summary-table col.col-money { width: 118px !important; }
     body.hide-local-filters #kpi-summary-table col.col-money-wide { width: 122px !important; }
     body.hide-local-filters #kpi-summary-table col.col-percent { width: 84px !important; }
+    body:not(.kpis-mkt) #kpi-summary-table col.kpi-mkt-cp-dtc,
+    body:not(.kpis-mkt) #kpi-summary-table .kpi-mkt-cp-dtc { display: none; }
+    .kpi-mkt-cp-dtc-toggle { display: none; }
+    body.kpis-mkt .kpi-mkt-cp-dtc-toggle { display: inline; }
     body.hide-local-filters th,
     body.hide-local-filters td {
       font-size: 14px !important;
@@ -204,6 +208,7 @@
     #kpi-summary-table col.col-money { width: 120px; }
     #kpi-summary-table col.col-money-wide { width: 124px; }
     #kpi-summary-table col.col-percent { width: 90px; }
+    #kpi-summary-table col.kpi-mkt-cp-dtc { width: 118px; }
     #kpi-summary-table th,
     #kpi-summary-table td {
       padding: 6px 8px;
@@ -653,7 +658,7 @@
         <label><input type="checkbox" class="toggle-column" data-col="14" checked> Ship</label>
         <label><input type="checkbox" class="toggle-column" data-col="15" checked> DThu tính KPI</label>
         <label><input type="checkbox" class="toggle-column" data-col="16" checked> Tỷ lệ thu tiền</label>
-        <label style="display: none;"><input type="checkbox" class="toggle-column" data-col="18" checked> %CP/DT</label>
+        <label class="kpi-mkt-cp-dtc-toggle"><input type="checkbox" class="toggle-column" data-col="18" checked> CP/DOANH THU TC</label>
       </div>
       <div class="table-wrap">
         <table id="kpi-summary-table" class="sortable-table">
@@ -674,6 +679,7 @@
             <col class="col-money">
             <col class="col-money-wide">
             <col class="col-percent">
+            <col class="col-percent kpi-mkt-cp-dtc">
           </colgroup>
           <thead>
             <tr>
@@ -688,6 +694,7 @@
               <th rowspan="2" data-col-index="14">Ship</th>
               <th rowspan="2" data-col-index="15">DThu KPI</th>
               <th rowspan="2" data-col-index="16">Tỷ lệ thu</th>
+              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="18" data-sort-key="cpDoanhThuTc" title="CPQC / Doanh thu thành công">CP/DOANH THU TC</th>
             </tr>
             <tr>
               <th class="cell-count" data-col-index="4" title="Số đơn">Đơn</th>
@@ -2073,8 +2080,17 @@
 
     function syncChotDataButtonVisibility() {
       const btn = document.getElementById('chotDataBtn');
+      document.body.classList.toggle('kpis-mkt', isKpisMktMode());
       if (!btn) return;
       btn.style.display = isKpisMktMode() ? 'inline-block' : 'none';
+    }
+
+    /** CPQC / Doanh thu thành công. 0 khi chưa có doanh thu TC. */
+    function cpTrenDoanhThuTc(cpqc, dThuThanhCong) {
+      const cp = Number(cpqc) || 0;
+      const dt = Number(dThuThanhCong) || 0;
+      if (dt <= 0) return 0;
+      return cp / dt;
     }
 
     function emptyStaffAgg(name, team) {
@@ -3908,6 +3924,7 @@
                 ${cell('ship', 'cell-money', 14, formatCurrency(s.ship))}
                 <td data-col-index="15" class="cell-money">${formatCurrency(s.dThuTinhKpi)}</td>
                 <td data-col-index="16">${formatPercent(tyLeThuTien)}</td>
+                <td class="kpi-mkt-cp-dtc" data-col-index="18">${formatPercent(cpTrenDoanhThuTc(s.cpqc, s.dThuThanhCong))}</td>
             </tr>`;
       }).join('');
 
@@ -3947,6 +3964,7 @@
             ${tcell('ship', 'cell-money', 14, formatCurrency(total.ship))}
             <td class="total-value cell-money" data-col-index="15">${formatCurrency(total.dThuTinhKpi)}</td>
             <td class="total-value" data-col-index="16">${formatPercent(totalTyLeThuTien)}</td>
+            <td class="total-value kpi-mkt-cp-dtc" data-col-index="18">${formatPercent(cpTrenDoanhThuTc(total.cpqc, total.dThuThanhCong))}</td>
         </tr>`;
 
       document.getElementById('kpi-summary-body').innerHTML = totalRowHtml + bodyRowsHtml;
@@ -3957,6 +3975,17 @@
     function sortKpiTable(event) {
       const th = event.target.closest('th');
       if (!th) return;
+      if (th.getAttribute('data-sort-key') === 'cpDoanhThuTc') {
+        if (sortState.column === 'cpDoanhThuTc') sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+        else { sortState.column = 'cpDoanhThuTc'; sortState.direction = 'asc'; }
+        const dir = sortState.direction === 'asc' ? 1 : -1;
+        const arr = [...currentData].sort((a, b) => (
+          cpTrenDoanhThuTc(a.cpqc, a.dThuThanhCong) - cpTrenDoanhThuTc(b.cpqc, b.dThuThanhCong)
+        ) * dir).map((r, i) => ({ ...r, stt: i + 1 }));
+        currentData = arr;
+        renderKpiSummary(arr);
+        return;
+      }
       // determine a simple column mapping for sort
       const idx = th.cellIndex;
       const map = {
