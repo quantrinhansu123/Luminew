@@ -2185,21 +2185,37 @@
           String(window.__SUPABASE_ANON_KEY__ || '').trim() ||
           'sb_publishable_vXBSa3eP8cvjIK2qLWI6Ug_FoYm4CNy';
         const sb = createClient(url, key);
-        let res = await sb
-          .from('users')
-          .select('name, team, position, department, employment_status')
-          .not('name', 'is', null);
-        if (res.error) {
-          const msg = String(res.error.message || '').toLowerCase();
-          const missing =
-            (msg.includes('does not exist') || msg.includes('could not find')) &&
-            (msg.includes('employment_status') || msg.includes('position') || msg.includes('department'));
-          if (missing) {
-            res = await sb.from('users').select('name, team, department').not('name', 'is', null);
+        const pageSize = 1000;
+        let from = 0;
+        let selectCols = 'name, team, position, department, employment_status';
+        for (;;) {
+          let res = await sb
+            .from('users')
+            .select(selectCols)
+            .not('name', 'is', null)
+            .order('name', { ascending: true })
+            .range(from, from + pageSize - 1);
+          if (res.error && from === 0) {
+            const msg = String(res.error.message || '').toLowerCase();
+            const missing =
+              (msg.includes('does not exist') || msg.includes('could not find')) &&
+              (msg.includes('employment_status') || msg.includes('position') || msg.includes('department'));
+            if (missing) {
+              selectCols = 'name, team, department';
+              res = await sb
+                .from('users')
+                .select(selectCols)
+                .not('name', 'is', null)
+                .order('name', { ascending: true })
+                .range(from, from + pageSize - 1);
+            }
           }
-        }
-        if (!res.error) {
-          for (const u of res.data || []) {
+          if (res.error) {
+            console.warn('[KPISale] Không tải trạng thái nghỉ việc:', res.error.message || res.error);
+            break;
+          }
+          const batch = res.data || [];
+          for (const u of batch) {
             const n = String(u.name || '').trim();
             if (!n) continue;
             const nk = normalizePersonNameKeyNghi(n);
@@ -2215,8 +2231,8 @@
               keys.add(nk);
             }
           }
-        } else {
-          console.warn('[KPISale] Không tải trạng thái nghỉ việc:', res.error.message || res.error);
+          if (batch.length < pageSize) break;
+          from += pageSize;
         }
       } catch (e) {
         console.warn('[KPISale] Lỗi tải NV nghỉ việc:', e?.message || e);
@@ -2803,8 +2819,6 @@
       });
 
       rows = rows.filter((row) => {
-        const team = (row.team || '').toString().trim();
-        if (team === '') return false;
         return (
           row.soDonChot > 0 ||
           row.dsChot > 0 ||
@@ -2817,7 +2831,8 @@
           row.soDonThuTien > 0 ||
           row.dThuThanhCong > 0 ||
           row.ship > 0 ||
-          row.dThuTinhKpi > 0
+          row.dThuTinhKpi > 0 ||
+          row.cpqc > 0
         );
       });
 
@@ -2870,7 +2885,9 @@
             productSel,
             marketSel,
             (externalFilterState && externalFilterState.ca) || { all: true, values: [] },
-            (externalFilterState && externalFilterState.allowedTeams) || ['HN-MKT', 'Team Test']
+            (externalFilterState && externalFilterState.allowedTeams) || ['HN-MKT', 'Team Test'],
+            nghiPack.nghiKeys,
+            nghiPack.knownNameKeys
           );
         } catch (cpErr) {
           console.warn('[KPIs MKT] không đọc được CPQC từ báo cáo MKT:', cpErr);
@@ -2981,7 +2998,7 @@
     }
 
     /** Gắn CPQC từ báo cáo MKT. Cùng team được phép và cùng ca với Báo cáo sau huỷ. */
-    function applyReportCpqcToKpiRows(rows, cpRows, teamSel, productSel, marketSel, caSel, allowedTeams) {
+    function applyReportCpqcToKpiRows(rows, cpRows, teamSel, productSel, marketSel, caSel, allowedTeams, nghiKeys, knownNameKeys) {
       const allowed = new Set(
         (allowedTeams || []).map((t) => String(t || '').trim()).filter(Boolean)
       );
@@ -2997,13 +3014,57 @@
         if (!filterSelMatches(productSel, product)) return;
         if (!filterSelMatches(marketSel, market)) return;
         if (!reportRowMatchesCaFilter(r.ca ?? r['Ca'], caSel)) return;
-        const key = kpiStaffNameKey(name);
+        if (isKpiStaffExcludedAsNghi({ name, team }, nghiKeys, teamSel, knownNameKeys)) return;
+        const key = normalizePersonNameKeyNghi(name);
+        if (!key) return;
         const cp = Number(r.cpqc ?? r['CPQC']) || 0;
-        byName.set(key, (byName.get(key) || 0) + cp);
+        const prev = byName.get(key);
+        if (!prev) {
+          byName.set(key, { name, team, cpqc: cp });
+          return;
+        }
+        prev.cpqc += cp;
+        if (!prev.team && team) prev.team = team;
       });
+      const assigned = new Set();
       (rows || []).forEach((row) => {
-        const key = kpiStaffNameKey(row.name);
-        if (byName.has(key)) row.cpqc = byName.get(key);
+        const key = normalizePersonNameKeyNghi(row.name);
+        if (!key || !byName.has(key) || assigned.has(key)) return;
+        assigned.add(key);
+        row.cpqc = byName.get(key).cpqc;
+        if (!String(row.team || '').trim() && byName.get(key).team) row.team = byName.get(key).team;
+      });
+      byName.forEach((info, key) => {
+        if (assigned.has(key)) return;
+        const agg = emptyStaffAgg(info.name, info.team || 'Khác');
+        agg.cpqc = info.cpqc;
+        rows.push({
+          stt: rows.length + 1,
+          name: agg.name,
+          type: 'Marketing',
+          team: agg.team,
+          cpqc: agg.cpqc,
+          soDonChot: 0,
+          dsChot: 0,
+          soDonHuy: 0,
+          dsHuy: 0,
+          soDonSauHuy: 0,
+          dsSauHuy: 0,
+          soDonDi: 0,
+          dsDi: 0,
+          soDonThuTien: 0,
+          dThuThanhCong: 0,
+          ship: 0,
+          dThuTinhKpi: 0,
+        });
+      });
+      rows.sort((a, b) => {
+        const teamCmp = (a.team || '').localeCompare(b.team || '', 'vi');
+        if (teamCmp !== 0) return teamCmp;
+        return (a.name || '').localeCompare(b.name || '', 'vi');
+      });
+      rows.forEach((row, idx) => {
+        row.stt = idx + 1;
       });
     }
 
