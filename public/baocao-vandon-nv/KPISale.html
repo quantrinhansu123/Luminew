@@ -1017,6 +1017,8 @@
         name: asFilterSel(payload.nameAll, payload.names),
         product: asFilterSel(payload.productAll, payload.products),
         market: asFilterSel(payload.marketAll, payload.markets),
+        ca: asFilterSel(payload.caAll !== false, payload.cas),
+        allowedTeams: Array.isArray(payload.allowedTeams) ? payload.allowedTeams : null,
       };
 
       syncExternalFilterUi();
@@ -2861,7 +2863,15 @@
         );
         try {
           const cpRows = await mod.fetchDetailReportCpqcInRange(startVal, endVal);
-          applyReportCpqcToKpiRows(rows, cpRows, teamSel, productSel, marketSel);
+          applyReportCpqcToKpiRows(
+            rows,
+            cpRows,
+            teamSel,
+            productSel,
+            marketSel,
+            (externalFilterState && externalFilterState.ca) || { all: true, values: [] },
+            (externalFilterState && externalFilterState.allowedTeams) || ['HN-MKT', 'Team Test']
+          );
         } catch (cpErr) {
           console.warn('[KPIs MKT] không đọc được CPQC từ báo cáo MKT:', cpErr);
         }
@@ -2939,8 +2949,42 @@
       return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
     }
 
-    /** Gắn CPQC từ detail_reports vào từng NV. Không có dòng báo cáo thì giữ số đã chốt. */
-    function applyReportCpqcToKpiRows(rows, cpRows, teamSel, productSel, marketSel) {
+    /** Khớp lọc ca của Báo cáo sau huỷ: chọn Hết ca thì bỏ dòng «Giữa ca» và dòng gộp. */
+    function reportRowMatchesCaFilter(caVal, caSel) {
+      if (!caSel || caSel.all) return true;
+      const selected = caSel.values || [];
+      if (!selected.length) return true;
+      const norm = (v) =>
+        String(v || '')
+          .trim()
+          .replace(/\u00a0/g, ' ')
+          .replace(/\s+/g, ' ')
+          .replace(/[，;；]/g, ',')
+          .replace(/\s*,\s*/g, ',')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      const rowNorm = norm(caVal);
+      const rowHet = rowNorm.includes('het ca');
+      const rowGua = rowNorm.includes('giua ca');
+      const isRowCombined = rowHet && rowGua;
+      return selected.some((sel) => {
+        const s = norm(sel);
+        if (rowNorm === s) return true;
+        const selHet = s.includes('het ca');
+        const selGua = s.includes('giua ca');
+        if (selHet && !selGua) return rowHet && !rowGua;
+        if (selGua && !selHet) return rowGua || isRowCombined;
+        if (selHet && selGua) return isRowCombined;
+        return false;
+      });
+    }
+
+    /** Gắn CPQC từ báo cáo MKT. Cùng team được phép và cùng ca với Báo cáo sau huỷ. */
+    function applyReportCpqcToKpiRows(rows, cpRows, teamSel, productSel, marketSel, caSel, allowedTeams) {
+      const allowed = new Set(
+        (allowedTeams || []).map((t) => String(t || '').trim()).filter(Boolean)
+      );
       const byName = new Map();
       (cpRows || []).forEach((r) => {
         const name = String(r.name || r['Tên'] || '').trim();
@@ -2948,9 +2992,11 @@
         const team = String(r.team || r['Team'] || '').trim();
         const product = String(r.product || r['Sản_phẩm'] || '').trim();
         const market = String(r.market || r['Thị_trường'] || '').trim();
+        if (allowed.size && !allowed.has(team)) return;
         if (!filterSelMatches(teamSel, team)) return;
         if (!filterSelMatches(productSel, product)) return;
         if (!filterSelMatches(marketSel, market)) return;
+        if (!reportRowMatchesCaFilter(r.ca ?? r['Ca'], caSel)) return;
         const key = kpiStaffNameKey(name);
         const cp = Number(r.cpqc ?? r['CPQC']) || 0;
         byName.set(key, (byName.get(key) || 0) + cp);

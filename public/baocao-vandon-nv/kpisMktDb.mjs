@@ -158,7 +158,7 @@ export async function fetchDetailReportCpqcInRange(startDate, endDate) {
   for (;;) {
     const { data, error } = await sb
       .from('detail_reports')
-      .select('Tên,Team,Sản_phẩm,Thị_trường,CPQC,Ngày,department')
+      .select('Tên,Team,Sản_phẩm,Thị_trường,CPQC,Ngày,ca,department')
       .gte('Ngày', startDate)
       .lte('Ngày', endDate)
       .order('id', { ascending: true })
@@ -171,6 +171,8 @@ export async function fetchDetailReportCpqcInRange(startDate, endDate) {
         team: r['Team'],
         product: r['Sản_phẩm'],
         market: r['Thị_trường'],
+        ca: r.ca,
+        department: r.department,
         cpqc: Number(r['CPQC']) || 0,
       });
     }

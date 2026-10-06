@@ -6398,6 +6398,7 @@
       const team = getTab1FilterSelection('team');
       const product = getTab1FilterSelection('product');
       const market = getTab1FilterSelection('market');
+      const ca = getTab1FilterSelection('ca');
       const msg = {
         type: NSSL_KPI_FILTERS_MSG,
         startDate: document.getElementById('start-date-tab1')?.value || '',
@@ -6410,6 +6411,9 @@
         products: product.values,
         marketAll: market.all,
         markets: market.values,
+        caAll: ca.all,
+        cas: ca.values,
+        allowedTeams: MKT_ALLOWED_TEAMS,
       };
       try {
         iframe.contentWindow.postMessage(msg, '*');
