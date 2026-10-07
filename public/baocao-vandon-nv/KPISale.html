@@ -88,6 +88,31 @@
     body.hide-local-filters #kpi-summary-table col.col-percent { width: 84px !important; }
     body:not(.kpis-mkt) #kpi-summary-table col.kpi-mkt-cp-dtc,
     body:not(.kpis-mkt) #kpi-summary-table .kpi-mkt-cp-dtc { display: none; }
+    #kpi-summary-table col.kpi-mkt-cpqc-hidden,
+    #kpi-summary-table .kpi-mkt-cpqc-hidden { display: none !important; }
+    #kpi-cp-formula-pop {
+      position: fixed;
+      z-index: 10060;
+      max-width: min(420px, calc(100vw - 16px));
+      padding: 8px 12px;
+      background: #16324f;
+      color: #fff;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.4;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+      pointer-events: none;
+    }
+    #kpi-summary-table td.kpi-cp-formula {
+      cursor: pointer;
+      color: #1565c0;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    #kpi-summary-table tr.total-row td.kpi-cp-formula {
+      color: #fff;
+    }
     .kpi-mkt-cp-dtc-toggle { display: none; }
     body.kpis-mkt .kpi-mkt-cp-dtc-toggle { display: inline; }
     body.hide-local-filters th,
@@ -551,6 +576,7 @@
       </div>
     </div>
   </div>
+  <div id="kpi-cp-formula-pop" hidden></div>
   <div id="kpi-orders-modal" role="dialog" aria-modal="true" aria-labelledby="kpi-orders-title" hidden>
     <div class="kpi-orders-backdrop" data-kpi-orders-close="1"></div>
     <div class="kpi-orders-panel">
@@ -658,7 +684,6 @@
         <label><input type="checkbox" class="toggle-column" data-col="14" checked> Ship</label>
         <label><input type="checkbox" class="toggle-column" data-col="15" checked> DThu tính KPI</label>
         <label><input type="checkbox" class="toggle-column" data-col="16" checked> Tỷ lệ thu tiền</label>
-        <label class="kpi-mkt-cp-dtc-toggle"><input type="checkbox" class="toggle-column" data-col="19" checked> CPQC</label>
         <label class="kpi-mkt-cp-dtc-toggle"><input type="checkbox" class="toggle-column" data-col="20" checked> Tổng CP</label>
         <label class="kpi-mkt-cp-dtc-toggle"><input type="checkbox" class="toggle-column" data-col="18" checked> CP/DOANH THU TC</label>
       </div>
@@ -681,7 +706,7 @@
             <col class="col-money">
             <col class="col-money-wide">
             <col class="col-percent">
-            <col class="col-money kpi-mkt-cp-dtc">
+            <col class="col-money kpi-mkt-cp-dtc kpi-mkt-cpqc-hidden">
             <col class="col-money kpi-mkt-cp-dtc">
             <col class="col-percent kpi-mkt-cp-dtc">
           </colgroup>
@@ -698,9 +723,9 @@
               <th rowspan="2" data-col-index="14">Ship</th>
               <th rowspan="2" data-col-index="15">DThu KPI</th>
               <th rowspan="2" data-col-index="16">Tỷ lệ thu</th>
-              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="19" data-sort-key="cpqc" title="CPQC trên báo cáo MKT">CPQC</th>
+              <th rowspan="2" class="kpi-mkt-cp-dtc kpi-mkt-cpqc-hidden" data-col-index="19" data-sort-key="cpqc" title="CPQC trên báo cáo MKT">CPQC</th>
               <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="20" data-sort-key="tongCp" title="Phí ship + CPQC">Tổng CP</th>
-              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="18" data-sort-key="cpDoanhThuTc" title="Tổng CP / Doanh thu thành công">CP/DOANH THU TC</th>
+              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="18" data-sort-key="cpDoanhThuTc" title="Tổng CPQC / Doanh thu thành công. Bấm số để xem công thức">CP/DOANH THU TC</th>
             </tr>
             <tr>
               <th class="cell-count" data-col-index="4" title="Số đơn">Đơn</th>
@@ -1919,7 +1944,10 @@
         });
         }
       }
-      document.addEventListener('click', () => closeAllDropdowns());
+      document.addEventListener('click', (e) => {
+        closeAllDropdowns();
+        if (!e.target.closest('.kpi-cp-formula') && !e.target.closest('#kpi-cp-formula-pop')) hideCpFormulaPop();
+      });
       const includeZeroEl = document.getElementById('includeZeroShip');
       if (includeZeroEl) includeZeroEl.addEventListener('change', () => applyFiltersAndRender());
 
@@ -1929,6 +1957,11 @@
       const kpiBody = document.getElementById('kpi-summary-body');
       if (kpiBody) {
         kpiBody.addEventListener('click', (e) => {
+          const formulaCell = e.target.closest('td.kpi-cp-formula');
+          if (formulaCell) {
+            showCpFormulaPop(formulaCell);
+            return;
+          }
           const cell = e.target.closest('td.kpi-metric-link[data-metric]');
           if (!cell) return;
           const metric = cell.getAttribute('data-metric') || '';
@@ -1949,7 +1982,10 @@
         kpiOrdersCopyBtn.addEventListener('click', () => copyKpiOrdersModalCodes());
       }
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeKpiOrdersModal();
+        if (e.key === 'Escape') {
+          closeKpiOrdersModal();
+          hideCpFormulaPop();
+        }
       });
 
       document.querySelectorAll('.toggle-column').forEach(cb => cb.addEventListener('change', toggleKpiColumn));
@@ -2098,11 +2134,36 @@
       return (Number(ship) || 0) + (Number(cpqc) || 0);
     }
 
-    /** Tổng CP / Doanh thu thành công. 0 khi chưa có doanh thu TC. */
-    function cpTrenDoanhThuTc(ship, cpqc, dThuThanhCong) {
+    /** Tổng CPQC / Doanh thu thành công. 0 khi chưa có doanh thu TC. */
+    function cpTrenDoanhThuTc(_ship, cpqc, dThuThanhCong) {
       const dt = Number(dThuThanhCong) || 0;
       if (dt <= 0) return 0;
-      return tongCpRow(ship, cpqc) / dt;
+      return (Number(cpqc) || 0) / dt;
+    }
+
+    function cpqcDoanhThuFormulaText(cpqc, dThuThanhCong) {
+      const cp = Number(cpqc) || 0;
+      const dt = Number(dThuThanhCong) || 0;
+      const money = (n) => Math.round(n).toLocaleString('vi-VN');
+      return `(${money(cp)} / ${money(dt)}) = ${formatPercent(cpTrenDoanhThuTc(0, cp, dt))}`;
+    }
+
+    function hideCpFormulaPop() {
+      const pop = document.getElementById('kpi-cp-formula-pop');
+      if (pop) pop.hidden = true;
+    }
+
+    function showCpFormulaPop(cell) {
+      const pop = document.getElementById('kpi-cp-formula-pop');
+      if (!pop || !cell) return;
+      pop.textContent = cpqcDoanhThuFormulaText(cell.getAttribute('data-cpqc'), cell.getAttribute('data-dthu'));
+      pop.hidden = false;
+      const rect = cell.getBoundingClientRect();
+      const width = pop.offsetWidth || 280;
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+      const top = Math.min(rect.bottom + 6, window.innerHeight - 48);
+      pop.style.left = `${left}px`;
+      pop.style.top = `${top}px`;
     }
 
     function emptyStaffAgg(name, team) {
@@ -4073,9 +4134,9 @@
                 ${cell('ship', 'cell-money', 14, formatCurrency(s.ship))}
                 <td data-col-index="15" class="cell-money">${formatCurrency(s.dThuTinhKpi)}</td>
                 <td data-col-index="16">${formatPercent(tyLeThuTien)}</td>
-                <td class="kpi-mkt-cp-dtc cell-money" data-col-index="19">${formatCurrency(s.cpqc)}</td>
+                <td class="kpi-mkt-cp-dtc kpi-mkt-cpqc-hidden cell-money" data-col-index="19">${formatCurrency(s.cpqc)}</td>
                 <td class="kpi-mkt-cp-dtc cell-money" data-col-index="20">${formatCurrency(tongCpRow(s.ship, s.cpqc))}</td>
-                <td class="kpi-mkt-cp-dtc" data-col-index="18">${formatPercent(cpTrenDoanhThuTc(s.ship, s.cpqc, s.dThuThanhCong))}</td>
+                <td class="kpi-mkt-cp-dtc kpi-cp-formula" data-col-index="18" data-cpqc="${Number(s.cpqc) || 0}" data-dthu="${Number(s.dThuThanhCong) || 0}" title="Bấm để xem Tổng CPQC / DThu TC">${formatPercent(cpTrenDoanhThuTc(0, s.cpqc, s.dThuThanhCong))}</td>
             </tr>`;
       }).join('');
 
@@ -4115,9 +4176,9 @@
             ${tcell('ship', 'cell-money', 14, formatCurrency(total.ship))}
             <td class="total-value cell-money" data-col-index="15">${formatCurrency(total.dThuTinhKpi)}</td>
             <td class="total-value" data-col-index="16">${formatPercent(totalTyLeThuTien)}</td>
-            <td class="total-value kpi-mkt-cp-dtc cell-money" data-col-index="19">${formatCurrency(total.cpqc)}</td>
+            <td class="total-value kpi-mkt-cp-dtc kpi-mkt-cpqc-hidden cell-money" data-col-index="19">${formatCurrency(total.cpqc)}</td>
             <td class="total-value kpi-mkt-cp-dtc cell-money" data-col-index="20">${formatCurrency(tongCpRow(total.ship, total.cpqc))}</td>
-            <td class="total-value kpi-mkt-cp-dtc" data-col-index="18">${formatPercent(cpTrenDoanhThuTc(total.ship, total.cpqc, total.dThuThanhCong))}</td>
+            <td class="total-value kpi-mkt-cp-dtc kpi-cp-formula" data-col-index="18" data-cpqc="${Number(total.cpqc) || 0}" data-dthu="${Number(total.dThuThanhCong) || 0}" title="Bấm để xem Tổng CPQC / DThu TC">${formatPercent(cpTrenDoanhThuTc(0, total.cpqc, total.dThuThanhCong))}</td>
         </tr>`;
 
       document.getElementById('kpi-summary-body').innerHTML = totalRowHtml + bodyRowsHtml;
