@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import usePermissions from "../hooks/usePermissions";
 import * as API from "../services/api";
+import { formatLocalYmd } from "../utils/dateParsing";
 
 const ADMIN_FFM_RECONCILE_ROLES = new Set(["admin", "super_admin", "administrator", "director"]);
 
@@ -112,9 +113,7 @@ function getRowDayKey(row) {
     row?.["Ngày đẩy đơn"] ??
     row?.["Ngày Kế toán đối soát với FFM lần 2"];
   if (raw == null || raw === "") return "";
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  return formatLocalYmd(raw);
 }
 
 function getProduct(row) {
