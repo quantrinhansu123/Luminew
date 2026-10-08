@@ -725,7 +725,7 @@
               <th rowspan="2" data-col-index="16">Tỷ lệ thu</th>
               <th rowspan="2" class="kpi-mkt-cp-dtc kpi-mkt-cpqc-hidden" data-col-index="19" data-sort-key="cpqc" title="CPQC trên báo cáo MKT">CPQC</th>
               <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="20" data-sort-key="tongCp" title="Phí ship + CPQC">Tổng CP</th>
-              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="18" data-sort-key="cpDoanhThuTc" title="Tổng CPQC / Doanh thu thành công. Bấm số để xem công thức">CP/DOANH THU TC</th>
+              <th rowspan="2" class="kpi-mkt-cp-dtc" data-col-index="18" data-sort-key="cpDoanhThuTc" title="Tổng CP / Doanh thu thành công. Bấm số để xem công thức">CP/DOANH THU TC</th>
             </tr>
             <tr>
               <th class="cell-count" data-col-index="4" title="Số đơn">Đơn</th>
@@ -2134,18 +2134,18 @@
       return (Number(ship) || 0) + (Number(cpqc) || 0);
     }
 
-    /** Tổng CPQC / Doanh thu thành công. 0 khi chưa có doanh thu TC. */
-    function cpTrenDoanhThuTc(_ship, cpqc, dThuThanhCong) {
+    /** Tổng CP (ship + CPQC) / Doanh thu thành công. 0 khi chưa có doanh thu TC. */
+    function cpTrenDoanhThuTc(ship, cpqc, dThuThanhCong) {
       const dt = Number(dThuThanhCong) || 0;
       if (dt <= 0) return 0;
-      return (Number(cpqc) || 0) / dt;
+      return tongCpRow(ship, cpqc) / dt;
     }
 
-    function cpqcDoanhThuFormulaText(cpqc, dThuThanhCong) {
-      const cp = Number(cpqc) || 0;
+    function tongCpDoanhThuFormulaText(ship, cpqc, dThuThanhCong) {
+      const cp = tongCpRow(ship, cpqc);
       const dt = Number(dThuThanhCong) || 0;
       const money = (n) => Math.round(n).toLocaleString('vi-VN');
-      return `(${money(cp)} / ${money(dt)}) = ${formatPercent(cpTrenDoanhThuTc(0, cp, dt))}`;
+      return `(${money(cp)} / ${money(dt)}) = ${formatPercent(cpTrenDoanhThuTc(ship, cpqc, dt))}`;
     }
 
     function hideCpFormulaPop() {
@@ -2156,7 +2156,11 @@
     function showCpFormulaPop(cell) {
       const pop = document.getElementById('kpi-cp-formula-pop');
       if (!pop || !cell) return;
-      pop.textContent = cpqcDoanhThuFormulaText(cell.getAttribute('data-cpqc'), cell.getAttribute('data-dthu'));
+      pop.textContent = tongCpDoanhThuFormulaText(
+        cell.getAttribute('data-ship'),
+        cell.getAttribute('data-cpqc'),
+        cell.getAttribute('data-dthu')
+      );
       pop.hidden = false;
       const rect = cell.getBoundingClientRect();
       const width = pop.offsetWidth || 280;
@@ -4136,7 +4140,7 @@
                 <td data-col-index="16">${formatPercent(tyLeThuTien)}</td>
                 <td class="kpi-mkt-cp-dtc kpi-mkt-cpqc-hidden cell-money" data-col-index="19">${formatCurrency(s.cpqc)}</td>
                 <td class="kpi-mkt-cp-dtc cell-money" data-col-index="20">${formatCurrency(tongCpRow(s.ship, s.cpqc))}</td>
-                <td class="kpi-mkt-cp-dtc kpi-cp-formula" data-col-index="18" data-cpqc="${Number(s.cpqc) || 0}" data-dthu="${Number(s.dThuThanhCong) || 0}" title="Bấm để xem Tổng CPQC / DThu TC">${formatPercent(cpTrenDoanhThuTc(0, s.cpqc, s.dThuThanhCong))}</td>
+                <td class="kpi-mkt-cp-dtc kpi-cp-formula" data-col-index="18" data-ship="${Number(s.ship) || 0}" data-cpqc="${Number(s.cpqc) || 0}" data-dthu="${Number(s.dThuThanhCong) || 0}" title="Bấm để xem Tổng CP / DThu TC">${formatPercent(cpTrenDoanhThuTc(s.ship, s.cpqc, s.dThuThanhCong))}</td>
             </tr>`;
       }).join('');
 
@@ -4178,7 +4182,7 @@
             <td class="total-value" data-col-index="16">${formatPercent(totalTyLeThuTien)}</td>
             <td class="total-value kpi-mkt-cp-dtc kpi-mkt-cpqc-hidden cell-money" data-col-index="19">${formatCurrency(total.cpqc)}</td>
             <td class="total-value kpi-mkt-cp-dtc cell-money" data-col-index="20">${formatCurrency(tongCpRow(total.ship, total.cpqc))}</td>
-            <td class="total-value kpi-mkt-cp-dtc kpi-cp-formula" data-col-index="18" data-cpqc="${Number(total.cpqc) || 0}" data-dthu="${Number(total.dThuThanhCong) || 0}" title="Bấm để xem Tổng CPQC / DThu TC">${formatPercent(cpTrenDoanhThuTc(0, total.cpqc, total.dThuThanhCong))}</td>
+            <td class="total-value kpi-mkt-cp-dtc kpi-cp-formula" data-col-index="18" data-ship="${Number(total.ship) || 0}" data-cpqc="${Number(total.cpqc) || 0}" data-dthu="${Number(total.dThuThanhCong) || 0}" title="Bấm để xem Tổng CP / DThu TC">${formatPercent(cpTrenDoanhThuTc(total.ship, total.cpqc, total.dThuThanhCong))}</td>
         </tr>`;
 
       document.getElementById('kpi-summary-body').innerHTML = totalRowHtml + bodyRowsHtml;
