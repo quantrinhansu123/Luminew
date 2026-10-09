@@ -14,7 +14,13 @@ import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate, formatLocalYmd, calendarMonthDateBounds } from '../utils/dateParsing';
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { totalAmountVndFromLenDonFormula } from '../utils/totalAmountVndFromLenDon';
-import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
+import {
+  buildOrderLogDiffEntries,
+  labelForOrderLogDbKey,
+  mergeOrderLogJsonb,
+  ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
+  parseOrderLogJsonb,
+} from '../utils/orderLogJsonb';
 import {
   computeCanhBaoUpdatesForDuplicateCustomers,
   normalizeCustomerTextForDup,
@@ -2451,6 +2457,19 @@ function DanhSachDon({ dataSource = 'default' }) {
     });
   };
 
+  const isDeliveryStaffHistoryRow = (row) => {
+    const cot = String(row?.cot || '').normalize('NFC').trim().toLowerCase();
+    const key = String(row?.cot_db || row?.key || '').trim().toLowerCase();
+    if (key === 'delivery_staff') return true;
+    return (
+      cot === 'nv vận đơn' ||
+      cot === 'nhân viên vận đơn' ||
+      cot === 'nhân viên vđ' ||
+      cot.includes('nv vận đơn') ||
+      cot.includes('nhân viên vận đơn')
+    );
+  };
+
   const buildUnifiedHistoryRows = (orderLogRaw, salesLogs) => {
     const rows = [];
     const jsonbEntries = parseOrderLogJsonb(orderLogRaw);
@@ -2461,6 +2480,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         thoi_gian: e.thoi_gian || '',
         nhan_vien: e.nhan_vien != null ? String(e.nhan_vien) : '',
         cot,
+        cot_db: e.cot_db || '',
         gia_tri_cu: formatHistoryCell(e.gia_tri_cu),
         gia_tri_moi: formatHistoryCell(e.gia_tri_moi),
       });
@@ -2474,6 +2494,8 @@ function DanhSachDon({ dataSource = 'default' }) {
           thoi_gian: log.changed_at || '',
           nhan_vien: log.changed_by != null ? String(log.changed_by) : '',
           cot: ch.label,
+          cot_db: ch.key || '',
+          key: ch.key || '',
           gia_tri_cu: formatHistoryCell(ch.old),
           gia_tri_moi: formatHistoryCell(ch.new),
         });
@@ -2489,6 +2511,11 @@ function DanhSachDon({ dataSource = 'default' }) {
     });
     return rows;
   };
+
+  const historyDeliveryStaffRows = useMemo(
+    () => (historyTableRows || []).filter(isDeliveryStaffHistoryRow),
+    [historyTableRows]
+  );
 
   /** Bảng sales_order_logs có thể chưa tạo trên một số project — chỉ bỏ qua, vẫn dùng orders.log */
   const isSalesOrderLogsTableMissing = (err) => {
@@ -2646,7 +2673,52 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
     setSavingNvVanDon(true);
     try {
-      const payload = { delivery_staff: newDb };
+      const actor =
+        String(
+          localStorage.getItem('user_name') ||
+            localStorage.getItem('username') ||
+            user?.['Họ_và_tên'] ||
+            user?.['Họ và tên'] ||
+            user?.['Tên'] ||
+            user?.username ||
+            user?.name ||
+            ''
+        ).trim() || 'hệ thống';
+      const logEntries = buildOrderLogDiffEntries({
+        baseline: { delivery_staff: oldDb },
+        current: { delivery_staff: newDb },
+        actor,
+        tacNhan: ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
+      });
+
+      let prevLog = [];
+      if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
+        const { data: logRow, error: logErr } = await supabase
+          .from(ordersTableName)
+          .select('log')
+          .eq('order_code', orderCode)
+          .maybeSingle();
+        if (logErr) throw logErr;
+        prevLog = parseOrderLogJsonb(logRow?.log);
+      } else if (rowId) {
+        const { data: logRow, error: logErr } = await supabase
+          .from(ordersTableName)
+          .select('log')
+          .eq('id', rowId)
+          .maybeSingle();
+        if (logErr) throw logErr;
+        prevLog = parseOrderLogJsonb(logRow?.log);
+      }
+
+      const nextLog = logEntries.length ? mergeOrderLogJsonb(prevLog, logEntries) : prevLog;
+      const payload = {
+        delivery_staff: newDb,
+        last_modified_by: actor,
+      };
+      if (logEntries.length) {
+        payload.log = nextLog;
+      }
+
       let error = null;
       if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
         ({ error } = await supabase.from(ordersTableName).update(payload).eq('order_code', orderCode));
@@ -2658,7 +2730,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       if (error) throw error;
       await logDataChange({
         action: 'UPDATE',
-        table_name: 'orders',
+        table_name: ordersTableName,
         record_id: orderCode || String(rowId),
         field: 'delivery_staff',
         old_value: oldDb ?? '',
@@ -2669,10 +2741,10 @@ function DanhSachDon({ dataSource = 'default' }) {
         (prev || []).map((r) => {
           const c = String(r['Mã đơn hàng'] || '').trim();
           if (orderCode && c === orderCode) {
-            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb };
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb, _log: nextLog };
           }
           if (rowId && r._id === rowId) {
-            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb };
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb, _log: nextLog };
           }
           return r;
         })
@@ -2736,15 +2808,55 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     setIsBulkClearingDeliveryStaff(true);
     try {
+      const actor =
+        String(
+          localStorage.getItem('user_name') ||
+            localStorage.getItem('username') ||
+            user?.['Họ_và_tên'] ||
+            user?.['Họ và tên'] ||
+            user?.['Tên'] ||
+            user?.username ||
+            user?.name ||
+            ''
+        ).trim() || 'hệ thống';
       let success = 0;
       const failed = [];
+      const clearedLogByCode = new Map();
+      const clearedLogById = new Map();
       const chunkSize = 10;
       for (let i = 0; i < rows.length; i += chunkSize) {
         const chunk = rows.slice(i, i + chunkSize);
         const results = await Promise.all(
           chunk.map(async (u) => {
             try {
-              let query = supabase.from(ordersTableName).update({ delivery_staff: null });
+              let prevLog = [];
+              let fetchQ = supabase.from(ordersTableName).select('log');
+              if (u.orderCode && !u.orderCode.startsWith('UNK-') && !u.orderCode.startsWith('NO_CODE_')) {
+                fetchQ = fetchQ.eq('order_code', u.orderCode);
+              } else if (u.rowId != null) {
+                fetchQ = fetchQ.eq('id', u.rowId);
+              } else {
+                throw new Error('Thiếu order_code/id');
+              }
+              const { data: logRow, error: logErr } = await fetchQ.maybeSingle();
+              if (logErr) throw logErr;
+              prevLog = parseOrderLogJsonb(logRow?.log);
+
+              const oldDb = String(u.currentDeliveryStaff || '').trim() || null;
+              const logEntries = buildOrderLogDiffEntries({
+                baseline: { delivery_staff: oldDb },
+                current: { delivery_staff: null },
+                actor,
+                tacNhan: ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
+              });
+              const nextLog = logEntries.length ? mergeOrderLogJsonb(prevLog, logEntries) : prevLog;
+              const payload = {
+                delivery_staff: null,
+                last_modified_by: actor,
+              };
+              if (logEntries.length) payload.log = nextLog;
+
+              let query = supabase.from(ordersTableName).update(payload);
               if (u.orderCode && !u.orderCode.startsWith('UNK-') && !u.orderCode.startsWith('NO_CODE_')) {
                 query = query.eq('order_code', u.orderCode);
               } else if (u.rowId != null) {
@@ -2754,7 +2866,7 @@ function DanhSachDon({ dataSource = 'default' }) {
               }
               const { error } = await query;
               if (error) throw error;
-              return { ok: true, item: u };
+              return { ok: true, item: u, nextLog };
             } catch (err) {
               return { ok: false, item: u, error: err };
             }
@@ -2762,8 +2874,12 @@ function DanhSachDon({ dataSource = 'default' }) {
         );
 
         results.forEach((r) => {
-          if (r.ok) success += 1;
-          else failed.push(r);
+          if (r.ok) {
+            success += 1;
+            const code = String(r.item.orderCode || '').trim();
+            if (code) clearedLogByCode.set(code, r.nextLog);
+            if (r.item.rowId != null) clearedLogById.set(r.item.rowId, r.nextLog);
+          } else failed.push(r);
         });
       }
 
@@ -2774,7 +2890,8 @@ function DanhSachDon({ dataSource = 'default' }) {
           const code = String(r?.['Mã đơn hàng'] || '').trim();
           const id = r?._id ?? null;
           if (byCode.has(code) || (id != null && byId.has(id))) {
-            return { ...r, 'NV Vận đơn': '', delivery_staff: null };
+            const nextLog = clearedLogByCode.get(code) ?? clearedLogById.get(id) ?? r._log;
+            return { ...r, 'NV Vận đơn': '', delivery_staff: null, _log: nextLog };
           }
           return r;
         })
@@ -2784,7 +2901,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         rows.map((u) =>
           logDataChange({
             action: 'UPDATE',
-            table_name: 'orders',
+            table_name: ordersTableName,
             record_id: u.orderCode || String(u.rowId),
             field: 'delivery_staff',
             old_value: u.currentDeliveryStaff || '',
@@ -5181,7 +5298,7 @@ function DanhSachDon({ dataSource = 'default' }) {
             </div>
 
             {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {loadingHistory ? (
                 <div className="text-center py-8 text-gray-500">
                   <div className="animate-spin h-8 w-8 border-2 border-[#F37021] border-t-transparent rounded-full mx-auto mb-2"></div>
@@ -5192,40 +5309,106 @@ function DanhSachDon({ dataSource = 'default' }) {
                   <p>Chưa có lịch sử chỉnh sửa nào cho đơn hàng này.</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-gray-200">
-                  <table className="min-w-full text-sm text-left">
-                    <thead className="bg-gray-100 text-gray-700 text-xs uppercase tracking-wide">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Thời gian</th>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Nhân viên</th>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Cột</th>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị cũ</th>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị mới</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
-                      {historyTableRows.map((r) => (
-                        <tr key={r.id} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 text-gray-800 whitespace-nowrap align-top">
-                            {formatHistoryTime(r.thoi_gian)}
-                          </td>
-                          <td className="px-3 py-2 text-gray-800 align-top max-w-[140px] break-words">
-                            {r.nhan_vien || '—'}
-                          </td>
-                          <td className="px-3 py-2 text-gray-800 align-top max-w-[160px] break-words">
-                            {r.cot || '—'}
-                          </td>
-                          <td className="px-3 py-2 text-red-800 align-top max-w-[220px] break-words">
-                            {r.gia_tri_cu}
-                          </td>
-                          <td className="px-3 py-2 text-green-800 align-top max-w-[220px] break-words">
-                            {r.gia_tri_moi}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Truck className="w-4 h-4 text-amber-700 shrink-0" />
+                      <h3 className="text-sm font-bold text-amber-900">
+                        Lịch sử đổi Nhân viên vận đơn
+                      </h3>
+                      <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                        {historyDeliveryStaffRows.length}
+                      </span>
+                    </div>
+                    {historyDeliveryStaffRows.length === 0 ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-3 text-sm text-amber-900">
+                        Chưa có lần đổi cột NV Vận đơn (`delivery_staff`) được ghi trong nhật ký.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-lg border border-amber-200">
+                        <table className="min-w-full text-sm text-left">
+                          <thead className="bg-amber-50 text-amber-900 text-xs uppercase tracking-wide">
+                            <tr>
+                              <th className="px-3 py-2 font-semibold whitespace-nowrap">Thời gian</th>
+                              <th className="px-3 py-2 font-semibold whitespace-nowrap">Người thao tác</th>
+                              <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị cũ</th>
+                              <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị mới</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-amber-100 bg-white">
+                            {historyDeliveryStaffRows.map((r) => (
+                              <tr key={`vd-${r.id}`} className="hover:bg-amber-50/50">
+                                <td className="px-3 py-2 text-gray-800 whitespace-nowrap align-top">
+                                  {formatHistoryTime(r.thoi_gian)}
+                                </td>
+                                <td className="px-3 py-2 text-gray-800 align-top max-w-[160px] break-words">
+                                  {r.nhan_vien || '—'}
+                                </td>
+                                <td className="px-3 py-2 text-red-800 align-top max-w-[220px] break-words">
+                                  {r.gia_tri_cu}
+                                </td>
+                                <td className="px-3 py-2 text-green-800 align-top max-w-[220px] break-words font-medium">
+                                  {r.gia_tri_moi}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 mb-2">Toàn bộ lịch sử chỉnh sửa</h3>
+                    <div className="overflow-x-auto rounded-lg border border-gray-200">
+                      <table className="min-w-full text-sm text-left">
+                        <thead className="bg-gray-100 text-gray-700 text-xs uppercase tracking-wide">
+                          <tr>
+                            <th className="px-3 py-2 font-semibold whitespace-nowrap">Thời gian</th>
+                            <th className="px-3 py-2 font-semibold whitespace-nowrap">Nhân viên</th>
+                            <th className="px-3 py-2 font-semibold whitespace-nowrap">Cột</th>
+                            <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị cũ</th>
+                            <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị mới</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200 bg-white">
+                          {historyTableRows.map((r) => {
+                            const isVd = isDeliveryStaffHistoryRow(r);
+                            return (
+                              <tr
+                                key={r.id}
+                                className={isVd ? 'bg-amber-50/70 hover:bg-amber-50' : 'hover:bg-gray-50'}
+                              >
+                                <td className="px-3 py-2 text-gray-800 whitespace-nowrap align-top">
+                                  {formatHistoryTime(r.thoi_gian)}
+                                </td>
+                                <td className="px-3 py-2 text-gray-800 align-top max-w-[140px] break-words">
+                                  {r.nhan_vien || '—'}
+                                </td>
+                                <td className="px-3 py-2 text-gray-800 align-top max-w-[160px] break-words">
+                                  {isVd ? (
+                                    <span className="inline-flex items-center gap-1 font-semibold text-amber-800">
+                                      <Truck className="w-3.5 h-3.5 shrink-0" />
+                                      {r.cot || 'NV Vận đơn'}
+                                    </span>
+                                  ) : (
+                                    r.cot || '—'
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-red-800 align-top max-w-[220px] break-words">
+                                  {r.gia_tri_cu}
+                                </td>
+                                <td className="px-3 py-2 text-green-800 align-top max-w-[220px] break-words">
+                                  {r.gia_tri_moi}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
 

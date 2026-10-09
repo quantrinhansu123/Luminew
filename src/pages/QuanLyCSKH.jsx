@@ -8,7 +8,13 @@ import { logDataChange } from '../services/logging';
 import { getSelectedPersonnel } from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
-import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
+import {
+  buildOrderLogDiffEntries,
+  labelForOrderLogDbKey,
+  mergeOrderLogJsonb,
+  ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
+  parseOrderLogJsonb,
+} from '../utils/orderLogJsonb';
 import { fetchVanDonStaffNameList } from '../utils/vanDonStaffNameList';
 import {
   mergeUniqueRowsById,
@@ -1793,7 +1799,47 @@ function QuanLyCSKH({
     }
     setSavingNvVanDon(true);
     try {
-      const payload = { delivery_staff: newDb };
+      const actor =
+        String(
+          localStorage.getItem('user_name') ||
+            localStorage.getItem('username') ||
+            ''
+        ).trim() || 'hệ thống';
+      const logEntries = buildOrderLogDiffEntries({
+        baseline: { delivery_staff: oldDb },
+        current: { delivery_staff: newDb },
+        actor,
+        tacNhan: ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
+      });
+
+      let prevLog = [];
+      if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
+        const { data: logRow, error: logErr } = await supabase
+          .from(ordersTableName)
+          .select('log')
+          .eq('order_code', orderCode)
+          .maybeSingle();
+        if (logErr) throw logErr;
+        prevLog = parseOrderLogJsonb(logRow?.log);
+      } else if (rowId) {
+        const { data: logRow, error: logErr } = await supabase
+          .from(ordersTableName)
+          .select('log')
+          .eq('id', rowId)
+          .maybeSingle();
+        if (logErr) throw logErr;
+        prevLog = parseOrderLogJsonb(logRow?.log);
+      }
+
+      const nextLog = logEntries.length ? mergeOrderLogJsonb(prevLog, logEntries) : prevLog;
+      const payload = {
+        delivery_staff: newDb,
+        last_modified_by: actor,
+      };
+      if (logEntries.length) {
+        payload.log = nextLog;
+      }
+
       let error = null;
       if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
         ({ error } = await supabase.from(ordersTableName).update(payload).eq('order_code', orderCode));
@@ -1816,10 +1862,10 @@ function QuanLyCSKH({
         (prev || []).map((r) => {
           const c = String(r['Mã đơn hàng'] || '').trim();
           if (orderCode && c === orderCode) {
-            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb };
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb, _log: nextLog };
           }
           if (rowId && r.id === rowId) {
-            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb };
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb, _log: nextLog };
           }
           return r;
         })
