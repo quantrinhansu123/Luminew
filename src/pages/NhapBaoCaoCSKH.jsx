@@ -1,5 +1,5 @@
 import usePermissions from '../hooks/usePermissions';
-import ReportFormCSKH from './ReportFormCSKH';
+import ReportForm from './ReportForm';
 
 export default function NhapBaoCaoCSKH({ dataSource = 'default' }) {
     const { canView } = usePermissions();
@@ -19,9 +19,11 @@ export default function NhapBaoCaoCSKH({ dataSource = 'default' }) {
     }
 
     return (
-        <ReportFormCSKH
+        <ReportForm
             reportTable={isHcm ? 'sale_report_hcm' : 'sales_reports'}
+            ordersTable={isHcm ? 'order_code_hcm' : 'orders'}
             pageTitle={isHcm ? 'Báo Cáo CSKH (HCM)' : 'Báo Cáo CSKH'}
+            staffDepartment="cskh"
         />
     );
 }

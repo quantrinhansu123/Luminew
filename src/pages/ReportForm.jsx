@@ -19,11 +19,26 @@ function isUserDepartmentSale(department) {
   return false;
 }
 
+function isUserDepartmentCskh(department) {
+  const raw = String(department ?? '').trim().toLowerCase();
+  if (!raw) return false;
+  if (raw === 'cskh' || /\bcskh\b/.test(raw)) return true;
+  const noTone = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return noTone.includes('cham soc khach hang');
+}
+
+const STAFF_DEPARTMENTS = {
+  sale: { label: 'Sale', matches: isUserDepartmentSale },
+  cskh: { label: 'CSKH', matches: isUserDepartmentCskh },
+};
+
 function ReportForm({
   reportTable = 'sales_reports',
   ordersTable = 'orders',
   pageTitle = 'Báo Cáo Sale',
+  staffDepartment = 'sale',
 }) {
+  const staffDept = STAFF_DEPARTMENTS[staffDepartment] || STAFF_DEPARTMENTS.sale;
   // Initial defaults for new rows
   const [defaultInfo, setDefaultInfo] = useState({
     name: '',
@@ -103,7 +118,7 @@ function ReportForm({
         const list = [];
         const seen = new Set();
         for (const u of data || []) {
-          if (!isUserDepartmentSale(u.department)) continue;
+          if (!staffDept.matches(u.department)) continue;
           const email = String(u.email || '').trim();
           const key = email.toLowerCase();
           if (!key || seen.has(key)) continue;
@@ -125,7 +140,7 @@ function ReportForm({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [staffDepartment]);
 
   const pickSaleStaff = (reportIndex, person) => {
     const newReports = [...reports];
@@ -595,7 +610,7 @@ function ReportForm({
                       autoComplete="off"
                       className={`w-full px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-name`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                       placeholder={salePersonnel.length ? 'Gõ để tìm hoặc chọn…' : 'Tên'}
-                      title="Danh sách NV phòng Sale — gõ để lọc"
+                      title={`Danh sách NV phòng ${staffDept.label} — gõ để lọc`}
                     />
                   </div>
                   <div className="flex flex-col min-w-[10rem] shrink-0">
@@ -757,11 +772,11 @@ function ReportForm({
             className="fixed z-[10050] max-h-52 overflow-y-auto rounded-md border border-gray-200 bg-white py-1 text-xs shadow-lg"
             style={{ top: nameDdPos.top, left: nameDdPos.left, width: nameDdPos.width }}
             role="listbox"
-            aria-label="Nhân sự phòng Sale"
+            aria-label={`Nhân sự phòng ${staffDept.label}`}
           >
             {filteredSalePersonnel.length === 0 ? (
               <div className="px-3 py-2 text-gray-500">
-                Không có NV Sale khớp «{String(reports[openNameRowIdx]?.name ?? '').trim() || '…'}»
+                Không có NV {staffDept.label} khớp «{String(reports[openNameRowIdx]?.name ?? '').trim() || '…'}»
               </div>
             ) : (
               filteredSalePersonnel.map((p) => (
