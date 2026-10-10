@@ -37,6 +37,8 @@ function ReportForm({
   ordersTable = 'orders',
   pageTitle = 'Báo Cáo Sale',
   staffDepartment = 'sale',
+  /** Nếu có: mỗi dòng lưu vào bảng HN/HCM theo team/chi nhánh của nhân viên, bỏ qua reportTable/ordersTable. */
+  branchTables = null,
 }) {
   const staffDept = STAFF_DEPARTMENTS[staffDepartment] || STAFF_DEPARTMENTS.sale;
   // Initial defaults for new rows
@@ -482,39 +484,40 @@ function ReportForm({
         };
       });
 
-      // Remove _originalIndex before inserting
-      const payloadToInsert = payload.map(({ _originalIndex, ...rest }) => rest);
+      const targetForRow = (row) => {
+        if (!branchTables) return { reportTable, ordersTable };
+        const isHcmRow = /hcm/i.test(String(row.team || '')) || /hcm/i.test(String(row.branch || ''));
+        return isHcmRow ? branchTables.hcm : branchTables.hn;
+      };
 
-      const { data: insertedData, error } = await supabase
-        .from(reportTable)
-        .insert(payloadToInsert)
-        .select('id');
+      const groups = new Map();
+      payload.forEach(({ _originalIndex, ...row }) => {
+        const target = targetForRow(row);
+        if (!groups.has(target.reportTable)) groups.set(target.reportTable, { ...target, rows: [] });
+        groups.get(target.reportTable).rows.push(row);
+      });
 
-      if (error) throw error;
+      for (const group of groups.values()) {
+        const { error } = await supabase.from(group.reportTable).insert(group.rows);
+        if (error) throw error;
+      }
 
       toast.success(`Đã lưu thành công ${reports.length} báo cáo!`, { position: 'top-right', autoClose: 3000 });
 
-      if (insertedData && insertedData.length > 0) {
+      for (const group of groups.values()) {
         try {
-          const normalizeDate = (dateStr) => {
-            if (!dateStr) return '';
-            const dt = new Date(dateStr);
-            if (isNaN(dt.getTime())) return '';
-            return dt.toISOString().split('T')[0];
-          };
-          const insertedDates = reports.map((r) => normalizeDate(r.date)).filter(Boolean);
-          if (insertedDates.length > 0) {
-            const startDate = insertedDates.reduce((a, b) => (a < b ? a : b));
-            const endDate = insertedDates.reduce((a, b) => (a > b ? a : b));
-            const result = await recalcSaleOrderCountFromOrders({
-              startDate,
-              endDate,
-              createMissingForHetCa: true,
-              reportsTable: reportTable,
-              ordersTable,
-            });
-            console.log(`✅ Đã tự động cập nhật ${reportTable} (TT):`, result);
-          }
+          const dates = group.rows.map((r) => String(r.date || '').slice(0, 10)).filter(Boolean);
+          if (dates.length === 0) continue;
+          const startDate = dates.reduce((a, b) => (a < b ? a : b));
+          const endDate = dates.reduce((a, b) => (a > b ? a : b));
+          const result = await recalcSaleOrderCountFromOrders({
+            startDate,
+            endDate,
+            createMissingForHetCa: true,
+            reportsTable: group.reportTable,
+            ordersTable: group.ordersTable,
+          });
+          console.log(`✅ Đã tự động cập nhật ${group.reportTable} (TT):`, result);
         } catch (apiError) {
           console.error('❌ Error in calculation process:', apiError);
         }

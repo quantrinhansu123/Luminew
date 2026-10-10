@@ -1,6 +1,11 @@
 import usePermissions from '../hooks/usePermissions';
 import ReportForm from './ReportForm';
 
+const CSKH_BRANCH_TABLES = {
+    hn: { reportTable: 'sales_reports', ordersTable: 'orders' },
+    hcm: { reportTable: 'sale_report_hcm', ordersTable: 'order_code_hcm' },
+};
+
 export default function NhapBaoCaoCSKH({ dataSource = 'default' }) {
     const { canView } = usePermissions();
     const isHcm = dataSource === 'hcm';
@@ -24,6 +29,7 @@ export default function NhapBaoCaoCSKH({ dataSource = 'default' }) {
             ordersTable={isHcm ? 'order_code_hcm' : 'orders'}
             pageTitle={isHcm ? 'Báo Cáo CSKH (HCM)' : 'Báo Cáo CSKH'}
             staffDepartment="cskh"
+            branchTables={isHcm ? null : CSKH_BRANCH_TABLES}
         />
     );
 }
