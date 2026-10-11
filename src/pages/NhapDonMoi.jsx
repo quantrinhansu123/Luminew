@@ -872,6 +872,9 @@ export default function NhapDonMoi({ isEdit = false }) {
         } else if (product === "ComboGold24k") {
             name1 = "Serum Gold 24k";
             name2 = "Cream Sâm";
+        } else if (product.trim().toLowerCase() === "ginseng gold serum 24k") {
+            name1 = "Ginseng Gold- Serum";
+            name2 = "Ginseng Gold- Cream";
         }
 
         setFormData(prev => ({
