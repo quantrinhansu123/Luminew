@@ -13,6 +13,7 @@ import * as rbacService from '../services/rbacService';
 import '../styles/selection.css';
 import { supabase } from '../supabase/config';
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
+import { formatLocalYmd } from '../utils/dateParsing';
 import {
   normalizeVanDonNbDeliveryStatusDisplay
 } from '../utils/vanDonDeliveryStatusDisplay';
@@ -3002,7 +3003,7 @@ function VanDon({ dataSource = 'default' }) {
     const carrierKey = 'Đơn vị vận chuyển';
     const accountingDateKey = 'Ngày Kế toán đối soát với FFM lần 2';
     const nbStatusKey = 'delivery_status_nb';
-    const now = new Date().toISOString();
+    const now = formatLocalYmd();
 
     const historyChanges = [];
     orderIds.forEach(orderId => {
