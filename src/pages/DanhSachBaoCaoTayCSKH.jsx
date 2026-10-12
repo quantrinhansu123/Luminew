@@ -174,6 +174,9 @@ export default function DanhSachBaoCaoTayCSKH({
         roleFromUserObj === 'super_admin' ||
         roleFromUserObj === 'finance';
 
+    /** Ai vào được trang đều được xóa báo cáo. */
+    const canDeleteReports = hasPageAccess;
+
     // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền chỉnh team hàng loạt
     const isAdminOnly = roleFromHookLower === 'admin' ||
         roleFromHookLower === 'super_admin' ||
@@ -1381,7 +1384,7 @@ export default function DanhSachBaoCaoTayCSKH({
                                     )}
                                 </button>
                             )}
-                            {isAdmin && selectedReportIds.size > 0 && (
+                            {canDeleteReports && selectedReportIds.size > 0 && (
                                 <button
                                     type="button"
                                     onClick={handleBulkDeleteReports}
@@ -1450,7 +1453,7 @@ export default function DanhSachBaoCaoTayCSKH({
                         <table>
                             <thead>
                                 <tr>
-                                    {isAdmin && (
+                                    {canDeleteReports && (
                                         <th className="text-center w-10" title="Chọn dòng trên trang này">
                                             <input
                                                 type="checkbox"
@@ -1481,7 +1484,7 @@ export default function DanhSachBaoCaoTayCSKH({
                                 {allReports.length > 0 && (
                                     <tr className="total-row dsbcskh-thead-totals">
                                         <th
-                                            colSpan={isAdmin ? 8 : 7}
+                                            colSpan={canDeleteReports ? 8 : 7}
                                             className="total-label"
                                         >
                                             Tổng cộng ({allReports.length} dòng)
@@ -1510,7 +1513,7 @@ export default function DanhSachBaoCaoTayCSKH({
                                 {manualReports.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={isAdmin ? 17 : 16}
+                                            colSpan={canDeleteReports ? 17 : 16}
                                             className="text-center"
                                         >
                                             {loading
@@ -1522,7 +1525,7 @@ export default function DanhSachBaoCaoTayCSKH({
                                     manualReports.map((item, index) => {
                                         return (
                                             <tr key={item.id || index}>
-                                                {isAdmin && (
+                                                {canDeleteReports && (
                                                     <td className="text-center align-middle">
                                                         <input
                                                             type="checkbox"
@@ -1564,7 +1567,7 @@ export default function DanhSachBaoCaoTayCSKH({
                                                         >
                                                             Sửa
                                                         </button>
-                                                        {isAdmin && (
+                                                        {canDeleteReports && (
                                                             <button
                                                                 className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
                                                                 onClick={() => handleDeleteReport(item.id)}
