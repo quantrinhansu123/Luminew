@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   can_day_ffm boolean NOT NULL DEFAULT false,
   id_appsheet text,
   avatar_url text,
+  ip jsonb,
   dob date,
   official_date date,
   created_by text,
@@ -54,12 +55,31 @@ ALTER TABLE public.users
   ADD COLUMN IF NOT EXISTS can_day_ffm boolean DEFAULT false,
   ADD COLUMN IF NOT EXISTS id_appsheet text,
   ADD COLUMN IF NOT EXISTS avatar_url text,
+  ADD COLUMN IF NOT EXISTS ip jsonb,
   ADD COLUMN IF NOT EXISTS dob date,
   ADD COLUMN IF NOT EXISTS official_date date,
   ADD COLUMN IF NOT EXISTS created_by text,
   ADD COLUMN IF NOT EXISTS updated_by text,
   ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now(),
   ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
+-- Bảng cũ thường có id NOT NULL nhưng thiếu DEFAULT → INSERT seed bị null
+DO $$
+DECLARE
+  id_type text;
+BEGIN
+  SELECT c.data_type INTO id_type
+  FROM information_schema.columns c
+  WHERE c.table_schema = 'public'
+    AND c.table_name = 'users'
+    AND c.column_name = 'id';
+
+  IF id_type = 'uuid' THEN
+    EXECUTE 'ALTER TABLE public.users ALTER COLUMN id SET DEFAULT gen_random_uuid()';
+  ELSIF id_type IN ('text', 'character varying') THEN
+    EXECUTE $q$ALTER TABLE public.users ALTER COLUMN id SET DEFAULT (gen_random_uuid()::text)$q$;
+  END IF;
+END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON public.users (email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_unique ON public.users ((lower(email)));
@@ -108,6 +128,13 @@ CREATE TABLE IF NOT EXISTS public.app_roles (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Bảng cũ có thể thiếu cột — bổ sung trước INSERT/trigger
+ALTER TABLE public.app_roles
+  ADD COLUMN IF NOT EXISTS name text,
+  ADD COLUMN IF NOT EXISTS department text,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
 CREATE TABLE IF NOT EXISTS public.app_permissions (
   role_code text NOT NULL REFERENCES public.app_roles(code) ON DELETE CASCADE,
   resource_code text NOT NULL,
@@ -120,6 +147,14 @@ CREATE TABLE IF NOT EXISTS public.app_permissions (
   PRIMARY KEY (role_code, resource_code)
 );
 
+ALTER TABLE public.app_permissions
+  ADD COLUMN IF NOT EXISTS can_view boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS can_edit boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS can_delete boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS allowed_columns jsonb,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
 CREATE TABLE IF NOT EXISTS public.app_page_permissions (
   role_code text NOT NULL REFERENCES public.app_roles(code) ON DELETE CASCADE,
   page_code text NOT NULL,
@@ -131,6 +166,14 @@ CREATE TABLE IF NOT EXISTS public.app_page_permissions (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (role_code, page_code)
 );
+
+ALTER TABLE public.app_page_permissions
+  ADD COLUMN IF NOT EXISTS can_view boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS can_edit boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS can_delete boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS allowed_columns jsonb,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS public.app_user_roles (
   email text PRIMARY KEY,
@@ -231,42 +274,61 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_user_roles TO anon, authentic
 -- email: admin@example.com
 -- password: admin123  (bcrypt)
 -- -----------------------------------------------------------------------------
-INSERT INTO public.users (
-  email,
-  username,
-  user_name,
-  name,
-  password,
-  role,
-  team,
-  branch,
-  department,
-  selected_personnel,
-  leader_teams,
-  can_day_ffm,
-  created_by
-)
-VALUES (
-  'admin@example.com',
-  'admin',
-  'admin',
-  'Admin',
-  '$2b$10$5LCV8KYgtgaNcVBQMMkIw.btGRKhfMz0c9HU7olRbVm4DjKwpnesW',
-  'super_admin',
-  'Admin',
-  'Hà Nội',
-  'Admin',
-  '[]'::jsonb,
-  '[]'::jsonb,
-  true,
-  'bootstrap'
-)
-ON CONFLICT (email) DO UPDATE
-SET
-  password = EXCLUDED.password,
-  role = 'super_admin',
-  name = COALESCE(public.users.name, EXCLUDED.name),
-  updated_at = now();
+DO $$
+DECLARE
+  id_type text;
+BEGIN
+  SELECT c.data_type INTO id_type
+  FROM information_schema.columns c
+  WHERE c.table_schema = 'public'
+    AND c.table_name = 'users'
+    AND c.column_name = 'id';
+
+  IF EXISTS (
+    SELECT 1 FROM public.users u WHERE lower(u.email) = lower('admin@example.com')
+  ) THEN
+    UPDATE public.users
+    SET
+      password = '$2b$10$5LCV8KYgtgaNcVBQMMkIw.btGRKhfMz0c9HU7olRbVm4DjKwpnesW',
+      role = 'super_admin',
+      name = COALESCE(name, 'Admin'),
+      updated_at = now()
+    WHERE lower(email) = lower('admin@example.com');
+  ELSIF id_type = 'uuid' THEN
+    INSERT INTO public.users (
+      id, email, username, user_name, name, password, role, team, branch, department,
+      selected_personnel, leader_teams, can_day_ffm, created_by
+    ) VALUES (
+      gen_random_uuid(),
+      'admin@example.com', 'admin', 'admin', 'Admin',
+      '$2b$10$5LCV8KYgtgaNcVBQMMkIw.btGRKhfMz0c9HU7olRbVm4DjKwpnesW',
+      'super_admin', 'Admin', 'Hà Nội', 'Admin',
+      '[]'::jsonb, '[]'::jsonb, true, 'bootstrap'
+    );
+  ELSIF id_type IN ('text', 'character varying') THEN
+    INSERT INTO public.users (
+      id, email, username, user_name, name, password, role, team, branch, department,
+      selected_personnel, leader_teams, can_day_ffm, created_by
+    ) VALUES (
+      gen_random_uuid()::text,
+      'admin@example.com', 'admin', 'admin', 'Admin',
+      '$2b$10$5LCV8KYgtgaNcVBQMMkIw.btGRKhfMz0c9HU7olRbVm4DjKwpnesW',
+      'super_admin', 'Admin', 'Hà Nội', 'Admin',
+      '[]'::jsonb, '[]'::jsonb, true, 'bootstrap'
+    );
+  ELSE
+    -- serial / identity / có DEFAULT sẵn
+    INSERT INTO public.users (
+      email, username, user_name, name, password, role, team, branch, department,
+      selected_personnel, leader_teams, can_day_ffm, created_by
+    ) VALUES (
+      'admin@example.com', 'admin', 'admin', 'Admin',
+      '$2b$10$5LCV8KYgtgaNcVBQMMkIw.btGRKhfMz0c9HU7olRbVm4DjKwpnesW',
+      'super_admin', 'Admin', 'Hà Nội', 'Admin',
+      '[]'::jsonb, '[]'::jsonb, true, 'bootstrap'
+    );
+  END IF;
+END $$;
 
 INSERT INTO public.app_user_roles (email, role_code)
 VALUES ('admin@example.com', 'super_admin')

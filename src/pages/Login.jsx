@@ -5,6 +5,78 @@ import 'react-toastify/dist/ReactToastify.css';
 import { supabase } from '../supabase/config';
 import { getUserStoredPassword, verifyUserPassword } from '../utils/verifyUserPassword';
 
+/** Parse UA → trình duyệt + HĐH (ước lượng phía client). */
+function parseBrowserOs(uaRaw) {
+  const ua = String(uaRaw || '');
+  let browser = 'Unknown';
+  if (/Edg\//i.test(ua)) browser = `Edge ${ (ua.match(/Edg\/([\d.]+)/) || [])[1] || '' }`.trim();
+  else if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) browser = `Chrome ${ (ua.match(/Chrome\/([\d.]+)/) || [])[1] || '' }`.trim();
+  else if (/Firefox\//i.test(ua)) browser = `Firefox ${ (ua.match(/Firefox\/([\d.]+)/) || [])[1] || '' }`.trim();
+  else if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) browser = `Safari ${ (ua.match(/Version\/([\d.]+)/) || [])[1] || '' }`.trim();
+
+  let os = 'Unknown';
+  if (/Windows NT 10/i.test(ua)) os = /Win64|WOW64|x64/i.test(ua) ? 'Windows 10/11 x64' : 'Windows 10/11';
+  else if (/Windows NT 6\.3/i.test(ua)) os = 'Windows 8.1';
+  else if (/Mac OS X/i.test(ua)) os = `macOS ${ ((ua.match(/Mac OS X (\d+[._]\d+)/) || [])[1] || '').replace('_', '.') }`.trim();
+  else if (/Android/i.test(ua)) os = `Android ${ (ua.match(/Android ([\d.]+)/) || [])[1] || '' }`.trim();
+  else if (/iPhone|iPad/i.test(ua)) os = 'iOS';
+  else if (/Linux/i.test(ua)) os = 'Linux';
+
+  return { browser, os, trinh_duyet_hdh: `${browser}, ${os}` };
+}
+
+/**
+ * Thu thập thông tin máy/mạng khi đăng nhập (IP, UA, ISP, vị trí).
+ * HTTP/3 và ja4 không lấy được từ JS trình duyệt.
+ */
+async function collectLoginClientInfo() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const { browser, os, trinh_duyet_hdh } = parseBrowserOs(ua);
+  const info = {
+    ip: null,
+    trinh_duyet_hdh,
+    trinh_duyet: browser,
+    hdh: os,
+    giao_thuc: null,
+    chu_ky_tls_ja4: null,
+    nha_mang: null,
+    vi_tri: null,
+    user_agent: ua || null,
+    logged_at: new Date().toISOString(),
+  };
+
+  try {
+    // ipapi.co: IP + ISP + city (CORS mở cho browser)
+    const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(6000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (!data?.error) {
+        info.ip = data.ip || null;
+        const org = [data.org, data.asn].filter(Boolean).join(' ').trim();
+        info.nha_mang = org || data.org || null;
+        const loc = [data.city, data.region, data.country_name].filter(Boolean).join(', ');
+        info.vi_tri = loc || null;
+      }
+    }
+  } catch {
+    /* fallback ipify bên dưới */
+  }
+
+  if (!info.ip) {
+    try {
+      const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const data = await res.json();
+        info.ip = data?.ip || null;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return info;
+}
+
 function Login() {
   console.log('🔐 Login component rendering...');
   const [email, setEmail] = useState('');
@@ -104,6 +176,22 @@ function Login() {
           // Supabase 'users' table has 'team' column based on UserManagementTab
           localStorage.setItem('userTeam', userData.team || '');
           localStorage.setItem('idAppsheet', userData.id_appsheet || '');
+
+          // Ghi thông tin máy/mạng vào cột ip (jsonb). Không đụng cột phone. Không làm fail login nếu lỗi.
+          try {
+            const loginInfo = await collectLoginClientInfo();
+            const { error: ipUpdateError } = await supabase
+              .from('users')
+              .update({ ip: loginInfo })
+              .eq('id', userId);
+            if (ipUpdateError) {
+              console.warn('⚠️ Không cập nhật được cột ip:', ipUpdateError);
+            } else {
+              console.log('✅ Đã lưu login info vào ip:', loginInfo);
+            }
+          } catch (ipErr) {
+            console.warn('⚠️ Lỗi khi lấy/lưu thông tin đăng nhập:', ipErr);
+          }
 
           toast.success('Đăng nhập thành công!', {
             position: "top-right",
