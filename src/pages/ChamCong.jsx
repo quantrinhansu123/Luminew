@@ -118,9 +118,11 @@ export default function ChamCong() {
 
   const uploadPhotoToCloudinary = async (base64Image) => {
     // Upload trực tiếp từ frontend lên Cloudinary (unsigned upload)
-    // Hoạt động trên cả local và Vercel
-    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+    // Fallback theo DEPLOY_VERCEL.md khi Vercel thiếu env (cloud name + unsigned preset là public)
+    const cloudName =
+      import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || "deyeh3h7o";
+    const uploadPreset =
+      import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || "attendance_preset";
 
     if (!cloudName || !uploadPreset) {
       throw new Error("Chưa cấu hình Cloudinary. Vui lòng kiểm tra file .env");
