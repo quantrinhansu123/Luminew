@@ -1775,9 +1775,9 @@ export const fetchVanDon = async (options = {}) => {
             };
 
             /**
-             * Tổng phí ship + đơn/số tiền đã thu khi có bill.
+             * Tổng phí ship + số đơn có bill và tiền đối soát trên toàn bộ đơn khớp bộ lọc.
              * Bill: ngayupbill / payment_image / payment_bill (khớp lưới).
-             * Tiền: reconciled_vnd > 0 HOẶC reconciled_amount > 0 (PostgREST: hai nhóm `.or()` AND với nhau).
+             * Tiền header dùng reconciled_vnd, cùng định nghĩa với danh sách đơn.
              * Nếu SQL trả 0 nhưng có đơn trong lọc — quét theo lô giống phí ship (tránh lệch cột / client khác server).
              * Cùng bộ lọc với tổng tiền — trên bảng vật lý `sumFromTable`.
              */
@@ -1872,7 +1872,7 @@ export const fetchVanDon = async (options = {}) => {
                     );
                     const [cRes, vRes, aRes] = await Promise.all([
                         applyVanDonBillPaidFilter(baseCount, billOr, moneyOr),
-                        applyVanDonBillPaidFilter(baseVnd, billOr, moneyOr),
+                        baseVnd,
                         applyVanDonBillPaidFilter(baseAmt, billOr, moneyOr),
                     ]);
                     return { cRes, vRes, aRes };
@@ -1939,9 +1939,8 @@ export const fetchVanDon = async (options = {}) => {
                 const amtSumPart = useAmountSum
                     ? extractPostgrestAggregateNumeric(aRes.data) ?? 0
                     : 0;
-                /** Hai SUM riêng có thể cộng trùng một dòng nếu cả hai cột đều > 0; quét fallback xử lý chính xác. */
-                let reconciledVndWithBillSum =
-                    moneyOr === 'reconciled_vnd.gt.0' ? vndSumPart : vndSumPart + amtSumPart;
+                // Header amount follows the standard list: sum reconciled_vnd for every filtered order.
+                let reconciledVndWithBillSum = vndSumPart;
 
                 const headBill = await applyVanDonFilters(
                     supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
@@ -1982,7 +1981,6 @@ export const fetchVanDon = async (options = {}) => {
                         let probeHits = 0;
                         for (let i = 0; i < probeRes.data.length; i++) {
                             const r = probeRes.data[i];
-                            if (!vanDonRowHasBillEvidenceDb(r)) continue;
                             if (pickVanDonBillCollectedMoneyDb(r) > 0) probeHits++;
                         }
                         if (probeHits > 0) {
@@ -2003,6 +2001,7 @@ export const fetchVanDon = async (options = {}) => {
                                         )
                                 )
                                     .order('order_date', { ascending: false })
+                                    .order('order_code', { ascending: true })
                                     .range(scanned, scanned + BILL_BATCH - 1);
                                 if (chunkErr) {
                                     console.warn('[fetchVanDon] bill scan batch:', chunkErr.message);
@@ -2011,11 +2010,10 @@ export const fetchVanDon = async (options = {}) => {
                                 if (!chunk?.length) break;
                                 for (let i = 0; i < chunk.length; i++) {
                                     const r = chunk[i];
-                                    if (!vanDonRowHasBillEvidenceDb(r)) continue;
                                     const m = pickVanDonBillCollectedMoneyDb(r);
                                     if (m > 0) {
-                                        fullCount++;
                                         fullSum += m;
+                                        if (vanDonRowHasBillEvidenceDb(r)) fullCount++;
                                     }
                                 }
                                 scanned += chunk.length;

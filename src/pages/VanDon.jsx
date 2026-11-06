@@ -5130,11 +5130,11 @@ function VanDon({ dataSource = 'default' }) {
       for (let i = 0; i < getFilteredData.length; i++) {
         const row = getFilteredData[i];
         totalShip += pickVanDonRowShippingVnd(row);
+        const r = pickVanDonRowReconciledVnd(row);
+        paidBillSum += r;
         if (vanDonRowHasBillEvidence(row)) {
-          const r = pickVanDonRowReconciledVnd(row);
           if (r > 0) {
             paidBillCount += 1;
-            paidBillSum += r;
           }
         }
       }
@@ -6195,7 +6195,7 @@ function VanDon({ dataSource = 'default' }) {
                 </span>
               </div>
               <div className="text-right flex flex-col items-end leading-tight">
-                <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Số tiền đã thu</span>
+                <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Kế toán thu về</span>
                 <span className="text-xs font-black text-amber-700 tabular-nums">
                   {vanDonHeaderMoneyExtras.paidBillSum.toLocaleString('vi-VN')} ₫
                 </span>
