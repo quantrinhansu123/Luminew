@@ -347,7 +347,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             // Chỉ lấy các cột cần thiết để giảm tải
             // Lọc: 
             // 1. Những đơn chưa có delivery_staff (để chia)
-            // 2. HOẶC những đơn đã chia trong ngày hôm nay (để tính thu_tu_chia và carry-over)
+            // 2. HOẶC những đơn đã chia hôm nay (để tính thu_tu_chia và tìm lượt hiện tại).
             const queryBuilder = supabase
                 .from(ordersTable)
                 .select('order_code, team, delivery_staff, sale_staff, country, thu_tu_chia, ngay_chia_van_don')
@@ -680,19 +680,19 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
         //
         // RULE LOẠI TRỪ: Đơn Nhật Bản (đã xử lý ở bước trước).
         //
-        // Rule 1: Trong ngày hiện tại, lấy đơn có thu_tu_chia lớn nhất → người đó là “cuối vòng”; bắt đầu chia kế tiếp.
+        // Rule 1: Tìm cuối vòng theo ngày chia gần nhất rồi theo thu_tu_chia.
         // Rule 2: Danh sách nhân viên U1/U2 (theo chi nhánh khớp team đơn). U2 nhân 2 ô liên tiếp trong hàng đợi.
-        // Rule 3: Round-robin — bắt đầu từ ô kế sau người có STT chia cao nhất trong ngày (U2 còn dở block thì tiếp lượt 2).
+        // Rule 3: Nối vòng qua các ngày; U2 còn một lượt thì chia tiếp lượt đó.
         // STT ghi DB: thu_tu_chia toàn cục trong ngày (bước 8).
         // ============================================================
 
         // Helper: Hàm chia đơn thông minh cho 1 chi nhánh
         // staffListWithBranch: array of {name, chi_nhanh}
         // pendingOrders: đơn cần chia (đã được lọc theo team)
-        // allDBOrders: tất cả đơn trong DB (để đếm đơn hiện tại)
+        // allDBOrders: đơn đã tải cho ngày hiện tại và đơn chưa chia
         // branchName: tên chi nhánh (HCM hoặc Hà Nội)
         // notDividedOrdersRef: tham chiếu đến mảng đơn không chia được
-        const smartDistribute = (staffListWithBranch, pendingOrders, allDBOrders, branchName, notDividedOrdersRef) => {
+        const smartDistribute = async (staffListWithBranch, pendingOrders, allDBOrders, branchName, notDividedOrdersRef) => {
             console.log(`\n🔍 [${branchName}] smartDistribute được gọi với:`);
             console.log(`  - Số nhân viên: ${staffListWithBranch.length}`);
             console.log(`  - Số đơn cần chia: ${pendingOrders.length}`);
@@ -748,11 +748,11 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             console.log(`👥 Danh sách nhân viên U1/U2: [${uniqueStaffWithBranch.map(formatStaffSlotLabel).join(', ')}]`);
             console.log(`🔁 Hàng đợi đã nhân hệ số: [${rotationQueue.map((s) => s.name).join(' → ')}]`);
 
-            // Tìm đơn hàng được chia gần đây nhất trên TOÀN BỘ hệ thống để xác định người cuối vòng
+            // Tìm lượt gần nhất của chi nhánh trong các đơn đã tải hôm nay.
             const globalLastAssigned = allDBOrders
                 .filter((o) => {
                     const ds = o.delivery_staff?.toString().trim();
-                    return ds && staffSet.has(ds);
+                    return o.ngay_chia_van_don && ds && staffSet.has(ds);
                 })
                 .sort((a, b) => {
                     // Sắp xếp theo ngày chia (giảm dần)
@@ -768,6 +768,46 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                     // Fallback cuối cùng theo ID
                     return (Number(b.id) || 0) - (Number(a.id) || 0);
                 });
+
+            // Nếu chưa chia hôm nay hoặc chuỗi lượt U2 có thể bắt đầu từ hôm trước,
+            // chỉ đọc đủ đơn cũ để xác định cuối vòng.
+            const newestName = globalLastAssigned[0]?.delivery_staff?.toString().trim();
+            const newestStaff = uniqueStaffWithBranch.find((staff) => staff.name === newestName);
+            const currentTail = countConsecutiveAssignedTail(globalLastAssigned, newestName);
+            if (!newestName || (newestStaff?.slotWeight > 1 && currentTail === globalLastAssigned.length)) {
+                const pageSize = 100;
+                let tailName = newestName;
+                let tailComplete = false;
+                for (let from = 0; !tailComplete; from += pageSize) {
+                    const { data, error } = await supabase
+                        .from(ordersTable)
+                        .select('order_code, team, delivery_staff, ngay_chia_van_don, thu_tu_chia')
+                        .lt('ngay_chia_van_don', todayStr)
+                        .not('delivery_staff', 'is', null)
+                        .order('ngay_chia_van_don', { ascending: false })
+                        .order('thu_tu_chia', { ascending: false, nullsFirst: false })
+                        .order('order_code')
+                        .range(from, from + pageSize - 1);
+                    if (error) throw error;
+
+                    for (const order of data) {
+                        const name = order.delivery_staff?.trim();
+                        if (normalizeBranchKey(order.team) !== branchName || !staffSet.has(name)) continue;
+                        if (tailName && name !== tailName) {
+                            tailComplete = true;
+                            break;
+                        }
+                        globalLastAssigned.push(order);
+                        tailName = name;
+                        const staff = uniqueStaffWithBranch.find((entry) => entry.name === tailName);
+                        if (staff.slotWeight === 1 || staffList.length === 1) {
+                            tailComplete = true;
+                            break;
+                        }
+                    }
+                    if (data.length < pageSize) break;
+                }
+            }
 
             let lastAssignedPerson = null;
             let consecutiveTail = 0;
@@ -1210,7 +1250,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                     publicStats: hcmStats,
                     lastPerson: hcmLast,
                     carryTransparency: hCmTrans,
-                } = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM', allNotDividedOrders);
+                } = await smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM', allNotDividedOrders);
                 hcmCarry = hCmTrans;
                 addLog(
                     `[HCM] Minh bạch — Trước phiên (đơn gần nhất): ${hCmTrans.lastAssignedBeforeSession || '—'} | Bắt đầu từ: ${hCmTrans.queueHeadAtSessionStart || '—'} | Sau phiên: ${hCmTrans.lastAssignedThisSession || '—'} | Gợi ý lượt mở: ${hCmTrans.suggestedNextOpening || '—'}`,
@@ -1260,7 +1300,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 publicStats: hanoiStats,
                 lastPerson: hanoiLast,
                 carryTransparency: hnTrans,
-            } = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội', allNotDividedOrders);
+            } = await smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội', allNotDividedOrders);
             hanoiCarry = hnTrans;
             addLog(
                 `[HN] Minh bạch — Trước phiên (đơn gần nhất): ${hnTrans.lastAssignedBeforeSession || '—'} | Bắt đầu từ: ${hnTrans.queueHeadAtSessionStart || '—'} | Sau phiên: ${hnTrans.lastAssignedThisSession || '—'} | Gợi ý lượt mở: ${hnTrans.suggestedNextOpening || '—'}`,
