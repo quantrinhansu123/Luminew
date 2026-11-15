@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../supabase/config';
 import { normalizePermissionCode } from '../utils/permissionCodes';
+import { withHanoiReadPermissions } from '../utils/hcmHanoiViewAccess';
 
 // Cache to prevent repetitive fetching
 let cachedPermissions = null;
@@ -129,7 +130,7 @@ export const usePermissions = () => {
                     // 1. Get User Role and Team from 'users' table (Source of Truth)
                     const { data: userData, error: urError } = await supabase
                         .from('users')
-                        .select('role, team') // Add team
+                        .select('role, team, branch, department')
                         .eq('email', userEmail)
                         .maybeSingle();
 
@@ -144,10 +145,11 @@ export const usePermissions = () => {
                         return { permissions: [], role: null, team: null };
                     }
 
-                    const { permissions: finalPerms, resolvedRoleCode } = await fetchPermissionsForRole(
+                    const { permissions: rolePerms, resolvedRoleCode } = await fetchPermissionsForRole(
                         supabase,
                         userRoleCode
                     );
+                    const finalPerms = withHanoiReadPermissions(rolePerms, userData);
 
                     // Update Cache
                     cachedPermissions = finalPerms;
@@ -211,7 +213,7 @@ export const usePermissions = () => {
     };
 
     const canView = (pageCode) => {
-        // Strict RBAC: chỉ admin/super_admin bypass, còn lại bám app_page_permissions
+        // RBAC + quyền xem HN cùng bộ phận; chỉ admin/super_admin bypass toàn bộ.
         if (hasAdminBypass()) return true;
 
         const p = findPermissionRow(permissions, pageCode);

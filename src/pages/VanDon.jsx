@@ -2744,7 +2744,7 @@ function VanDon({ dataSource = 'default' }) {
 
         if (userEmail) {
           const userEmailLower = userEmail.toLowerCase().trim();
-          const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+          const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower], { includeHanoiReadScope: true });
           allAllowed.push(...(personnelMap[userEmailLower] || []));
         }
 

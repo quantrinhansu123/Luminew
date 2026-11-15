@@ -977,7 +977,7 @@ function QuanLyCSKH({
           bypassStaffFilter = true;
           console.log('✅ [CSKH HCM] Quyền quản trị: full danh sách (bỏ lọc nhân sự).');
         } else {
-          const personnelMap = await getSelectedPersonnel([userEmail]);
+          const personnelMap = await getSelectedPersonnel([userEmail], { includeHanoiReadScope: true });
           const personnelNames = personnelMap[userEmail] || [];
 
           const { data: uSpRow } = await supabase
@@ -1013,7 +1013,7 @@ function QuanLyCSKH({
       } else {
         bypassStaffFilter = isManager;
         if (!bypassStaffFilter) {
-          const personnelMap = await getSelectedPersonnel([userEmail]);
+          const personnelMap = await getSelectedPersonnel([userEmail], { includeHanoiReadScope: true });
           let personnelNames = personnelMap[userEmail] || [];
           if (!personnelNames.length) {
             personnelNames = await resolveNameVariantsForOrderFilter(userEmail);

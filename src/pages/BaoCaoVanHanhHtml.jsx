@@ -891,7 +891,7 @@ export default function BaoCaoVanHanhHtml() {
                     setSelectedPersonnelNames([]);
                     return;
                 }
-                const personnelMap = await rbacService.getSelectedPersonnel([userEmail.toLowerCase().trim()]);
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmail.toLowerCase().trim()], { includeHanoiReadScope: true });
                 const names = personnelMap[userEmail.toLowerCase().trim()] || [];
                 setSelectedPersonnelNames(
                     names.filter((n) => String(n).trim().length > 0 && !String(n).includes('@'))

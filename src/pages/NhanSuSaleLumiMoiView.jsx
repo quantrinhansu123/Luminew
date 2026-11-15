@@ -657,7 +657,7 @@ export default function NhanSuSaleLumiMoiView({
         return;
       }
       try {
-        const map = await rbacService.getSelectedPersonnel([email]);
+        const map = await rbacService.getSelectedPersonnel([email], { includeHanoiReadScope: true });
         const raw = map[email] || [];
         const emails = [];
         const directNames = [];

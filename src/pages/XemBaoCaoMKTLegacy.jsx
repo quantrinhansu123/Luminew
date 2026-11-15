@@ -345,6 +345,7 @@ export default function XemBaoCaoMKTLegacy({
         if (userEmail || loginUsername) {
           try {
             const list = await rbacService.getSelectedPersonnelForLogin({
+              includeHanoiReadScope: true,
               email: userEmail,
               username: loginUsername,
             });

@@ -1,4 +1,5 @@
 import { supabase } from '../supabase/config';
+import { getHanoiReadPages, isHanoiDepartmentPeer } from '../utils/hcmHanoiViewAccess';
 
 const normalizeText = (v) => String(v ?? '').trim();
 
@@ -469,7 +470,7 @@ export function normalizeMktPersonWhitespace(s) {
 /**
  * Một dòng users: selected_personnel (đã tách phẩy/… qua parse) + tên tài khoản + leader_teams.
  */
-async function buildPersonnelListFromUserRow(u) {
+async function buildPersonnelListFromUserRow(u, { includeHanoiReadScope = false } = {}) {
     if (!u) return [];
     const names = new Set(parseSelectedPersonnelRaw(u.selected_personnel));
 
@@ -486,6 +487,23 @@ async function buildPersonnelListFromUserRow(u) {
                 const hn = normalizeMktPersonWhitespace(e['Họ Và Tên'] || '');
                 if (hn) names.add(hn);
             }
+        }
+    }
+
+    if (includeHanoiReadScope && getHanoiReadPages(u).length > 0) {
+        // Paginate: Supabase caps a response at 1,000 rows by default.
+        for (let offset = 0; ; offset += 1000) {
+            const { data, error } = await supabase.from('users')
+                .select('email, name, username, department, branch')
+                .order('email').range(offset, offset + 999);
+            if (error) throw error;
+            for (const peer of data || []) {
+                if (!isHanoiDepartmentPeer(u, peer)) continue;
+                const name = normalizeMktPersonWhitespace(peer.name || peer.username);
+                if (name && !name.includes('@')) names.add(name);
+                if (peer.email) names.add(peer.email);
+            }
+            if (!data || data.length < 1000) break;
         }
     }
 
@@ -562,7 +580,7 @@ async function expandPersonnelTokensWithHrDisplayNames(tokens, { loginEmail } = 
 /**
  * Tìm user theo email đăng nhập hoặc username (`users.username`), trả về danh sách tên phạm vi (selected_personnel tách dấu phẩy + …).
  */
-export async function getSelectedPersonnelForLogin({ email, username } = {}) {
+export async function getSelectedPersonnelForLogin({ email, username, includeHanoiReadScope = false } = {}) {
     const emailNorm = String(email || '').toLowerCase().trim();
     const userNorm = String(username || '').trim();
 
@@ -571,7 +589,7 @@ export async function getSelectedPersonnelForLogin({ email, username } = {}) {
         if (emailNorm) {
             const { data, error } = await supabase
                 .from('users')
-                .select('email, selected_personnel, leader_teams, position, name, username')
+                .select('email, selected_personnel, leader_teams, position, name, username, branch, department')
                 .ilike('email', emailNorm)
                 .maybeSingle();
             if (!error && data) row = data;
@@ -579,7 +597,7 @@ export async function getSelectedPersonnelForLogin({ email, username } = {}) {
         if (!row && userNorm) {
             const { data, error } = await supabase
                 .from('users')
-                .select('email, selected_personnel, leader_teams, position, name, username')
+                .select('email, selected_personnel, leader_teams, position, name, username, branch, department')
                 .ilike('username', userNorm)
                 .maybeSingle();
             if (!error && data) row = data;
@@ -587,7 +605,7 @@ export async function getSelectedPersonnelForLogin({ email, username } = {}) {
         if (!row && userNorm) {
             const { data, error } = await supabase
                 .from('users')
-                .select('email, selected_personnel, leader_teams, position, name, username')
+                .select('email, selected_personnel, leader_teams, position, name, username, branch, department')
                 .eq('username', userNorm)
                 .maybeSingle();
             if (!error && data) row = data;
@@ -598,7 +616,7 @@ export async function getSelectedPersonnelForLogin({ email, username } = {}) {
     }
 
     if (!row) return [];
-    const base = await buildPersonnelListFromUserRow(row);
+    const base = await buildPersonnelListFromUserRow(row, { includeHanoiReadScope });
     return expandPersonnelTokensWithHrDisplayNames(base, { loginEmail: row.email });
 }
 
@@ -606,7 +624,7 @@ export async function getSelectedPersonnelForLogin({ email, username } = {}) {
  * Danh sách tên dùng lọc báo cáo / đơn: selected_personnel + tên chính user + (nếu Leader) mọi tên trong team `leader_teams`.
  * Key map: email chữ thường — khớp caller thường truyền userEmail.toLowerCase().
  */
-export const getSelectedPersonnel = async (emails) => {
+export const getSelectedPersonnel = async (emails, { includeHanoiReadScope = false } = {}) => {
     if (!emails || emails.length === 0) return {};
 
     const normalizedEmails = emails.map((e) => String(e || '').toLowerCase().trim()).filter(Boolean);
@@ -615,7 +633,7 @@ export const getSelectedPersonnel = async (emails) => {
     try {
         const { data, error } = await supabase
             .from('users')
-            .select('email, selected_personnel, leader_teams, position, name, username')
+            .select('email, selected_personnel, leader_teams, position, name, username, branch, department')
             .in('email', normalizedEmails);
 
         if (error) throw error;
@@ -625,7 +643,7 @@ export const getSelectedPersonnel = async (emails) => {
 
         for (const u of data) {
             const emailKey = String(u.email || '').toLowerCase().trim();
-            const list = await expandPersonnelTokensWithHrDisplayNames(await buildPersonnelListFromUserRow(u), {
+            const list = await expandPersonnelTokensWithHrDisplayNames(await buildPersonnelListFromUserRow(u, { includeHanoiReadScope }), {
                 loginEmail: u.email,
             });
             personnelMap[emailKey] = list;

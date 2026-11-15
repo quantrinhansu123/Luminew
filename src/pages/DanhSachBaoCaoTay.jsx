@@ -384,7 +384,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                 }
 
                 const userEmailLower = userEmail.toLowerCase().trim();
-                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower], { includeHanoiReadScope: true });
                 let rawPersonnel = personnelMap[userEmailLower] || [];
 
                 // Fallback: lấy trực tiếp theo email không phân biệt hoa/thường

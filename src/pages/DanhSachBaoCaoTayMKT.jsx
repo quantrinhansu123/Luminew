@@ -441,6 +441,7 @@ export default function DanhSachBaoCaoTayMKT({
                 }
 
                 const list = await rbacService.getSelectedPersonnelForLogin({
+                    includeHanoiReadScope: true,
                     email: userEmail,
                     username: userName,
                 });

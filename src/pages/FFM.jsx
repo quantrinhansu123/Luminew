@@ -1,6 +1,7 @@
 import { lazy, Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import MultiSelect from '../components/MultiSelect';
 import usePermissions from '../hooks/usePermissions';
+import { getHanoiReadPages } from '../utils/hcmHanoiViewAccess';
 import * as API from '../services/api';
 import { supabase } from '../supabase/config';
 import '../styles/selection.css';
@@ -804,7 +805,7 @@ function FFM({ variant = 'MGT' }) {
       }
 
       // Query user từ bảng users để kiểm tra cột can_day_ffm
-      let query = supabase.from('users').select('can_day_ffm');
+      let query = supabase.from('users').select('can_day_ffm, branch, department');
 
       if (userId) {
         query = query.eq('id', userId);
@@ -822,7 +823,7 @@ function FFM({ variant = 'MGT' }) {
 
       const hasPermission = userData?.can_day_ffm === true;
       console.log('🔐 [FFM] User can_day_ffm:', hasPermission);
-      setCanViewHaNoi(hasPermission);
+      setCanViewHaNoi(hasPermission || getHanoiReadPages(userData).includes(ffmPageCode));
     } catch (error) {
       console.error('❌ [FFM] Error checking can_day_ffm permission:', error);
       setCanViewHaNoi(false);

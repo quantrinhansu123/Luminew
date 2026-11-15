@@ -1539,7 +1539,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         console.log('📧 Loading selected personnel for:', userEmailLower);
 
         // Get selected personnel (giờ là TÊN, không phải email)
-        const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+        const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower], { includeHanoiReadScope: true });
         const personnelNames = personnelMap[userEmailLower] || [];
 
         console.log('📋 Personnel map from DB:', personnelMap);

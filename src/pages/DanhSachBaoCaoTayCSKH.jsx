@@ -307,7 +307,7 @@ export default function DanhSachBaoCaoTayCSKH({
                 }
 
                 const userEmailLower = userEmail.toLowerCase().trim();
-                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower], { includeHanoiReadScope: true });
                 const personnelNames = personnelMap[userEmailLower] || [];
 
                 const validNames = personnelNames.filter(name => {

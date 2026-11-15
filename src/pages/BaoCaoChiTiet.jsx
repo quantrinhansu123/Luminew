@@ -279,7 +279,7 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
                     setSelectedPersonnelNames([]);
                     return;
                 }
-                const personnelMap = await rbacService.getSelectedPersonnel([userEmail]);
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmail], { includeHanoiReadScope: true });
                 const personnelNames = personnelMap[userEmail] || [];
                 const validNames = [...new Set(
                     personnelNames
